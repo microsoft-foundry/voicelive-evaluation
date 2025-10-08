@@ -397,6 +397,7 @@ MigrationBackup/
 FodyWeavers.xsd
 
 # VS Code files for those working on multiple tools
+.vscode/
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
@@ -416,3 +417,23 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Ignore virtual environment folder
+venv/
+ENV/
+env/
+.venv/
+.ENV/
+.env/
+
+# Ignore HF data cache and local data
+audio_data/
+data_cache/
+*/audio_data/
+*/data_cache/
+
+# Ignore UltraEval local files
+envs/
+init_model/
+res/
+raw/
