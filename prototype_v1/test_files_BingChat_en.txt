@@ -1,0 +1,19 @@
+# Audio files for Voice Live API processing
+# Lines starting with # are comments and will be ignored
+# Empty lines are also ignored
+
+# Test files from BingChat_7days_en_zh_ja en sample evaluation input directory
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\00a5fa44-f2e5-4378-b473-7f8a6abc0ac2_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\00af90fc-20e5-40ce-83e1-b1ee7878653e_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\00c896b2-1d82-48be-bffc-23f420ccc512_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\0121d7ba-d9ac-4c9c-9616-67dad473cd4a_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\01b8e266-9473-465f-b45f-64c81a2cd279_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\01f01723-6613-4704-814d-0b0dc6044097_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\01f2f2f2-6bf1-48e5-9a7e-49f570d44f60_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\020a1297-e80b-49f6-bea6-a7f0f1ec1d1a_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\021f30f8-69ec-4297-9740-2873181a3c29_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\0231a1a3-5063-42b5-bea9-216b00fb491a_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\029811e3-b81f-4c86-973c-c749e436a286_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\02a71015-fdc2-420d-aec7-9843ae44e0da_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\02aafe46-8306-41fa-a14b-f6768ab285bf_0.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\BingChat_7days_en_zh_ja\en-us\02c8e064-195f-44c3-8ea9-781a27e3aebf_0.wav

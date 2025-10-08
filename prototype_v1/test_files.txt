@@ -1,0 +1,10 @@
+# Audio files for Voice Live API processing
+# Lines starting with # are comments and will be ignored
+# Empty lines are also ignored
+
+# Test files from Eiffel Tower Visit sample evaluation input directory
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\Eiffel_Tower_Visit\Eiffel_Tower_Visit-0001.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\Eiffel_Tower_Visit\Eiffel_Tower_Visit-0002.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\Eiffel_Tower_Visit\Eiffel_Tower_Visit-0003.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\Eiffel_Tower_Visit\Eiffel_Tower_Visit-0004.wav
+C:\Localrepos\azure-ai-transcription+openai\voiceLiveAPI\202508_evaluation_prototype\sample_evaluation_input\Eiffel_Tower_Visit\Eiffel_Tower_Visit-0005.wav

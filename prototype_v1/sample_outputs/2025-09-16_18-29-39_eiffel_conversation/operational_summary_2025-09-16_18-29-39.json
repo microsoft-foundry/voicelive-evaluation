@@ -1,0 +1,15 @@
+{
+  "operational_metrics": {
+    "turns_processed": "7/5",
+    "expected_turns": 5,
+    "actual_turns": 7,
+    "vad_splitting_detected": true,
+    "turn_expansion_factor": 1.4
+  },
+  "session_info": {
+    "timestamp": "2025-09-16 18:30:18",
+    "evaluation_mode": "enabled",
+    "session_id": "2025-09-16_18-29-39",
+    "session_suffix": null
+  }
+}
