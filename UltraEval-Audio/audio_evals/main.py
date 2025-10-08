@@ -115,9 +115,9 @@ def main():
         recorder=Recorder(args.save),
     )
     res = t.run(args.limit, args.rand, args.workers)
-    with open(overall_save, "w") as f:
+    with open(overall_save, "w", encoding="utf-8") as f:
         f.write(str(res[0]))
-    with open(args.save, "r") as f:
+    with open(args.save, "r", encoding="utf-8") as f:
         print(f.read())
     print(res[0])
     print(f"Results saved to {args.save}")

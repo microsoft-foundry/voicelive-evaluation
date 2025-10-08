@@ -13,5 +13,5 @@ class Recorder:
             os.remove(f_name)
 
     def add(self, data: typing.Dict[str, typing.Any]):
-        with open(self.name, "a+") as f:
+        with open(self.name, "a+", encoding="utf-8") as f:
             f.write(json.dumps(data, ensure_ascii=False) + "\n")

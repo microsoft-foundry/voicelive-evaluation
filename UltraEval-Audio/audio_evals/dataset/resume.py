@@ -32,7 +32,7 @@ class ResumeDataset(Dataset):
 
     def load(self, limit=0) -> List[Dict[str, any]]:
         data = self.raw_dataset.load(limit)
-        with open(self.resume_file, "r") as f:
+        with open(self.resume_file, "r", encoding="utf-8") as f:
             for line in tqdm(f):
                 doc = json.loads(line)
                 if doc["type"] == "error":
