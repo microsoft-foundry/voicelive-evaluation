@@ -2,8 +2,6 @@ import os
 import re
 import sys
 import wave
-import whisper
-
 import numpy as np
 import asyncio
 import base64
@@ -28,6 +26,7 @@ from azure.ai.voicelive.models import (
     InputAudioFormat,
     OutputAudioFormat,
     ServerEventType,
+    AudioInputTranscriptionOptions,
 )
 
 from audio_evals.models.model import APIModel
@@ -112,9 +111,6 @@ if TYPE_CHECKING:
     from azure.ai.voicelive.aio import VoiceLiveConnection
 
 logger = logging.getLogger(__name__)
-
-asr_model = whisper.load_model("turbo") 
-_asr_lock = threading.Lock()
 
 class AudioProcessor:
     def __init__(self, connection, wav_path: str, reply_wav_path: str = "reply_output.wav"):
@@ -238,11 +234,13 @@ class AudioProcessor:
 
 class BasicVoiceAssistant:
     def __init__(self, endpoint: str, credential: Union[AzureKeyCredential, AsyncTokenCredential],
-                 model: str, voice: str, instructions: str, wav_path: Optional[str] = None, reply_wav_path: Optional[str] = None):
-        self.endpoint, self.credential, self.model, self.voice, self.instructions, self.wav_path, self.reply_wav_path = \
-            endpoint, credential, model, voice, instructions, wav_path, reply_wav_path
+                 model: str, transcriptionmodel: str, voice: str, instructions: str, wav_path: Optional[str] = None, reply_wav_path: Optional[str] = None):
+        self.endpoint, self.credential, self.model, self.transcriptionmodel, self.voice, self.instructions, self.wav_path, self.reply_wav_path = \
+            endpoint, credential, model, transcriptionmodel, voice, instructions, wav_path, reply_wav_path
         self.connection: Optional["VoiceLiveConnection"] = None
         self.audio_processor: Optional[AudioProcessor] = None
+        self.transcript: str = ""
+        self.inputtranscript: str = ""
 
     async def start(self):
         try:
@@ -268,6 +266,7 @@ class BasicVoiceAssistant:
             input_audio_format=InputAudioFormat.PCM16,
             output_audio_format=OutputAudioFormat.PCM16,
             turn_detection=ServerVad(threshold=0.5, prefix_padding_ms=300, silence_duration_ms=500),
+            input_audio_transcription=AudioInputTranscriptionOptions(model=self.transcriptionmodel)
         )
         logger.info(f"Session config: {session_config}")    
         await self.connection.session.update(session=session_config)
@@ -294,6 +293,16 @@ class BasicVoiceAssistant:
             await ap.start_playback()
         elif event.type == ServerEventType.RESPONSE_AUDIO_DELTA:
             await ap.queue_audio(event.delta)
+        ### Retrieve conversation_item_transcript from event
+        elif event.type == ServerEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED:
+            logger.debug(f"Received input audio transcription completed.")
+            self.inputtranscript = event.get('transcript', '')
+            logger.debug(f"User said: {self.inputtranscript}")
+        elif event.type == ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DONE:
+            logger.debug(f"Received audio transcript done.")
+            self.transcript = event.get('transcript', '')
+            logger.debug(f"Assistant said: : {self.transcript}")
+        ### End retrieve conversation_item_transcript
 
 def run_async_in_thread(coro):
     """
@@ -323,7 +332,7 @@ def run_async_in_thread(coro):
         except Exception as e:
             raise
 
-class VoiceLiveS2SModel(APIModel):
+class VoiceLiveS2TModel(APIModel):
     # Class-level shared credentials to avoid recreating them for each request
     _shared_credential = None
     _credential_lock = threading.Lock()
@@ -333,7 +342,8 @@ class VoiceLiveS2SModel(APIModel):
         super().__init__(True, sample_params)
         self.api_key = os.environ.get("AZURE_VOICELIVE_API_KEY")
         self.endpoint = os.environ.get("AZURE_VOICELIVE_ENDPOINT")
-        self.model = os.environ.get("AZURE_VOICELIVE_MODEL")
+        self.model = os.environ.get("AZURE_VOICELIVE_MODEL", "gpt-realtime")
+        self.transcriptionmodel = os.environ.get("AZURE_VOICELIVE_TRANSCRIPTION_MODEL", "gpt-4o-transcribe")
         self.voice = voice or os.environ.get("AZURE_VOICELIVE_VOICE")
         self.instructions = instructions or os.environ.get("AZURE_VOICELIVE_INSTRUCTIONS")
         self.use_token_credential = use_token_credential
@@ -342,6 +352,7 @@ class VoiceLiveS2SModel(APIModel):
             f"VoiceLiveS2TModel initialized:\n"
             f"  endpoint={self.endpoint}\n"
             f"  model={self.model}\n"
+            f"  transcriptionmodel={self.transcriptionmodel}\n"
             f"  voice={self.voice}\n"
             f"  instructions={self.instructions[:30]}..."
         )
@@ -351,24 +362,24 @@ class VoiceLiveS2SModel(APIModel):
     
     def _ensure_credential_initialized(self):
         """Initialize shared credential if not already done (thread-safe)"""
-        with VoiceLiveS2SModel._credential_lock:
-            if VoiceLiveS2SModel._shared_credential is None:
+        with VoiceLiveS2TModel._credential_lock:
+            if VoiceLiveS2TModel._shared_credential is None:
                 if self.use_token_credential:
-                    VoiceLiveS2SModel._shared_credential = DefaultAzureCredential()
-                    logger.info("Initialized shared DefaultAzureCredential for VoiceLive S2S")
+                    VoiceLiveS2TModel._shared_credential = DefaultAzureCredential()
+                    logger.info("Initialized shared DefaultAzureCredential for VoiceLive S2T")
                 else:
-                    VoiceLiveS2SModel._shared_credential = AzureKeyCredential(self.api_key)
-                    logger.info("Initialized shared AzureKeyCredential for VoiceLive S2S")
+                    VoiceLiveS2TModel._shared_credential = AzureKeyCredential(self.api_key)
+                    logger.info("Initialized shared AzureKeyCredential for VoiceLive S2T")
     
     def _get_credential(self):
         """Get the shared credential instance"""
-        return VoiceLiveS2SModel._shared_credential
+        return VoiceLiveS2TModel._shared_credential
 
     def _inference(self, prompt: PromptStruct, **kwargs):
         thread_name = threading.current_thread().name
         start_ts = time.time()
         cur = _inc_active()
-        logger.info(f"[VoiceLiveS2S] START thread={thread_name} ts={start_ts:.3f} active={cur}")
+        logger.info(f"[VoiceLiveS2T] START thread={thread_name} ts={start_ts:.3f} active={cur}")
 
         logger.info(prompt)
         audio_file = ""
@@ -397,29 +408,20 @@ class VoiceLiveS2SModel(APIModel):
         credential = self._get_credential()
         instructions = self.instructions
         assistant = BasicVoiceAssistant(
-            self.endpoint, credential, self.model, self.voice, instructions,
+            self.endpoint, credential, self.model, self.transcriptionmodel, self.voice, instructions,
             wav_path=padded_wav_path, reply_wav_path=reply_wav_path
         )
         text = ""
+        input_text = ""
         try:
             # run assistant (will block this worker thread)
             try:
                 run_async_in_thread(assistant.start())
+                text = assistant.transcript
+                input_text = assistant.inputtranscript
             except Exception:
                 logger.exception("VoiceLive assistant failed")
                 raise
-
-            # Transcribe with lock to protect shared GPU model
-            if asr_model is None:
-                logger.warning("ASR model not available, returning empty text")
-                text = ""
-            else:
-                try:
-                    with _asr_lock:
-                        text = asr_model.transcribe(reply_wav_path)["text"].strip()
-                except Exception:
-                    logger.exception("ASR transcribe failed")
-                    text = ""
         finally:
             # clean padded input file
             try:
@@ -431,10 +433,12 @@ class VoiceLiveS2SModel(APIModel):
             end_ts = time.time()
             cur = _dec_active()
             
-            # Sanitize text to ensure valid UTF-8 encoding
+            # Sanitize texts to ensure valid UTF-8 encoding
             text = sanitize_text_for_utf8(text).strip()
+            input_text = sanitize_text_for_utf8(input_text).strip()
             text = text.encode('utf-8', errors='replace').decode('utf-8')
-            logger.info({"audio": reply_wav_path, "text": text})
-            logger.info(f"[VoiceLiveS2S] END   thread={thread_name} ts={end_ts:.3f} elapsed={(end_ts-start_ts):.3f}s active={cur}")
+            input_text = input_text.encode('utf-8', errors='replace').decode('utf-8')
+            logger.info({"audio": reply_wav_path, "text": text, "input_text": input_text})
+            logger.info(f"[VoiceLiveS2T] END   thread={thread_name} ts={end_ts:.3f} elapsed={(end_ts-start_ts):.3f}s active={cur}")
 
-        return {"audio": reply_wav_path, "text": text}
+        return {"audio": reply_wav_path, "text": text, "input_text": input_text}

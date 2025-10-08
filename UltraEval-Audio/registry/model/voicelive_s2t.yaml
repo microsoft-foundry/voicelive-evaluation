@@ -1,5 +1,5 @@
-VoiceLiveS2S:
-  class: audio_evals.models.voicelive_s2s.VoiceLiveS2SModel
+VoiceLiveS2T:
+  class: audio_evals.models.voicelive_s2t.VoiceLiveS2TModel
   args:
     #voice: "alloy"
     voice: "en-US-Ava:DragonHDLatestNeural"
