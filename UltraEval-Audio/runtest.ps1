@@ -3,7 +3,7 @@
 # Results are organized in subfolders for each evaluator
 
 param(
-    [int]$Workers = 10,
+    [int]$Workers = 1,
     [int]$Limit = 0
 )
 
@@ -36,14 +36,14 @@ $evaluators = @(
     @{Name="bleu"; Args="--evaluator bleu"; Description="BLEU Score"}
     # @{Name="bleu-char"; Args="--evaluator bleu-char"; Description="BLEU Score (Character-level)"},
     # @{Name="coco"; Args="--evaluator coco"; Description="COCO Metrics"},
-    # @{Name="qa-exist-match"; Args="--evaluator qa-exist-match"; Description="QA Existence Match"}
+    @{Name="qa-exist-match"; Args="--evaluator qa-exist-match"; Description="QA Existence Match"}
     # @{Name="dump"; Args="--evaluator dump"; Description="Dump (No Scoring)"}
 )
 
 # Define datasets compatible with VoiceLive S2T
 $datasets = @(
     @{Name="llama-questions"; Description="Question Answering (English)"; PostProcess="extract_text"}
-    # @{Name="speech-triviaqa"; Description="Question Answering (English)"; PostProcess="extract_text"},
+    # @{Name="speech-triviaqa"; Description="Question Answering (English)"; PostProcess="extract_text"}
     # @{Name="speech-web-questions"; Description="Question Answering (English)"; PostProcess="extract_text"}
     # @{Name="librispeech-test-clean"; Description="LibriSpeech Clean Test Set (English ASR)"; PostProcess="extract_text"},
     # @{Name="librispeech-dev-clean"; Description="LibriSpeech Clean Dev Set (English ASR)"; PostProcess="extract_text"},
