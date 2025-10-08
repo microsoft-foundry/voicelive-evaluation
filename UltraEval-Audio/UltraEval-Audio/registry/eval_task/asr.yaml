@@ -1,0 +1,67 @@
+asr:
+  class: audio_evals.base.EvalTaskCfg
+  args:
+    dataset: KeSpeech
+    prompt: asr
+    model: qwen-audio
+    post_process: ['json_content']
+    evaluator: wer
+    agg: wer
+
+asr-3o:
+  class: audio_evals.base.EvalTaskCfg
+  args:
+    dataset: KeSpeech
+    prompt: asr-en
+    model: qwen-audio
+    evaluator: wer
+    agg: wer
+
+asr-zh-3o:
+  class: audio_evals.base.EvalTaskCfg
+  args:
+    dataset: KeSpeech
+    prompt: asr-zh
+    model: qwen-audio
+    evaluator: cer
+    agg: wer-zh
+
+asr-zh:
+  class: audio_evals.base.EvalTaskCfg
+  args:
+    dataset: KeSpeech
+    prompt: asr
+    model: qwen-audio
+    post_process: ['json_content']
+    evaluator: cer
+    agg: wer-zh
+
+asr-jp:
+  class: audio_evals.base.EvalTaskCfg
+  args:
+    dataset: fleurs-ja_jp
+    prompt: asr
+    model: qwen-audio
+    post_process: ['json_content']
+    evaluator: wer-jp
+    agg: wer-jp
+
+asr-yue:
+  class: audio_evals.base.EvalTaskCfg
+  args:
+    dataset: KeSpeech
+    prompt: asr
+    model: qwen-audio
+    post_process: ['json_content']
+    evaluator: wer-yue
+    agg: wer-yue
+
+asr-kr:
+  class: audio_evals.base.EvalTaskCfg
+  args:
+    dataset: KeSpeech
+    prompt: asr
+    model: qwen-audio
+    post_process: ['json_content']
+    evaluator: wer-kr
+    agg: wer-kr

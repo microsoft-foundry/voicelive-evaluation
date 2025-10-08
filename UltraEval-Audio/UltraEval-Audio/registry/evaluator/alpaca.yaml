@@ -1,0 +1,14 @@
+alpaca_eval_gpt4:
+  class: audio_evals.evaluator.alpaca_eval.AlpacaEvaluator
+  args:
+    model_name: gpt4o-mini
+
+chatbot_eval:
+  class: audio_evals.evaluator.alpaca_eval.ChatbotEvaluator
+  args:
+    model_name: gpt4o-mini
+
+ref_qa_geval:
+  class: audio_evals.evaluator.ref_qa_geval.RefQAGEval
+  args:
+    model_name: mb-gpt4o-mini

@@ -1,0 +1,6 @@
+VoiceLiveS2S:
+  class: audio_evals.models.voicelive_s2s.VoiceLiveS2SModel
+  args:
+    #voice: "alloy"
+    voice: "en-US-AvaNeural"
+    instructions: "You are a helpful AI assistant."
