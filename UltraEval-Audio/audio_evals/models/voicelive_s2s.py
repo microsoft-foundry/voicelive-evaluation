@@ -18,7 +18,7 @@ from pydub import AudioSegment
 
 from azure.core.credentials import AzureKeyCredential
 from azure.core.credentials_async import AsyncTokenCredential
-from azure.identity import InteractiveBrowserCredential, DefaultAzureCredential
+from azure.identity.aio import AzureDeveloperCliCredential, DefaultAzureCredential
 from azure.ai.voicelive.aio import connect
 from azure.ai.voicelive.models import (
     RequestSession,
@@ -432,8 +432,9 @@ class VoiceLiveS2SModel(APIModel):
             cur = _dec_active()
             
             # Sanitize text to ensure valid UTF-8 encoding
-            text = sanitize_text_for_utf8(text).strip()
-            text = text.encode('utf-8', errors='replace').decode('utf-8')
+            # text = sanitize_text_for_utf8(text).strip()
+            # text = text.encode('utf-8', errors='replace').decode('utf-8')
+            text = text.strip()
             logger.info({"audio": reply_wav_path, "text": text})
             logger.info(f"[VoiceLiveS2S] END   thread={thread_name} ts={end_ts:.3f} elapsed={(end_ts-start_ts):.3f}s active={cur}")
 

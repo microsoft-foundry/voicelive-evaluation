@@ -3,8 +3,8 @@
 # Results are organized in subfolders for each evaluator
 
 param(
-    [int]$Workers = 5,
-    [int]$Limit = 0
+    [int]$Workers = 2,
+    [int]$Limit = 2
 )
 
 # Initialize Azure login and environment
@@ -12,7 +12,7 @@ param(
 
 cd C:\Localrepos\voicelive-evaluation\UltraEval-Audio
 
-.\.venv\Scripts\activate
+# .\.venv\Scripts\activate
 
 $env:PYTHONPATH = "C:\Localrepos\voicelive-evaluation\UltraEval-Audio;$env:PYTHONPATH"; $env:CUDA_VISIBLE_DEVICES = "0"
 
@@ -28,23 +28,23 @@ Write-Host "Test Run: $timestamp" -ForegroundColor Yellow
 $evaluators = @(
     @{Name="default"; Args=""; Description="Default QA evaluator (qa-exist-match)"}
     # @{Name="em"; Args="--evaluator em"; Description="Exact Match"},
-    # @{Name="exist-match"; Args="--evaluator exist-match"; Description="Existence Match"},
+    @{Name="exist-match"; Args="--evaluator exist-match"; Description="Existence Match"},
     # @{Name="prefix-match"; Args="--evaluator prefix-match"; Description="Prefix Match"},
     # @{Name="wer"; Args="--evaluator wer"; Description="Word Error Rate"},
     # @{Name="wer-sensitive"; Args="--evaluator wer-sensitive-case"; Description="Word Error Rate (Case Sensitive)"},
     # @{Name="cer"; Args="--evaluator cer"; Description="Character Error Rate"},
-    # @{Name="bleu"; Args="--evaluator bleu"; Description="BLEU Score"},
+    @{Name="bleu"; Args="--evaluator bleu"; Description="BLEU Score"},
     # @{Name="bleu-char"; Args="--evaluator bleu-char"; Description="BLEU Score (Character-level)"},
     # @{Name="coco"; Args="--evaluator coco"; Description="COCO Metrics"},
-    # @{Name="qa-exist-match"; Args="--evaluator qa-exist-match"; Description="QA Existence Match"},
+    @{Name="qa-exist-match"; Args="--evaluator qa-exist-match"; Description="QA Existence Match"},
     # @{Name="dump"; Args="--evaluator dump"; Description="Dump (No Scoring)"}
 )
 
 # Define datasets compatible with VoiceLive S2T
 $datasets = @(
     @{Name="llama-questions"; Description="Question Answering (English)"; PostProcess="extract_text"},
-    @{Name="speech-triviaqa"; Description="Question Answering (English)"; PostProcess="extract_text"},
-    @{Name="speech-web-questions"; Description="Question Answering (English)"; PostProcess="extract_text"}
+    # @{Name="speech-triviaqa"; Description="Question Answering (English)"; PostProcess="extract_text"},
+    # @{Name="speech-web-questions"; Description="Question Answering (English)"; PostProcess="extract_text"}
     # @{Name="librispeech-test-clean"; Description="LibriSpeech Clean Test Set (English ASR)"; PostProcess="extract_text"},
     # @{Name="librispeech-dev-clean"; Description="LibriSpeech Clean Dev Set (English ASR)"; PostProcess="extract_text"},
     # @{Name="cv-15-en"; Description="Common Voice 15 English"; PostProcess="extract_text"},
