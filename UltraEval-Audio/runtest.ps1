@@ -5,7 +5,7 @@
 
 param(
     [int]$Workers = 20,
-    [int]$Limit = 1000
+    [int]$Limit = 20
 )
 
 # Cross-platform detection
