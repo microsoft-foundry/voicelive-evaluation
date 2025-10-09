@@ -4,8 +4,8 @@
 # Compatible with Windows, macOS, and Linux
 
 param(
-    [int]$Workers = 1,
-    [int]$Limit = 2
+    [int]$Workers = 20,
+    [int]$Limit = 1000
 )
 
 # Cross-platform detection
@@ -39,7 +39,7 @@ else { Write-Host "Linux" -ForegroundColor Green }
 
 # Initialize Azure login and environment
 # Uncomment the next line if you need to login to Azure
-az login
+# az login
 
 # Cross-platform path handling
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -97,23 +97,24 @@ $evaluators = @(
     # @{Name="wer"; Args="--evaluator wer"; Description="Word Error Rate"},
     # @{Name="wer-sensitive"; Args="--evaluator wer-sensitive-case"; Description="Word Error Rate (Case Sensitive)"},
     # @{Name="cer"; Args="--evaluator cer"; Description="Character Error Rate"},
-    @{Name="bleu"; Args="--evaluator bleu"; Description="BLEU Score"}
+    # @{Name="bleu"; Args="--evaluator bleu"; Description="BLEU Score"}
     # @{Name="bleu-char"; Args="--evaluator bleu-char"; Description="BLEU Score (Character-level)"},
     # @{Name="coco"; Args="--evaluator coco"; Description="COCO Metrics"},
-    @{Name="qa-exist-match"; Args="--evaluator qa-exist-match"; Description="QA Existence Match"}
+    # @{Name="qa-exist-match"; Args="--evaluator qa-exist-match"; Description="QA Existence Match"}
     # @{Name="dump"; Args="--evaluator dump"; Description="Dump (No Scoring)"}
 
     # Azure AI Foundry evaluators
-    @{Name="azure-ai-intent-resolution"; Args="--evaluator azure-ai-intent-resolution"; Description="Azure AI Intent Resolution Evaluator"}
-    @{Name="azure-ai-combined-four"; Args="--evaluator azure-ai-combined-four"; Description="Azure AI Combined Four Evaluators (Intent + Task + Completeness + Groundedness)"}
+    # @{Name="azure-ai-intent-resolution"; Args="--evaluator azure-ai-intent-resolution"; Description="Azure AI Intent Resolution Evaluator"}
+    # @{Name="azure-ai-combined-four"; Args="--evaluator azure-ai-combined-four"; Description="Azure AI Combined Four Evaluators (Intent + Task + Completeness + Groundedness)"}
+    @{Name="azure-ai-batch-four"; Args="--evaluator azure-ai-batch-four"; Description="Azure AI Batch Four Evaluators (Intent + Task + Completeness + Groundedness)"}
 
 )
 
 # Define datasets compatible with VoiceLive S2T
 $datasets = @(
     @{Name="llama-questions"; Description="Question Answering (English)"; PostProcess="extract_text"}
-    # @{Name="speech-triviaqa"; Description="Question Answering (English)"; PostProcess="extract_text"}
-    # @{Name="speech-web-questions"; Description="Question Answering (English)"; PostProcess="extract_text"}
+    @{Name="speech-triviaqa"; Description="Question Answering (English)"; PostProcess="extract_text"}
+    @{Name="speech-web-questions"; Description="Question Answering (English)"; PostProcess="extract_text"}
     # @{Name="librispeech-test-clean"; Description="LibriSpeech Clean Test Set (English ASR)"; PostProcess="extract_text"}
     # @{Name="librispeech-dev-clean"; Description="LibriSpeech Clean Dev Set (English ASR)"; PostProcess="extract_text"}
     # @{Name="cv-15-en"; Description="Common Voice 15 English"; PostProcess="extract_text"}

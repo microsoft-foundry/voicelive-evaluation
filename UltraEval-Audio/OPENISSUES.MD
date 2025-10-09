@@ -1,4 +1,6 @@
 - Cross-Platform Windows multi-threading support not working properly
 - Update to latest Voice live processing best practice TBD
 - Huggingface data download does not happen on Windows (works on mac)
-- 
+- Add logger info messages for foundry evaluation processing
+- Make Foundry eval name dynamic based on dataset evaluator model used
+- IS THE RESPONSE SET AS CONTEXT INSTEAD OF THE REFERENCE USED FOR GROUNDTRUTH IN FOUNDRY EVALUATOR?
