@@ -5,7 +5,7 @@
 
 param(
     [int]$Workers = 20,
-    [int]$Limit = 20
+    [int]$Limit = 1000
 )
 
 # Cross-platform detection
@@ -88,39 +88,39 @@ Write-Host ""
 $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 Write-Host "Test Run: $timestamp" -ForegroundColor Yellow
 
-# Define English-compatible evaluators
+# Define English-compatible evaluators with their required post-processors
 $evaluators = @(
-    # @{Name="default"; Args=""; Description="Default QA evaluator (qa-exist-match)"}
-    # @{Name="em"; Args="--evaluator em"; Description="Exact Match"},
-    # @{Name="exist-match"; Args="--evaluator exist-match"; Description="Existence Match"},
-    # @{Name="prefix-match"; Args="--evaluator prefix-match"; Description="Prefix Match"},
-    # @{Name="wer"; Args="--evaluator wer"; Description="Word Error Rate"},
-    # @{Name="wer-sensitive"; Args="--evaluator wer-sensitive-case"; Description="Word Error Rate (Case Sensitive)"},
-    # @{Name="cer"; Args="--evaluator cer"; Description="Character Error Rate"},
-    # @{Name="bleu"; Args="--evaluator bleu"; Description="BLEU Score"}
-    # @{Name="bleu-char"; Args="--evaluator bleu-char"; Description="BLEU Score (Character-level)"},
-    # @{Name="coco"; Args="--evaluator coco"; Description="COCO Metrics"},
-    # @{Name="qa-exist-match"; Args="--evaluator qa-exist-match"; Description="QA Existence Match"}
-    # @{Name="dump"; Args="--evaluator dump"; Description="Dump (No Scoring)"}
+    # @{Name="default"; Args=""; Description="Default QA evaluator (qa-exist-match)"; PostProcess="extract_text"}
+    # @{Name="em"; Args="--evaluator em"; Description="Exact Match"; PostProcess="extract_text"},
+    # @{Name="exist-match"; Args="--evaluator exist-match"; Description="Existence Match"; PostProcess="extract_text"},
+    # @{Name="prefix-match"; Args="--evaluator prefix-match"; Description="Prefix Match"; PostProcess="extract_text"},
+    # @{Name="wer"; Args="--evaluator wer"; Description="Word Error Rate"; PostProcess="extract_text"},
+    # @{Name="wer-sensitive"; Args="--evaluator wer-sensitive-case"; Description="Word Error Rate (Case Sensitive)"; PostProcess="extract_text"},
+    # @{Name="cer"; Args="--evaluator cer"; Description="Character Error Rate"; PostProcess="extract_text"},
+    # @{Name="bleu"; Args="--evaluator bleu"; Description="BLEU Score"; PostProcess="extract_text"}
+    # @{Name="bleu-char"; Args="--evaluator bleu-char"; Description="BLEU Score (Character-level)"; PostProcess="extract_text"},
+    # @{Name="coco"; Args="--evaluator coco"; Description="COCO Metrics"; PostProcess="extract_text"},
+    @{Name="qa-exist-match"; Args="--evaluator qa-exist-match"; Description="QA Existence Match"; PostProcess="extract_text"}
+    # @{Name="dump"; Args="--evaluator dump"; Description="Dump (No Scoring)"; PostProcess="extract_text"}
 
-    # Azure AI Foundry evaluators
-    # @{Name="azure-ai-intent-resolution"; Args="--evaluator azure-ai-intent-resolution"; Description="Azure AI Intent Resolution Evaluator"}
-    # @{Name="azure-ai-combined-four"; Args="--evaluator azure-ai-combined-four"; Description="Azure AI Combined Four Evaluators (Intent + Task + Completeness + Groundedness)"}
-    @{Name="azure-ai-batch-four"; Args="--evaluator azure-ai-batch-four"; Description="Azure AI Batch Four Evaluators (Intent + Task + Completeness + Groundedness)"}
+    # Azure AI Foundry evaluators - these need the full JSON object with query/response fields
+    # @{Name="azure-ai-intent-resolution"; Args="--evaluator azure-ai-intent-resolution"; Description="Azure AI Intent Resolution Evaluator"; PostProcess="extract_voicelive_combined"}
+    # @{Name="azure-ai-combined-four"; Args="--evaluator azure-ai-combined-four"; Description="Azure AI Combined Four Evaluators (Intent + Task + Completeness + Groundedness)"; PostProcess="extract_voicelive_combined"}
+    @{Name="azure-ai-batch-four"; Args="--evaluator azure-ai-batch-four"; Description="Azure AI Batch Four Evaluators (Intent + Task + Completeness + Groundedness)"; PostProcess="extract_voicelive_combined"}
 
 )
 
-# Define datasets compatible with VoiceLive S2T
+# Define datasets compatible with VoiceLive S2T (post-processor now determined by evaluator)
 $datasets = @(
-    @{Name="llama-questions"; Description="Question Answering (English)"; PostProcess="extract_text"}
-    @{Name="speech-triviaqa"; Description="Question Answering (English)"; PostProcess="extract_text"}
-    @{Name="speech-web-questions"; Description="Question Answering (English)"; PostProcess="extract_text"}
-    # @{Name="librispeech-test-clean"; Description="LibriSpeech Clean Test Set (English ASR)"; PostProcess="extract_text"}
-    # @{Name="librispeech-dev-clean"; Description="LibriSpeech Clean Dev Set (English ASR)"; PostProcess="extract_text"}
-    # @{Name="cv-15-en"; Description="Common Voice 15 English"; PostProcess="extract_text"}
-    # @{Name="fleurs-en_us"; Description="FLEURS English US"; PostProcess="extract_text"}
-    # @{Name="tedlium-test"; Description="TED-LIUM Test Set (English ASR)"; PostProcess="extract_text"}
-    # @{Name="peoples_speech-test"; Description="People's Speech Test Set"; PostProcess="extract_text"}
+    @{Name="llama-questions"; Description="Question Answering (English)"}
+    @{Name="speech-triviaqa"; Description="Question Answering (English)"}
+    @{Name="speech-web-questions"; Description="Question Answering (English)"}
+    # @{Name="librispeech-test-clean"; Description="LibriSpeech Clean Test Set (English ASR)"}
+    # @{Name="librispeech-dev-clean"; Description="LibriSpeech Clean Dev Set (English ASR)"}
+    # @{Name="cv-15-en"; Description="Common Voice 15 English"}
+    # @{Name="fleurs-en_us"; Description="FLEURS English US"}
+    # @{Name="tedlium-test"; Description="TED-LIUM Test Set (English ASR)"}
+    # @{Name="peoples_speech-test"; Description="People's Speech Test Set"}
 )
 
 # Create base results directory structure (cross-platform)
@@ -156,7 +156,7 @@ foreach ($dataset in $datasets) {
         
         # Build command (cross-platform)
         $outputFileEscaped = $outputFile -replace '\\', '/'  # Use forward slashes for Python
-        $baseCmd = "$($platformInfo.PythonCommand) audio_evals/main.py --dataset $($dataset.Name) --model VoiceLiveS2T --post_process $($dataset.PostProcess) --workers $Workers --limit $Limit --debug_mode 0 --save `"$outputFileEscaped`""
+        $baseCmd = "$($platformInfo.PythonCommand) audio_evals/main.py --dataset $($dataset.Name) --model VoiceLiveS2T --post_process $($evaluators.PostProcess) --workers $Workers --limit $Limit --debug_mode 0 --save `"$outputFileEscaped`""
         
         if ($eval.Args) {
             $fullCmd = "$baseCmd $($eval.Args)"
@@ -201,92 +201,92 @@ foreach ($dataset in $datasets) {
 Write-Host "🏁 Test run completed!" -ForegroundColor Green
 Write-Host ""
 
-# Generate summary report
-Write-Host "📊 Generating Summary Report..." -ForegroundColor Yellow
+# # Generate summary report
+# Write-Host "📊 Generating Summary Report..." -ForegroundColor Yellow
 
-$summaryFile = Join-Path $baseResultsDir "test-summary-$timestamp.md"
-$summaryContent = @"
-# VoiceLive S2T Multi-Dataset Evaluator Test Summary
+# $summaryFile = Join-Path $baseResultsDir "test-summary-$timestamp.md"
+# $summaryContent = @"
+# # VoiceLive S2T Multi-Dataset Evaluator Test Summary
 
-**Test Run:** $timestamp  
-**Workers:** $Workers  
-**Limit:** $Limit  
-**Datasets:** $($datasets | ForEach-Object { $_.Name } | Join-String -Separator ', ')  
-**Model:** VoiceLiveS2T  
+# **Test Run:** $timestamp  
+# **Workers:** $Workers  
+# **Limit:** $Limit  
+# **Datasets:** $($datasets | ForEach-Object { $_.Name } | Join-String -Separator ', ')  
+# **Model:** VoiceLiveS2T  
 
-## Results by Dataset and Evaluator
+# ## Results by Dataset and Evaluator
 
-"@
+# "@
 
-foreach ($dataset in $datasets) {
-    $summaryContent += "`n### Dataset: $($dataset.Name) - $($dataset.Description)`n`n"
-    $summaryContent += "| Evaluator | Description | Status | Results File |`n"
-    $summaryContent += "|-----------|-------------|--------|--------------|`n"
+# foreach ($dataset in $datasets) {
+#     $summaryContent += "`n### Dataset: $($dataset.Name) - $($dataset.Description)`n`n"
+#     $summaryContent += "| Evaluator | Description | Status | Results File |`n"
+#     $summaryContent += "|-----------|-------------|--------|--------------|`n"
     
-    foreach ($eval in $evaluators) {
-        $evalDir = Join-Path $baseResultsDir $dataset.Name | Join-Path -ChildPath $eval.Name
-        $outputFile = Join-Path $evalDir "${timestamp}_$($eval.Name).jsonl"
-        $overallFile = $outputFile -replace '\.jsonl$', '-overall.json'
+#     foreach ($eval in $evaluators) {
+#         $evalDir = Join-Path $baseResultsDir $dataset.Name | Join-Path -ChildPath $eval.Name
+#         $outputFile = Join-Path $evalDir "${timestamp}_$($eval.Name).jsonl"
+#         $overallFile = $outputFile -replace '\.jsonl$', '-overall.json'
         
-        if (Test-Path $outputFile) {
-            $status = "✅ Success"
-            $resultPath = Join-Path $dataset.Name $eval.Name | Join-Path -ChildPath "${timestamp}_$($eval.Name).jsonl"
-        } else {
-            $status = "❌ Failed"
-            $resultPath = "N/A"
-        }
+#         if (Test-Path $outputFile) {
+#             $status = "✅ Success"
+#             $resultPath = Join-Path $dataset.Name $eval.Name | Join-Path -ChildPath "${timestamp}_$($eval.Name).jsonl"
+#         } else {
+#             $status = "❌ Failed"
+#             $resultPath = "N/A"
+#         }
         
-        $summaryContent += "`n| ``$($eval.Name)`` | $($eval.Description) | $status | ``$resultPath`` |"
-    }
-}
+#         $summaryContent += "`n| ``$($eval.Name)`` | $($eval.Description) | $status | ``$resultPath`` |"
+#     }
+# }
 
-$summaryContent += @"
+# $summaryContent += @"
 
 
-## Directory Structure
+# ## Directory Structure
 
-``````
-$baseResultsDir/
-├── test-summary-$timestamp.md
-"@
+# ``````
+# $baseResultsDir/
+# ├── test-summary-$timestamp.md
+# "@
 
-foreach ($dataset in $datasets) {
-    $summaryContent += "`n├── $($dataset.Name)/"
-    foreach ($eval in $evaluators) {
-        $summaryContent += "`n│   ├── $($eval.Name)/"
-        $summaryContent += "`n│   │   ├── ${timestamp}_$($eval.Name).jsonl"
-        $summaryContent += "`n│   │   └── ${timestamp}_$($eval.Name)-overall.json"
-    }
-}
+# foreach ($dataset in $datasets) {
+#     $summaryContent += "`n├── $($dataset.Name)/"
+#     foreach ($eval in $evaluators) {
+#         $summaryContent += "`n│   ├── $($eval.Name)/"
+#         $summaryContent += "`n│   │   ├── ${timestamp}_$($eval.Name).jsonl"
+#         $summaryContent += "`n│   │   └── ${timestamp}_$($eval.Name)-overall.json"
+#     }
+# }
 
-$summaryContent += @"
+# $summaryContent += @"
 
-``````
+# ``````
 
-## Usage
+# ## Usage
 
-To view detailed results for any dataset/evaluator combination:
-``````bash
-# View JSONL results
-cat "$baseResultsDir\<dataset-name>\<evaluator-name>\${timestamp}_<evaluator-name>.jsonl"
+# To view detailed results for any dataset/evaluator combination:
+# ``````bash
+# # View JSONL results
+# cat "$baseResultsDir\<dataset-name>\<evaluator-name>\${timestamp}_<evaluator-name>.jsonl"
 
-# View summary results  
-cat "$baseResultsDir\<dataset-name>\<evaluator-name>\${timestamp}_<evaluator-name>-overall.json"
-``````
+# # View summary results  
+# cat "$baseResultsDir\<dataset-name>\<evaluator-name>\${timestamp}_<evaluator-name>-overall.json"
+# ``````
 
-## Rerun Individual Tests
+# ## Rerun Individual Tests
 
-``````bash
-# Example: Rerun WER evaluator on llama-questions dataset
-python audio_evals/main.py --dataset llama-questions --model VoiceLiveS2T --evaluator wer --post_process extract_text --workers $Workers --limit $Limit --save "$baseResultsDir\llama-questions\wer\custom-run.jsonl"
+# ``````bash
+# # Example: Rerun WER evaluator on llama-questions dataset
+# python audio_evals/main.py --dataset llama-questions --model VoiceLiveS2T --evaluator wer --post_process extract_text --workers $Workers --limit $Limit --save "$baseResultsDir\llama-questions\wer\custom-run.jsonl"
 
-# Example: Rerun on different dataset
-python audio_evals/main.py --dataset librispeech-test-clean --model VoiceLiveS2T --evaluator wer --post_process extract_text --workers $Workers --limit $Limit --save "$baseResultsDir\librispeech-test-clean\wer\custom-run.jsonl"
-``````
-"@
+# # Example: Rerun on different dataset
+# python audio_evals/main.py --dataset librispeech-test-clean --model VoiceLiveS2T --evaluator wer --post_process extract_text --workers $Workers --limit $Limit --save "$baseResultsDir\librispeech-test-clean\wer\custom-run.jsonl"
+# ``````
+# "@
 
-Set-Content -Path $summaryFile -Value $summaryContent -Encoding UTF8
+# Set-Content -Path $summaryFile -Value $summaryContent -Encoding UTF8
 
-Write-Host "📄 Summary report saved to: $summaryFile" -ForegroundColor Cyan
+# Write-Host "📄 Summary report saved to: $summaryFile" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "🎉 All tests completed! Check the results in the dataset/evaluator subfolders." -ForegroundColor Green

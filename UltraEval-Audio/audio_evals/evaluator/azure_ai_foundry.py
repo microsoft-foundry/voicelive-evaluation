@@ -272,34 +272,34 @@ class AzureAIFoundryEvaluator(Evaluator):
         if self.metric_type == "groundedness":
             # Groundedness requires query and context
             eval_data.update({
-                "query": kwargs.get("query", kwargs.get("question", "")),
+                "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
                 "context": kwargs.get("context", str(label))
             })
         elif self.metric_type in ["coherence", "fluency"]:
             # Coherence and fluency only need the response
-            eval_data["query"] = kwargs.get("query", kwargs.get("question", ""))
+            eval_data["query"] = kwargs.get("query", kwargs.get("question", kwargs.get("input_text", "")))
         elif self.metric_type == "relevance":
             # Relevance needs query and response
-            eval_data["query"] = kwargs.get("query", kwargs.get("question", ""))
+            eval_data["query"] = kwargs.get("query", kwargs.get("question", kwargs.get("input_text", "")))
         elif self.metric_type == "intent_resolution":
             # Intent resolution needs query and response
-            eval_data["query"] = kwargs.get("query", kwargs.get("question", ""))
+            eval_data["query"] = kwargs.get("query", kwargs.get("question", kwargs.get("input_text", "")))
         elif self.metric_type == "tool_call_accuracy":
             # Tool call accuracy needs query, response, and tools configuration
             eval_data.update({
-                "query": kwargs.get("query", kwargs.get("question", "")),
+                "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
                 "tools": kwargs.get("tools", [])
             })
         elif self.metric_type == "task_adherence":
             # Task adherence needs query, response, and system message
             eval_data.update({
-                "query": kwargs.get("query", kwargs.get("question", "")),
+                "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
                 "system_message": kwargs.get("system_message", kwargs.get("system", ""))
             })
         elif self.metric_type == "response_completeness":
             # Response completeness needs query, response, and ground truth
             eval_data.update({
-                "query": kwargs.get("query", kwargs.get("question", "")),
+                "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
                 "ground_truth": kwargs.get("ground_truth", str(label))
             })
         
@@ -484,7 +484,7 @@ class AzureAIMultiEvaluator(Evaluator):
             # Create temporary file with single data point
             with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as temp_file:
                 data_entry = {
-                    "query": kwargs.get("query", kwargs.get("question", "")),
+                    "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
                     "response": pred,
                     "context": kwargs.get("context", label),
                     "ground_truth": label
@@ -702,9 +702,9 @@ class AzureAIBatchEvaluator(Evaluator):
         
         # Collect sample data
         sample_data = {
-            "query": kwargs.get("query", kwargs.get("question", "")),
+            "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
             "response": pred,
-            "context": kwargs.get("context", pred),
+            "context": kwargs.get("context", label),
             "ground_truth": label
         }
         

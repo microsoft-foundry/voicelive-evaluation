@@ -4,3 +4,4 @@ VoiceLiveS2T:
     #voice: "alloy"
     voice: "en-US-Ava:DragonHDLatestNeural"
     instructions: "You are a helpful AI assistant. Respond naturally and conversationally. Keep your responses concise but engaging. Always generate UTF-8 encoded responses."
+  default_post_process: extract_voicelive_combined

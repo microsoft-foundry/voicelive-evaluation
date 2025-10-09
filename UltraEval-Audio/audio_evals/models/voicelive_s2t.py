@@ -644,7 +644,16 @@ class VoiceLiveS2TModel(APIModel):
             # input_text = input_text.encode('utf-8', errors='replace').decode('utf-8')
             text = text.strip()
             input_text = input_text.strip()
-            logger.info({"audio": reply_wav_path, "text": text, "input_text": input_text, "barge-in": barge_in})
+            
+            # Create result with evaluator-friendly key names
+            result = {
+                "audio": reply_wav_path, 
+                "text": text,       # Primary key for evaluators
+                "query": input_text    # Primary key for evaluators
+            }
+            
+            logger.info(barge_in)
+            logger.info(result)
             logger.info(f"[VoiceLiveS2T] END   thread={thread_name} ts={end_ts:.3f} elapsed={(end_ts-start_ts):.3f}s active={cur}")
 
-        return {"audio": reply_wav_path, "text": text, "input_text": input_text, "barge-in": barge_in}
+        return result
