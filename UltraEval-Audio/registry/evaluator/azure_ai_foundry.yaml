@@ -97,3 +97,29 @@ azure-ai-combined-quality:
         threshold: 3
       groundedness:
         threshold: 3
+
+# Batch evaluators - collect samples and evaluate in batches for efficiency
+# batch_size: 0 means auto-adjust to dataset size (up to 1000 max)
+azure-ai-batch-four:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
+  args:
+    evaluator_name: azure-ai-combined-four
+    batch_size: 0
+
+azure-ai-batch-agent:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
+  args:
+    evaluator_name: azure-ai-combined-agent
+    batch_size: 0
+
+azure-ai-batch-quality:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
+  args:
+    evaluator_name: azure-ai-combined-quality
+    batch_size: 0
+
+azure-ai-batch-intent:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
+  args:
+    evaluator_name: azure-ai-intent-resolution
+    batch_size: 0

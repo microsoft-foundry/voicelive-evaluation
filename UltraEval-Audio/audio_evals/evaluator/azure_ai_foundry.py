@@ -630,4 +630,333 @@ class AzureAIMultiEvaluator(Evaluator):
                 "error": str(e),
                 "azure_evaluate_response": None
             }
+
+
+class AzureAIBatchEvaluator(Evaluator):
+    """Batch-aware evaluator that collects samples and evaluates them together"""
+    
+    def __init__(self, evaluator_name: str = 'azure-ai-combined-four', batch_size: int = 0, **kwargs):
+        super().__init__()
+        self.evaluator_name = evaluator_name
+        self.batch_samples = []
+        self.sample_metadata = []
+        self.initial_batch_size = batch_size
+        self.batch_size = batch_size  # Will be dynamically adjusted
+        self.upload_to_project = os.getenv("AZURE_AI_FOUNDRY_UPLOAD", "false").lower() == "true"
+        self.dataset_size_estimated = False
+        self.max_azure_evaluate_size = 1000  # Conservative limit for Azure AI evaluate()
+        
+        # Parse evaluator configuration
+        self.evaluators_config = self._parse_evaluator_config()
+        
+        logger.info(f"Initializing AzureAIBatchEvaluator for {self.evaluator_name} with initial batch size {self.batch_size}")
+        
+    def _parse_evaluator_config(self) -> Dict[str, Dict[str, Any]]:
+        """Parse evaluator configuration"""
+        if self.evaluator_name == "azure-ai-combined-four":
+            return {
+                'intent_resolution': {'threshold': 3},
+                'task_adherence': {'threshold': 3},
+                'response_completeness': {'threshold': 3},
+                'groundedness': {'threshold': 3}
+            }
+        elif self.evaluator_name == "azure-ai-combined-agent":
+            return {
+                'intent_resolution': {'threshold': 3},
+                'task_adherence': {'threshold': 3},
+                'response_completeness': {'threshold': 3},
+                'groundedness': {'threshold': 3},
+                'tool_call_accuracy': {'threshold': 3}
+            }
+        elif self.evaluator_name == "azure-ai-combined-quality":
+            return {
+                'coherence': {'threshold': 3},
+                'fluency': {'threshold': 3},
+                'relevance': {'threshold': 3},
+                'groundedness': {'threshold': 3}
+            }
+        elif self.evaluator_name.startswith("azure-ai-"):
+            # Single evaluator
+            evaluator_type = self.evaluator_name.replace("azure-ai-", "").replace("-", "_")
+            return {evaluator_type: {'threshold': 3}}
+        else:
+            raise ValueError(f"Unknown evaluator config: {self.evaluator_name}")
+    
+    def _eval(self, pred: str, label: str, **kwargs) -> Dict[str, Any]:
+        """
+        Collect sample for batch evaluation. Returns placeholder result.
+        """
+        # Auto-adjust batch size on first call if not set or set to 0
+        if not self.dataset_size_estimated and (self.batch_size == 0 or self.initial_batch_size == 0):
+            # Try to estimate dataset size from environment or use conservative default
+            limit = kwargs.get('limit', 0) or int(os.getenv('EVAL_LIMIT', '0'))
+            if limit > 0:
+                # Set batch size to match limit (up to max supported)
+                self.batch_size = min(limit, self.max_azure_evaluate_size)
+                logger.info(f"Auto-adjusted batch size to {self.batch_size} based on limit {limit}")
+            else:
+                # Use conservative default
+                self.batch_size = min(100, self.max_azure_evaluate_size)
+                logger.info(f"Set default batch size to {self.batch_size}")
+            self.dataset_size_estimated = True
+        
+        # Collect sample data
+        sample_data = {
+            "query": kwargs.get("query", kwargs.get("question", "")),
+            "response": pred,
+            "context": kwargs.get("context", pred),
+            "ground_truth": label
+        }
+        
+        # Store sample metadata for result mapping
+        sample_id = len(self.batch_samples)
+        sample_metadata = {
+            "id": sample_id,
+            "pred": pred,
+            "label": label,
+            "kwargs": kwargs
+        }
+        
+        self.batch_samples.append(sample_data)
+        self.sample_metadata.append(sample_metadata)
+        
+        # Return placeholder result that will be updated after batch processing
+        placeholder_result = {
+            "batch_placeholder": True,
+            "sample_id": sample_id,
+            "evaluator": self.evaluator_name,
+            "message": f"Sample {sample_id + 1} collected for batch evaluation (batch size: {self.batch_size})"
+        }
+        
+        # Check if we should process this batch
+        if len(self.batch_samples) >= self.batch_size:
+            logger.info(f"Processing batch of {len(self.batch_samples)} samples")
+            batch_results = self._process_batch()
+            # Clear the batch
+            self.batch_samples = []
+            self.sample_metadata = []
+            return batch_results[sample_id] if batch_results else placeholder_result
+            
+        return placeholder_result
+    
+    def _process_batch(self) -> List[Dict[str, Any]]:
+        """Process collected batch of samples"""
+        if not self.batch_samples:
+            return []
+            
+        try:
+            azure_evaluators, evaluator_config = self._setup_azure_evaluators()
+            
+            # Create temporary JSONL file with batch data
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as temp_file:
+                for sample in self.batch_samples:
+                    temp_file.write(json.dumps(sample) + '\n')
+                temp_file_path = temp_file.name
+                
+            try:
+                # Check for project upload configuration
+                azure_ai_project = os.getenv("AZURE_AI_PROJECT") if self.upload_to_project else None
+                evaluation_name = os.getenv("AZURE_AI_EVALUATION_NAME", "VoiceLive-Batch-Evaluation")
+                
+                logger.info(f"Running Azure AI batch evaluation on {len(self.batch_samples)} samples")
+                
+                # Run Azure AI evaluate() function
+                response = evaluate(
+                    data=temp_file_path,
+                    evaluation_name=f"{evaluation_name}-Batch-{len(self.batch_samples)}",
+                    evaluators=azure_evaluators,
+                    evaluator_config=evaluator_config,
+                    azure_ai_project=azure_ai_project
+                )
+                
+                if response.get("studio_url"):
+                    logger.info(f"Azure AI Foundry batch evaluation uploaded: {response['studio_url']}")
+                
+                # Process results for each sample
+                rows = response.get('rows', [])
+                batch_results = []
+                
+                for i, (row, metadata) in enumerate(zip(rows, self.sample_metadata)):
+                    result = {
+                        "azure_evaluate_response": {
+                            "rows": [row],
+                            "metrics": {k: v for k, v in row.items() if k.startswith('outputs.')},
+                            "studio_url": response.get("studio_url")
+                        },
+                        "batch_processed": True,
+                        "batch_size": len(self.batch_samples),  
+                        "sample_index": i
+                    }
+                    batch_results.append(result)
+                    
+                return batch_results
+                
+            finally:
+                # Clean up temporary file
+                os.unlink(temp_file_path)
+                
+        except Exception as e:
+            logger.error(f"Batch evaluation failed: {e}")
+            # Return placeholder results for all samples
+            return [{"error": str(e), "batch_failed": True} for _ in self.batch_samples]
+    
+    def finalize_evaluation(self, recorder=None):
+        """Process any remaining samples in the batch and write batch results to JSONL"""
+        if self.batch_samples:
+            # If batch size was 0 or never set, process all collected samples at once
+            if self.batch_size == 0 or not self.dataset_size_estimated:
+                self.batch_size = len(self.batch_samples)
+                logger.info(f"Setting batch size to total sample count: {self.batch_size}")
+            
+            logger.info(f"Processing final batch of {len(self.batch_samples)} samples")
+            batch_results = self._process_batch()
+            
+            # Write batch evaluation results to the main JSONL file
+            if recorder and batch_results:
+                # Create a comprehensive batch evaluation summary
+                batch_summary = {
+                    "evaluator": self.evaluator_name,
+                    "batch_size": len(self.batch_samples),
+                    "samples_evaluated": len(batch_results),
+                    "sample_ids": [meta['id'] for meta in self.sample_metadata] if self.sample_metadata else [],
+                    "individual_results": batch_results,
+                    "batch_metrics": self._calculate_batch_metrics(batch_results)
+                }
+                
+                recorder.add({
+                    "type": "batch_eval", 
+                    "id": f"batch_{self.evaluator_name}_{len(self.batch_samples)}_samples", 
+                    "data": batch_summary
+                })
+                logger.info(f"Added batch evaluation results for {len(self.batch_samples)} samples to JSONL")
+            
+            self.batch_samples = []
+            self.sample_metadata = []
+    
+    def _calculate_batch_metrics(self, batch_results):
+        """Calculate aggregate metrics from batch results"""
+        if not batch_results:
+            return {}
+        
+        # Extract numeric scores from results if available
+        scores = []
+        for result in batch_results:
+            if isinstance(result, dict):
+                # Look for common score field names
+                for score_field in ['score', 'rating', 'value', 'intent_resolution_score']:
+                    if score_field in result and isinstance(result[score_field], (int, float)):
+                        scores.append(result[score_field])
+                        break
+        
+        if scores:
+            return {
+                "mean_score": sum(scores) / len(scores),
+                "min_score": min(scores),
+                "max_score": max(scores),
+                "total_samples": len(batch_results)
+            }
+        else:
+            return {"total_samples": len(batch_results)}
+    
+    def _setup_azure_evaluators(self):
+        """Setup Azure AI evaluators"""
+        return self._create_azure_evaluators()
+    
+    def _create_azure_evaluators(self):
+        """Create Azure AI evaluator instances"""
+        # Get Azure OpenAI configuration
+        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("AOAI_ENDPOINT")
+        api_key = os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("AOAI_API_KEY")
+        deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME") or os.getenv("AOAI_DEPLOYMENT_NAME")
+        reasoning_deployment = os.getenv("AZURE_OPENAI_REASONING_DEPLOYMENT") or os.getenv("AOAI_REASONING_DEPLOYMENT_NAME")
+        api_version = os.getenv("AZURE_OPENAI_API_VERSION") or os.getenv("AOAI_API_VERSION", "2024-10-21")
+        
+        if not all([azure_endpoint, api_key, deployment_name]):
+            raise ValueError("Azure OpenAI configuration missing")
+            
+        # Standard model configuration
+        model_config = AzureOpenAIModelConfiguration(
+            azure_endpoint=azure_endpoint,
+            api_key=api_key,
+            azure_deployment=deployment_name,
+            api_version=api_version
+        )
+        
+        # Reasoning model configuration (if available)
+        if reasoning_deployment:
+            reasoning_config = {
+                "azure_deployment": reasoning_deployment,
+                "api_key": api_key,
+                "azure_endpoint": azure_endpoint,
+                "api_version": api_version
+            }
+        else:
+            reasoning_config = model_config
+            
+        azure_evaluators = {}
+        evaluator_config = {}
+        
+        # Create Azure AI evaluator instances
+        for eval_name, config in self.evaluators_config.items():
+            threshold = config.get('threshold', 3)
+            
+            if eval_name == 'intent_resolution':
+                azure_evaluators['intent_resolution'] = IntentResolutionEvaluator(
+                    model_config=reasoning_config,
+                    is_reasoning_model=bool(reasoning_deployment),
+                    threshold=threshold
+                )
+            elif eval_name == 'task_adherence':
+                azure_evaluators['task_adherence'] = TaskAdherenceEvaluator(
+                    model_config=reasoning_config,
+                    is_reasoning_model=bool(reasoning_deployment),
+                    threshold=threshold
+                )
+            elif eval_name == 'response_completeness':
+                azure_evaluators['response_completeness'] = ResponseCompletenessEvaluator(
+                    model_config=reasoning_config,
+                    is_reasoning_model=bool(reasoning_deployment),
+                    threshold=threshold
+                )
+                evaluator_config['response_completeness'] = {
+                    "column_mapping": {
+                        "ground_truth": "${data.ground_truth}",
+                        "response": "${data.response}"
+                    }
+                }
+            elif eval_name == 'groundedness':
+                azure_evaluators['groundedness'] = GroundednessEvaluator(
+                    model_config=model_config,
+                    threshold=threshold
+                )
+                evaluator_config['groundedness'] = {
+                    "column_mapping": {
+                        "query": "${data.query}",
+                        "context": "${data.context}",
+                        "response": "${data.response}"
+                    }
+                }
+            elif eval_name == 'coherence':
+                azure_evaluators['coherence'] = CoherenceEvaluator(
+                    model_config=model_config,
+                    threshold=threshold
+                )
+            elif eval_name == 'fluency':
+                azure_evaluators['fluency'] = FluencyEvaluator(
+                    model_config=model_config,
+                    threshold=threshold
+                )
+            elif eval_name == 'relevance':
+                azure_evaluators['relevance'] = RelevanceEvaluator(
+                    model_config=model_config,
+                    threshold=threshold
+                )
+            elif eval_name == 'tool_call_accuracy':
+                azure_evaluators['tool_call_accuracy'] = ToolCallAccuracyEvaluator(
+                    model_config=reasoning_config,
+                    is_reasoning_model=bool(reasoning_deployment),
+                    threshold=threshold
+                )
+                
+        return azure_evaluators, evaluator_config
     

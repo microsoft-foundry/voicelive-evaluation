@@ -128,6 +128,13 @@ UltraEval-Audio/
 - `azure-ai-combined-agent` - Extended agent evaluation (Above + Tool Call Accuracy)
 - `azure-ai-combined-quality` - Quality-focused evaluation (Coherence + Fluency + Relevance + Groundedness)
 
+### Batch Evaluators (Optimized)
+
+- `azure-ai-batch-four` - Batch version of `azure-ai-combined-four` (batch size: 50)
+- `azure-ai-batch-agent` - Batch version of `azure-ai-combined-agent` (batch size: 50)  
+- `azure-ai-batch-quality` - Batch version of `azure-ai-combined-quality` (batch size: 50)
+- `azure-ai-batch-intent` - Batch version of `azure-ai-intent-resolution` (batch size: 50)
+
 ## 📊 Usage Examples
 
 ### Command Line Usage
@@ -164,6 +171,36 @@ python audio_evals/main.py \
   --evaluator azure-ai-combined-four \
   --post_process extract_text \
   --limit 50
+```
+
+#### Batch Evaluation (Optimized for Large Datasets)
+
+```bash
+# Batch evaluation processes samples in groups for efficiency
+python audio_evals/main.py \
+  --dataset llama-questions \
+  --model VoiceLiveS2T \
+  --evaluator azure-ai-batch-four \
+  --post_process extract_text \
+  --limit 100
+```
+
+#### Separate Post-processing and Evaluation
+
+```bash
+# Step 1: Run pipeline without evaluation
+python audio_evals/main.py \
+  --dataset llama-questions \
+  --model VoiceLiveS2T \
+  --evaluator dump \
+  --post_process extract_text \
+  --limit 100
+
+# Step 2: Run batch evaluation on results
+python batch_foundry_eval.py \
+  --input log/results.jsonl \
+  --evaluator azure-ai-combined-four \
+  --output batch_results.jsonl
 ```
 
 ## 📈 Results Format

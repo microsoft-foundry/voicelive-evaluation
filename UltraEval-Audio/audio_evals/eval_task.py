@@ -1,10 +1,13 @@
 import json
+import logging
 import traceback
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from functools import lru_cache
 from typing import Dict, List, Tuple, Union
 
 from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
 
 from audio_evals.agg.base import AggPolicy
 from audio_evals.base import ScoreUnit
@@ -120,6 +123,12 @@ class EvalTask:
         res, answers = [item for item in res if item is not None], [
             item for item in answers if item is not None
         ]
+        
+                # Finalize any batch evaluators after all samples are processed
+        if hasattr(self.evaluator, 'finalize_evaluation'):
+            logger.info("Finalizing batch evaluator...")
+            self.evaluator.finalize_evaluation(self.recorder)
+        
         merge_data4view(
             quiz, self.recorder.name, self.recorder.name.replace(".jsonl", ".xlsx")
         )
