@@ -100,22 +100,22 @@ azure-ai-combined-quality:
 
 # Batch evaluators - collect samples and evaluate in batches for efficiency
 # batch_size: 0 means auto-adjust to dataset size (up to 1000 max)
-azure-ai-batch-four:
+azure-ai-batch-qaevaluator:
   class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
   args:
-    evaluator_name: azure-ai-combined-four
+    evaluator_name: azure-ai-qaevaluator
     batch_size: 0
 
-azure-ai-batch-agent:
+azure-ai-batch-agent-base:
   class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
   args:
-    evaluator_name: azure-ai-combined-agent
+    evaluator_name: azure-ai-combined-agent-base
     batch_size: 0
 
-azure-ai-batch-quality:
+azure-ai-batch-agent-full+tool:
   class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
   args:
-    evaluator_name: azure-ai-combined-quality
+    evaluator_name: azure-ai-combined-agent-full+tool
     batch_size: 0
 
 azure-ai-batch-intent:

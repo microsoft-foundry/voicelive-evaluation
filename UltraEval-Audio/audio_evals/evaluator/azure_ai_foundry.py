@@ -41,6 +41,7 @@ try:
         TaskAdherenceEvaluator,
         ResponseCompletenessEvaluator,
         AzureOpenAIModelConfiguration,
+        QAEvaluator,
         evaluate
     )
 except ImportError as e:
@@ -100,6 +101,7 @@ class AzureAIFoundryEvaluator(Evaluator):
         self.azure_endpoint = azure_endpoint or os.getenv("AOAI_ENDPOINT")
         self.api_key = api_key or os.getenv("AOAI_API_KEY")  
         self.deployment_name = deployment_name or os.getenv("AOAI_DEPLOYMENT_NAME")
+        self.reasoning_deployment_name = os.getenv("AOAI_REASONING_DEPLOYMENT_NAME")
         self.api_version = api_version or os.getenv("AOAI_API_VERSION", "2024-02-15-preview")
         
         # Azure AI Foundry project configuration
@@ -127,7 +129,7 @@ class AzureAIFoundryEvaluator(Evaluator):
             logger.warning("Upload enabled but no Azure AI project configured. Set AZURE_AI_PROJECT environment variable.")
             self.upload_to_project = False
         
-        if not all([self.azure_endpoint, self.api_key, self.deployment_name]):
+        if not all([self.azure_endpoint, self.api_key, self.deployment_name, self.reasoning_model_config]):
             raise ValueError(
                 "Azure OpenAI configuration required. Set AOAI_ENDPOINT, AOAI_API_KEY, "
                 "and AOAI_DEPLOYMENT_NAME environment variables or pass as parameters."
@@ -140,6 +142,17 @@ class AzureAIFoundryEvaluator(Evaluator):
             azure_deployment=str(self.deployment_name),
             api_version=str(self.api_version)
         )
+
+        # Reasoning model configuration (if available)
+        if self.reasoning_deployment_name:
+            self.reasoning_config = {
+                "azure_deployment": self.reasoning_deployment_name,
+                "api_key": self.api_key,
+                "azure_endpoint": self.azure_endpoint,
+                "api_version": self.api_version
+            }
+        else:
+            self.reasoning_config = self.model_config
         
         # Initialize the appropriate evaluator
         self.evaluator = None
@@ -168,22 +181,39 @@ class AzureAIFoundryEvaluator(Evaluator):
                 threshold=self.threshold
             )
         elif self.metric_type == "intent_resolution":
+            if self.reasoning_deployment_name:
+                model_config = self.reasoning_config
             self.evaluator = IntentResolutionEvaluator(
-                model_config=self.model_config,
+                model_config=model_config,
+                is_reasoning_model=True if self.reasoning_deployment_name else False,
                 threshold=self.threshold
             )
         elif self.metric_type == "tool_call_accuracy":
+            if self.reasoning_deployment_name:
+                model_config = self.reasoning_config
             self.evaluator = ToolCallAccuracyEvaluator(
-                model_config=self.model_config,
+                model_config=model_config,
+                is_reasoning_model=True if self.reasoning_deployment_name else False,
                 threshold=self.threshold
             )
         elif self.metric_type == "task_adherence":
+            if self.reasoning_deployment_name:
+                model_config = self.reasoning_config
             self.evaluator = TaskAdherenceEvaluator(
-                model_config=self.model_config,
+                model_config=model_config,
+                is_reasoning_model=True if self.reasoning_deployment_name else False,
                 threshold=self.threshold
             )
         elif self.metric_type == "response_completeness":
+            if self.reasoning_deployment_name:
+                model_config = self.reasoning_config
             self.evaluator = ResponseCompletenessEvaluator(
+                model_config=model_config,
+                is_reasoning_model=True if self.reasoning_deployment_name else False,
+                threshold=self.threshold
+            )
+        elif self.metric_type == "qaevaluator":
+            self.evaluator = QAEvaluator(
                 model_config=self.model_config,
                 threshold=self.threshold
             )
@@ -191,7 +221,7 @@ class AzureAIFoundryEvaluator(Evaluator):
             raise ValueError(
                 f"Unsupported metric type: {self.metric_type}. "
                 f"Supported types: groundedness, coherence, fluency, relevance, "
-                f"intent_resolution, tool_call_accuracy, task_adherence, response_completeness"
+                f"intent_resolution, tool_call_accuracy, task_adherence, response_completeness, qaevaluator"
             )
         
         logger.info(f"Initialized {self.metric_type} evaluator with threshold {self.threshold}")
@@ -484,8 +514,8 @@ class AzureAIMultiEvaluator(Evaluator):
             # Create temporary file with single data point
             with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as temp_file:
                 data_entry = {
-                    "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
-                    "response": pred,
+                    "query": kwargs.get("query", kwargs.get("question", "")),
+                    "response": kwargs.get("response", pred),
                     "context": kwargs.get("context", label),
                     "ground_truth": label
                 }
@@ -496,13 +526,13 @@ class AzureAIMultiEvaluator(Evaluator):
             azure_evaluators = {}
             evaluator_config = {}
             
-            # Get Azure OpenAI configuration from environment
-            azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("AOAI_ENDPOINT")
-            api_key = os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("AOAI_API_KEY")
-            deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME") or os.getenv("AOAI_DEPLOYMENT_NAME")
-            reasoning_deployment = os.getenv("AZURE_OPENAI_REASONING_DEPLOYMENT") or os.getenv("AOAI_REASONING_DEPLOYMENT_NAME")
-            api_version = os.getenv("AZURE_OPENAI_API_VERSION") or os.getenv("AOAI_API_VERSION", "2024-10-21")
-            
+            # Get configuration from environment or parameters
+            azure_endpoint = azure_endpoint or os.getenv("AOAI_ENDPOINT")
+            api_key = api_key or os.getenv("AOAI_API_KEY")  
+            deployment_name = deployment_name or os.getenv("AOAI_DEPLOYMENT_NAME")
+            reasoning_deployment_name = os.getenv("AOAI_REASONING_DEPLOYMENT_NAME")
+            api_version = api_version or os.getenv("AOAI_API_VERSION", "2024-02-15-preview")
+
             if not all([azure_endpoint, api_key, deployment_name]):
                 raise ValueError("Azure OpenAI configuration missing")
             
@@ -515,9 +545,9 @@ class AzureAIMultiEvaluator(Evaluator):
             )
             
             # Reasoning model configuration (if available)
-            if reasoning_deployment:
+            if reasoning_deployment_name:
                 reasoning_config = {
-                    "azure_deployment": reasoning_deployment,
+                    "azure_deployment": reasoning_deployment_name,
                     "api_key": api_key,
                     "azure_endpoint": azure_endpoint,
                     "api_version": api_version
@@ -530,39 +560,39 @@ class AzureAIMultiEvaluator(Evaluator):
                 if eval_name == 'intent_resolution':
                     azure_evaluators['intent_resolution'] = IntentResolutionEvaluator(
                         model_config=reasoning_config,
-                        is_reasoning_model=bool(reasoning_deployment),
+                        is_reasoning_model=bool(reasoning_deployment_name),
                         threshold=self.evaluator_configs[eval_name].get('threshold', 3)
                     )
                 elif eval_name == 'task_adherence':
                     azure_evaluators['task_adherence'] = TaskAdherenceEvaluator(
                         model_config=reasoning_config,
-                        is_reasoning_model=bool(reasoning_deployment),
+                        is_reasoning_model=bool(reasoning_deployment_name),
                         threshold=self.evaluator_configs[eval_name].get('threshold', 3)
                     )
                 elif eval_name == 'response_completeness':
                     azure_evaluators['response_completeness'] = ResponseCompletenessEvaluator(
                         model_config=reasoning_config,
-                        is_reasoning_model=bool(reasoning_deployment),
+                        is_reasoning_model=bool(reasoning_deployment_name),
                         threshold=self.evaluator_configs[eval_name].get('threshold', 3)
                     )
-                    evaluator_config['response_completeness'] = {
-                        "column_mapping": {
-                            "ground_truth": "${data.ground_truth}",
-                            "response": "${data.response}"
-                        }
-                    }
+                    # evaluator_config['response_completeness'] = {
+                    #     "column_mapping": {
+                    #         "ground_truth": "${data.ground_truth}",
+                    #         "response": "${data.response}"
+                    #     }
+                    # }
                 elif eval_name == 'groundedness':
                     azure_evaluators['groundedness'] = GroundednessEvaluator(
                         model_config=model_config,
                         threshold=self.evaluator_configs[eval_name].get('threshold', 3)
                     )
-                    evaluator_config['groundedness'] = {
-                        "column_mapping": {
-                            "query": "${data.query}",
-                            "context": "${data.context}",
-                            "response": "${data.response}"
-                        }
-                    }
+                    # evaluator_config['groundedness'] = {
+                    #     "column_mapping": {
+                    #         "query": "${data.query}",
+                    #         "context": "${data.context}",
+                    #         "response": "${data.response}"
+                    #     }
+                    # }
                 elif eval_name == 'coherence':
                     azure_evaluators['coherence'] = CoherenceEvaluator(
                         model_config=model_config,
@@ -584,6 +614,13 @@ class AzureAIMultiEvaluator(Evaluator):
                         is_reasoning_model=bool(reasoning_deployment),
                         threshold=self.evaluator_configs[eval_name].get('threshold', 3)
                     )
+                elif eval_name == 'qaevaluator':
+                    azure_evaluators['qaevaluator'] = QAEvaluator(
+                        model_config=model_config,
+                        threshold=self.evaluator_configs[eval_name].get('threshold', 3)
+                    )
+                else:
+                    logger.warning(f"Unknown evaluator name: {eval_name}. Skipping.")
             
             # Run Azure AI evaluate() function
             eval_name = f"{self.evaluation_name}-Single"
@@ -653,27 +690,21 @@ class AzureAIBatchEvaluator(Evaluator):
         
     def _parse_evaluator_config(self) -> Dict[str, Dict[str, Any]]:
         """Parse evaluator configuration"""
-        if self.evaluator_name == "azure-ai-combined-four":
+        if self.evaluator_name == "azure-ai-combined-agent-base":
             return {
                 'intent_resolution': {'threshold': 3},
                 'task_adherence': {'threshold': 3},
-                'response_completeness': {'threshold': 3},
-                'groundedness': {'threshold': 3}
+                'response_completeness': {'threshold': 3}
             }
-        elif self.evaluator_name == "azure-ai-combined-agent":
+        elif self.evaluator_name == "azure-ai-combined-agent-full+tool":
             return {
                 'intent_resolution': {'threshold': 3},
                 'task_adherence': {'threshold': 3},
                 'response_completeness': {'threshold': 3},
                 'groundedness': {'threshold': 3},
-                'tool_call_accuracy': {'threshold': 3}
-            }
-        elif self.evaluator_name == "azure-ai-combined-quality":
-            return {
                 'coherence': {'threshold': 3},
                 'fluency': {'threshold': 3},
-                'relevance': {'threshold': 3},
-                'groundedness': {'threshold': 3}
+                'tool_call_accuracy': {'threshold': 3}
             }
         elif self.evaluator_name.startswith("azure-ai-"):
             # Single evaluator
@@ -702,8 +733,8 @@ class AzureAIBatchEvaluator(Evaluator):
         
         # Collect sample data
         sample_data = {
-            "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
-            "response": pred,
+            "query": kwargs.get("query", kwargs.get("question", "")),
+            "response": kwargs.get("response", pred),
             "context": kwargs.get("context", label),
             "ground_truth": label
         }
@@ -868,7 +899,7 @@ class AzureAIBatchEvaluator(Evaluator):
         azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("AOAI_ENDPOINT")
         api_key = os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("AOAI_API_KEY")
         deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME") or os.getenv("AOAI_DEPLOYMENT_NAME")
-        reasoning_deployment = os.getenv("AZURE_OPENAI_REASONING_DEPLOYMENT") or os.getenv("AOAI_REASONING_DEPLOYMENT_NAME")
+        reasoning_deployment = os.getenv("AOAI_REASONING_DEPLOYMENT_NAME")
         api_version = os.getenv("AZURE_OPENAI_API_VERSION") or os.getenv("AOAI_API_VERSION", "2024-10-21")
         
         if not all([azure_endpoint, api_key, deployment_name]):
@@ -918,24 +949,24 @@ class AzureAIBatchEvaluator(Evaluator):
                     is_reasoning_model=bool(reasoning_deployment),
                     threshold=threshold
                 )
-                evaluator_config['response_completeness'] = {
-                    "column_mapping": {
-                        "ground_truth": "${data.ground_truth}",
-                        "response": "${data.response}"
-                    }
-                }
+                # evaluator_config['response_completeness'] = {
+                #     "column_mapping": {
+                #         "ground_truth": "${data.ground_truth}",
+                #         "response": "${data.response}"
+                #     }
+                # }
             elif eval_name == 'groundedness':
                 azure_evaluators['groundedness'] = GroundednessEvaluator(
                     model_config=model_config,
                     threshold=threshold
                 )
-                evaluator_config['groundedness'] = {
-                    "column_mapping": {
-                        "query": "${data.query}",
-                        "context": "${data.context}",
-                        "response": "${data.response}"
-                    }
-                }
+                # evaluator_config['groundedness'] = {
+                #     "column_mapping": {
+                #         "query": "${data.query}",
+                #         "context": "${data.context}",
+                #         "response": "${data.response}"
+                #     }
+                # }
             elif eval_name == 'coherence':
                 azure_evaluators['coherence'] = CoherenceEvaluator(
                     model_config=model_config,
@@ -957,6 +988,13 @@ class AzureAIBatchEvaluator(Evaluator):
                     is_reasoning_model=bool(reasoning_deployment),
                     threshold=threshold
                 )
+            elif eval_name == 'qaevaluator':
+                azure_evaluators['qaevaluator'] = QAEvaluator(
+                    model_config=model_config,
+                    threshold=threshold
+                )
+            else:
+                logger.warning(f"Unknown evaluator name: {eval_name}. Skipping.")
                 
         return azure_evaluators, evaluator_config
     

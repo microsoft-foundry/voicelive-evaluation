@@ -8,11 +8,6 @@ extract_text:
   args:
     extract_key: text
 
-extract_voicelive_combined:
-  class: audio_evals.process.base.JsonExtract
-  args:
-    extract_key: null  # Returns the entire JSON object
-
 extract_query:
   class: audio_evals.process.base.JsonExtract
   args:
@@ -22,6 +17,10 @@ extract_response:
   class: audio_evals.process.base.JsonExtract
   args:
     extract_key: response
+
+passthrough:
+  class: audio_evals.process.passthrough.PassThrough
+  args: {}
 
 speech2text:
   class: audio_evals.process.speech.Speech2text
