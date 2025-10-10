@@ -4,8 +4,8 @@
 # Compatible with Windows, macOS, and Linux
 
 param(
-    [int]$Workers = 5,
-    [int]$Limit = 5,
+    [int]$Workers = 20,
+    [int]$Limit = 1000,
     [switch]$InferenceOnly,          # Only run inference, skip evaluation
     [switch]$EvaluationOnly,         # Only run evaluation, skip inference 
     [string]$InferenceFile = "",     # Path to existing inference results
@@ -256,14 +256,22 @@ function Get-TestSuiteConfig {
         "comprehensive" {
             return @{
                 ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
-                Datasets = @("llama-questions-voicelive", "speech-triviaqa")
+                Datasets = @("llama-questions-voicelive", "speech-triviaqa", "speech-web-questions")
+                Evaluators = @("qa-exist-match", "azure-ai-batch-qaevaluator", "azure-ai-batch-agent-base")
+                Description = "Full comprehensive test (all models, multiple datasets, main evaluators)"
+            }
+        }     
+        "repeat" {
+            return @{
+                ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
+                Datasets = @("speech-web-questions")
                 Evaluators = @("qa-exist-match", "azure-ai-batch-qaevaluator", "azure-ai-batch-agent-base")
                 Description = "Full comprehensive test (all models, multiple datasets, main evaluators)"
             }
         }        
         "wer" {
             return @{
-                ModelConfigs = @("VoiceLive-gpt-realtime") #, "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
+                ModelConfigs = @("VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini") #("VoiceLive-gpt-realtime") #, (
                 Datasets = @("librispeech-test-clean")
                 Evaluators = @("wer")
                 Description = "WER Test"
