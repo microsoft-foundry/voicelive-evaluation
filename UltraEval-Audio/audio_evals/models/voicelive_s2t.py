@@ -328,6 +328,7 @@ class BasicVoiceAssistant:
         self.audio_processor: Optional[AudioProcessor] = None
         self.transcript: str = ""
         self.inputtranscript: str = ""
+        self.sessionID: str = ""
         self.barge_in: bool = False  # Track if user interrupted the assistant
         self.assistant_responding: bool = False  # Track if assistant is currently responding
 
@@ -428,6 +429,8 @@ class BasicVoiceAssistant:
         ap = self.audio_processor
         conn = self.connection
         if event.type == ServerEventType.SESSION_UPDATED:
+            logger.info(f"Session ready: {event.session.id}")
+            self.sessionID = event.session.id
             await ap.start_capture()
         elif event.type == ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
             # Check if this is a barge-in (user interrupting assistant response)
@@ -604,6 +607,7 @@ class VoiceLiveS2TModel(APIModel):
         )
         text = ""
         input_text = ""
+        sessionID = ""
         barge_in = False  # Initialize barge_in flag
         try:
             # run assistant (will block this worker thread) with improved error handling
@@ -612,6 +616,7 @@ class VoiceLiveS2TModel(APIModel):
                 run_async_in_thread(assistant.start())
                 text = assistant.transcript
                 input_text = assistant.inputtranscript
+                sessionID = assistant.sessionID
                 barge_in = assistant.barge_in
                 logger.info("VoiceLive assistant completed successfully")
                         
@@ -652,7 +657,8 @@ class VoiceLiveS2TModel(APIModel):
                 "query": input_text,    # Primary key for evaluators
                 "response": text, # Legacy key for backward compatibility
                 "context": "", # Conversation history for context-aware evaluators
-                "barge_in": barge_in  # Whether user interrupted the assistant                
+                "barge_in": barge_in,  # Whether user interrupted the assistant                
+                "session_id": sessionID  # Unique session identifier
             }
             result = json.dumps(result, ensure_ascii=False)
             result = result.encode("utf-8", errors="replace").decode("utf-8")

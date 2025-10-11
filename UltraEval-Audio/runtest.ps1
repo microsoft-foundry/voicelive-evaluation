@@ -4,12 +4,12 @@
 # Compatible with Windows, macOS, and Linux
 
 param(
-    [int]$Workers = 20,
-    [int]$Limit = 1000,
+    [int]$Workers = 1,
+    [int]$Limit = 1,
     [switch]$InferenceOnly,          # Only run inference, skip evaluation
     [switch]$EvaluationOnly,         # Only run evaluation, skip inference 
     [string]$InferenceFile = "",     # Path to existing inference results
-    [string]$TestSuite = "comprehensive",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
+    [string]$TestSuite = "inference-qa-avaluation",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
     [string[]]$ModelConfigs = @(),   # Override model configs: e.g., @("GPT4o", "GPT4o-Mini")
     [string[]]$Datasets = @(),       # Override datasets: e.g., @("llama-questions", "speech-triviaqa")
     [string[]]$Evaluators = @(),     # Override evaluators: e.g., @("azure-ai-batch-qaevaluator", "em")
@@ -276,12 +276,12 @@ function Get-TestSuiteConfig {
                 Evaluators = @("wer")
                 Description = "WER Test"
             }
-        }        
-        "inference-only" {
+        }
+        "inference-qa-avaluation" {
             return @{
-                ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
-                Datasets = @("llama-questions-voicelive", "speech-triviaqa")
-                Evaluators = @("dump")  # Only inference, no evaluation
+                ModelConfigs = @("VoiceLive-gpt-realtime")
+                Datasets = @("llama-questions-voicelive")
+                Evaluators = @("qa-exist-match")  # Only inference, no evaluation
                 Description = "Inference-only test for later evaluation"
             }
         }
