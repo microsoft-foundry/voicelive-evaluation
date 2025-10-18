@@ -64,6 +64,13 @@ class PracticeWER(AggPolicy):
 class ACC(AggPolicy):
 
     def _agg(self, score_detail: List[Dict[str, any]]) -> Dict[str, float]:
+        # Check if evaluator provides a 'match' field (for QA evaluators)
+        if score_detail and 'match' in score_detail[0]:
+            # Use the match field directly (0 or 1) for accuracy calculation
+            matches = [item["match"] for item in score_detail]
+            return {"acc(%)": sum(matches) / len(matches) * 100}
+        
+        # Otherwise, compare pred vs ref directly (for simple classification tasks)
         predl, refl = [str(item["pred"]) for item in score_detail], [
             str(item["ref"]) for item in score_detail
         ]
