@@ -46,7 +46,7 @@ class QAExactMatchEvaluator(Evaluator):
 
         return {
             "match": 1 if match else 0,
-            "pred": label if match else pred,
+            "pred": pred,
             "ref": label,
         }
 
@@ -106,6 +106,6 @@ class QAExistMatchEvaluator(Evaluator):
 
         return {
             "match": 1 if match else 0,
-            "pred": label if match else pred,
+            "pred": pred,
             "ref": label,
         }
