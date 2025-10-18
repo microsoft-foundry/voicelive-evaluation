@@ -4,12 +4,12 @@
 # Compatible with Windows, macOS, and Linux
 
 param(
-    [int]$Workers = 1,
-    [int]$Limit = 1,
+    [int]$Workers = 2,
+    [int]$Limit = 2,
     [switch]$InferenceOnly,          # Only run inference, skip evaluation
     [switch]$EvaluationOnly,         # Only run evaluation, skip inference 
     [string]$InferenceFile = "",     # Path to existing inference results
-    [string]$TestSuite = "inference-qa-avaluation",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
+    [string]$TestSuite = "firsteval",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
     [string[]]$ModelConfigs = @(),   # Override model configs: e.g., @("GPT4o", "GPT4o-Mini")
     [string[]]$Datasets = @(),       # Override datasets: e.g., @("llama-questions", "speech-triviaqa")
     [string[]]$Evaluators = @(),     # Override evaluators: e.g., @("azure-ai-batch-qaevaluator", "em")
@@ -247,10 +247,10 @@ function Get-TestSuiteConfig {
     switch ($SuiteName) {
         "firsteval" {
             return @{
-                ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
+                ModelConfigs = @("VoiceLive-gpt-realtime")
                 Datasets = @("llama-questions-voicelive")
                 Evaluators = @("qa-exist-match", "azure-ai-batch-qaevaluator", "azure-ai-batch-agent-base")
-                Description = "Full comprehensive test (all models, multiple datasets, main evaluators)"
+                Description = "Simple test with one model, one dataset, multiple evaluators"
             }
         }
         "comprehensive" {
@@ -341,10 +341,19 @@ foreach ($modelConfig in $modelConfigs) {
     if (!(Test-Path $modelResultsDir)) {
         New-Item -ItemType Directory -Path $modelResultsDir -Force | Out-Null
     }
-    
+
+    # Store original evaluation name environment variable
+    $evalNameEnvVar = "AZURE_AI_EVALUATION_NAME"
+    $originalEvalName = [Environment]::GetEnvironmentVariable($evalNameEnvVar)
     foreach ($dataset in $datasets) {
         Write-Host "  📊 Testing dataset: $($dataset.Name) - $($dataset.Description)" -ForegroundColor Magenta
         
+        # Append dataset name to evaluation name environment variable
+        $newEvalName = "$originalEvalName$($dataset.Name)"
+        [Environment]::SetEnvironmentVariable($evalNameEnvVar, $newEvalName, "Process")
+        Set-Item -Path "env:$evalNameEnvVar" -Value $newEvalName
+        Write-Host "    🔧 Set $evalNameEnvVar = $newEvalName" -ForegroundColor Gray
+
         # Create dataset directory under model config (cross-platform)
         $datasetDir = Join-Path $modelResultsDir $dataset.Name
         if (!(Test-Path $datasetDir)) {

@@ -251,11 +251,20 @@ class AzureAIFoundryEvaluator(Evaluator):
             logger.info(f"Running Azure AI evaluate() with {self.metric_type} evaluator")
             
             # Use Azure AI's evaluate() function for consistent results
+            # Generate output path using evaluation name in proper output directory
+            # Get output directory from kwargs if provided by pipeline, otherwise use default
+            pipeline_output_dir = kwargs.get('output_directory', 'output')
+            output_dir = os.path.join(pipeline_output_dir, self.metric_type)
+            os.makedirs(output_dir, exist_ok=True)
+            output_file_path = os.path.join(output_dir, f"{self.evaluation_name or 'evaluation'}_results.json")
+            logger.info(f"Evaluation results will be saved to: {output_file_path}")
+            
             response = evaluate(
                 data=temp_file_path,
                 evaluation_name=self.evaluation_name,
                 evaluators={self.metric_type: self.evaluator},
-                azure_ai_project=self.azure_ai_project if self.upload_to_project else None
+                azure_ai_project=self.azure_ai_project if self.upload_to_project else None,
+                output_path=output_file_path
             )
             
             logger.info(f"Azure AI evaluate() completed successfully")
@@ -424,7 +433,7 @@ class AzureAIFoundryEvaluator(Evaluator):
                 data=temp_file,
                 evaluation_name=self.evaluation_name,
                 evaluators={self.metric_type: evaluator_instance},
-                azure_ai_project=self.azure_ai_project,
+                azure_ai_project=self.azure_ai_project if self.upload_to_project else None,
                 output_path=output_path
             )
             
@@ -611,7 +620,7 @@ class AzureAIMultiEvaluator(Evaluator):
                 elif eval_name == 'tool_call_accuracy':
                     azure_evaluators['tool_call_accuracy'] = ToolCallAccuracyEvaluator(
                         model_config=reasoning_config,
-                        is_reasoning_model=bool(reasoning_deployment),
+                        is_reasoning_model=bool(reasoning_deployment_name),
                         threshold=self.evaluator_configs[eval_name].get('threshold', 3)
                     )
                 elif eval_name == 'qaevaluator':
@@ -628,13 +637,22 @@ class AzureAIMultiEvaluator(Evaluator):
             
             azure_ai_project = self.azure_ai_project if self.upload_enabled else None
             
+            # Generate output path using evaluation name in proper output directory
+            # Get output directory from kwargs if provided by pipeline, otherwise use default
+            pipeline_output_dir = kwargs.get('output_directory', 'output')
+            output_dir = os.path.join(pipeline_output_dir, "multi_evaluation")
+            os.makedirs(output_dir, exist_ok=True)
+            output_file_path = os.path.join(output_dir, f"{eval_name or 'combined_evaluation'}_results.json")
+            logger.info(f"Combined evaluation results will be saved to: {output_file_path}")
+            
             response = evaluate(
                 data=temp_file_path,
                 evaluation_name=eval_name,
                 description=f"Combined Azure AI Foundry evaluation with {len(azure_evaluators)} metrics: {', '.join(azure_evaluators.keys())}",
                 evaluators=azure_evaluators,
                 evaluator_config=evaluator_config,
-                azure_ai_project=azure_ai_project
+                azure_ai_project=azure_ai_project,
+                output_path=output_file_path
             )
             
             logger.info(f"Azure AI evaluate() completed successfully")
@@ -672,7 +690,7 @@ class AzureAIMultiEvaluator(Evaluator):
 class AzureAIBatchEvaluator(Evaluator):
     """Batch-aware evaluator that collects samples and evaluates them together"""
     
-    def __init__(self, evaluator_name: str = 'azure-ai-combined-four', batch_size: int = 0, **kwargs):
+    def __init__(self, evaluator_name: str = 'azure-ai-combined-four', batch_size: int = 0, evaluation_name: Optional[str] = None, **kwargs):
         super().__init__()
         self.evaluator_name = evaluator_name
         self.batch_samples = []
@@ -682,11 +700,20 @@ class AzureAIBatchEvaluator(Evaluator):
         self.upload_to_project = os.getenv("AZURE_AI_FOUNDRY_UPLOAD", "false").lower() == "true"
         self.dataset_size_estimated = False
         self.max_azure_evaluate_size = 1000  # Conservative limit for Azure AI evaluate()
+        self.output_directory = "output"  # Default, will be updated by finalize_evaluation
+        
+        # Set evaluation name with proper precedence
+        self.evaluation_name = (
+            evaluation_name or 
+            os.getenv("AZURE_AI_EVALUATION_NAME") or 
+            f"VoiceLive-{self.evaluator_name}-Batch"
+        )
         
         # Parse evaluator configuration
         self.evaluators_config = self._parse_evaluator_config()
         
         logger.info(f"Initializing AzureAIBatchEvaluator for {self.evaluator_name} with initial batch size {self.batch_size}")
+        logger.info(f"Batch evaluation name: {self.evaluation_name}")
         
     def _parse_evaluator_config(self) -> Dict[str, Dict[str, Any]]:
         """Parse evaluator configuration"""
@@ -787,17 +814,21 @@ class AzureAIBatchEvaluator(Evaluator):
             try:
                 # Check for project upload configuration
                 azure_ai_project = os.getenv("AZURE_AI_PROJECT") if self.upload_to_project else None
-                evaluation_name = os.getenv("AZURE_AI_EVALUATION_NAME", "VoiceLive-Batch-Evaluation")
                 
                 logger.info(f"Running Azure AI batch evaluation on {len(self.batch_samples)} samples")
+                
+                # Generate output path for batch evaluation results in same directory as recorder
+                batch_output_file = os.path.join(self.output_directory, f"{self.evaluation_name}-Batch-{len(self.batch_samples)}_results.json")
+                logger.info(f"Batch evaluation results will be saved to: {batch_output_file}")
                 
                 # Run Azure AI evaluate() function
                 response = evaluate(
                     data=temp_file_path,
-                    evaluation_name=f"{evaluation_name}-Batch-{len(self.batch_samples)}",
+                    evaluation_name=f"{self.evaluation_name}-Batch-{len(self.batch_samples)}",
                     evaluators=azure_evaluators,
                     evaluator_config=evaluator_config,
-                    azure_ai_project=azure_ai_project
+                    azure_ai_project=azure_ai_project if self.upload_to_project else None,
+                    output_path=batch_output_file
                 )
                 
                 if response.get("studio_url"):
@@ -831,8 +862,11 @@ class AzureAIBatchEvaluator(Evaluator):
             # Return placeholder results for all samples
             return [{"error": str(e), "batch_failed": True} for _ in self.batch_samples]
     
-    def finalize_evaluation(self, recorder=None):
+    def finalize_evaluation(self, recorder=None, output_directory: str = "output", **kwargs):
         """Process any remaining samples in the batch and write batch results to JSONL"""
+        # Store output directory for use in _process_batch
+        self.output_directory = output_directory
+        
         if self.batch_samples:
             # If batch size was 0 or never set, process all collected samples at once
             if self.batch_size == 0 or not self.dataset_size_estimated:

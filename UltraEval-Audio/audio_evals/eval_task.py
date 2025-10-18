@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import traceback
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from functools import lru_cache
@@ -67,7 +68,11 @@ class EvalTask:
         if "eval_info" in kwargs and "eval" in kwargs["eval_info"]:
             score = kwargs["eval_info"]["eval"]
         else:
-            score = self.evaluator(output, reference, **kwargs)
+            # Add output directory from recorder path for evaluators to use
+            output_directory = os.path.dirname(self.recorder.name)
+            kwargs_with_output = kwargs.copy()
+            kwargs_with_output['output_directory'] = output_directory
+            score = self.evaluator(output, reference, **kwargs_with_output)
         self.recorder.add({"type": "eval", "id": idx, "data": score})
         return score, output
 
@@ -124,10 +129,28 @@ class EvalTask:
             item for item in answers if item is not None
         ]
         
-                # Finalize any batch evaluators after all samples are processed
+        # Finalize any batch evaluators after all samples are processed
         if hasattr(self.evaluator, 'finalize_evaluation'):
             logger.info("Finalizing batch evaluator...")
-            self.evaluator.finalize_evaluation(self.recorder)
+            # Check method signature to call with appropriate parameters
+            import inspect
+            sig = inspect.signature(self.evaluator.finalize_evaluation)
+            params = list(sig.parameters.keys())
+            
+            if 'output_path' in params:
+                # AzureAIFoundryEvaluator signature: finalize_evaluation(output_path=None)
+                # Use the same directory as the recorder for consistency
+                output_dir = os.path.dirname(self.recorder.name)
+                output_path = os.path.join(output_dir, f"{os.path.splitext(os.path.basename(self.recorder.name))[0]}_evaluation_results.json")
+                self.evaluator.finalize_evaluation(output_path=output_path)
+            elif 'recorder' in params:
+                # AzureAIBatchEvaluator signature: finalize_evaluation(recorder=None, output_directory=...)
+                # Use the same directory as the recorder for consistency
+                output_dir = os.path.dirname(self.recorder.name)
+                self.evaluator.finalize_evaluation(recorder=self.recorder, output_directory=output_dir)
+            else:
+                # Fallback for any other signature
+                self.evaluator.finalize_evaluation()
         
         merge_data4view(
             quiz, self.recorder.name, self.recorder.name.replace(".jsonl", ".xlsx")
