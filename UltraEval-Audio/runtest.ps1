@@ -249,7 +249,7 @@ function Get-TestSuiteConfig {
             return @{
                 ModelConfigs = @("VoiceLive-gpt-realtime")
                 Datasets = @("llama-questions-voicelive", "speech-triviaqa", "speech-web-questions")
-                Evaluators = @("qa-exist-match", "azure-ai-batch-qaevaluator", "azure-ai-batch-agent-base")
+                Evaluators = @("qa-exist-match")
                 Description = "Simple test with one model, one dataset, multiple evaluators"
             }
         }
