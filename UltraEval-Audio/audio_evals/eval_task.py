@@ -68,10 +68,11 @@ class EvalTask:
         if "eval_info" in kwargs and "eval" in kwargs["eval_info"]:
             score = kwargs["eval_info"]["eval"]
         else:
-            # Add output directory from recorder path for evaluators to use
+            # Add output directory and recorder filename from recorder path for evaluators to use
             output_directory = os.path.dirname(self.recorder.name)
             kwargs_with_output = kwargs.copy()
             kwargs_with_output['output_directory'] = output_directory
+            kwargs_with_output['recorder_filename'] = self.recorder.name
             score = self.evaluator(output, reference, **kwargs_with_output)
         self.recorder.add({"type": "eval", "id": idx, "data": score})
         return score, output
@@ -147,7 +148,7 @@ class EvalTask:
                 # AzureAIBatchEvaluator signature: finalize_evaluation(recorder=None, output_directory=...)
                 # Use the same directory as the recorder for consistency
                 output_dir = os.path.dirname(self.recorder.name)
-                self.evaluator.finalize_evaluation(recorder=self.recorder, output_directory=output_dir)
+                self.evaluator.finalize_evaluation(recorder=self.recorder, output_directory=output_dir, recorder_filename=self.recorder.name)
             else:
                 # Fallback for any other signature
                 self.evaluator.finalize_evaluation()

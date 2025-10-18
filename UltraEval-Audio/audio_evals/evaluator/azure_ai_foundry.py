@@ -226,6 +226,28 @@ class AzureAIFoundryEvaluator(Evaluator):
         
         logger.info(f"Initialized {self.metric_type} evaluator with threshold {self.threshold}")
     
+    def _process_label(self, label) -> str:
+        """
+        Process label to handle both string and list formats.
+        If label is a list of acceptable answers, join them with ' OR ' for better evaluation context.
+        
+        Args:
+            label: Either a string or list of acceptable answer strings
+            
+        Returns:
+            String representation suitable for Azure AI evaluation
+        """
+        if isinstance(label, list):
+            if len(label) == 0:
+                return ""
+            elif len(label) == 1:
+                return str(label[0])
+            else:
+                # Join multiple acceptable answers with OR for context
+                # This helps the AI evaluator understand there are multiple valid answers
+                return " OR ".join([str(item) for item in label])
+        return str(label)
+    
     def _eval(self, pred: str, label: str, **kwargs) -> Dict[str, Any]:
         """
         Evaluate prediction against reference using Azure AI evaluation.
@@ -251,12 +273,22 @@ class AzureAIFoundryEvaluator(Evaluator):
             logger.info(f"Running Azure AI evaluate() with {self.metric_type} evaluator")
             
             # Use Azure AI's evaluate() function for consistent results
-            # Generate output path using evaluation name in proper output directory
+            # Generate output path using same pattern as recorder: timestamp_evaluatorname_evaluationname_results.json
             # Get output directory from kwargs if provided by pipeline, otherwise use default
             pipeline_output_dir = kwargs.get('output_directory', 'output')
-            output_dir = os.path.join(pipeline_output_dir, self.metric_type)
-            os.makedirs(output_dir, exist_ok=True)
-            output_file_path = os.path.join(output_dir, f"{self.evaluation_name or 'evaluation'}_results.json")
+            
+            # Extract base filename (timestamp_evaluatorname) from recorder path if available
+            recorder_filename = kwargs.get('recorder_filename', '')
+            if recorder_filename:
+                # Remove .jsonl extension to get base name
+                base_name = os.path.splitext(os.path.basename(recorder_filename))[0]
+                output_file_path = os.path.join(pipeline_output_dir, f"{base_name}_{self.evaluation_name}_results.json")
+            else:
+                # Fallback to subdirectory approach
+                output_dir = os.path.join(pipeline_output_dir, self.metric_type)
+                os.makedirs(output_dir, exist_ok=True)
+                output_file_path = os.path.join(output_dir, f"{self.evaluation_name}_results.json")
+            
             logger.info(f"Evaluation results will be saved to: {output_file_path}")
             
             response = evaluate(
@@ -302,6 +334,9 @@ class AzureAIFoundryEvaluator(Evaluator):
     def _prepare_eval_data(self, pred: str, label: str, **kwargs) -> Dict[str, Any]:
         """Prepare evaluation data based on the metric type."""
         
+        # Handle list of acceptable answers by joining them or picking first one
+        ground_truth_text = self._process_label(label)
+        
         # Base data required for all evaluators
         eval_data = {
             "response": str(pred),
@@ -312,7 +347,7 @@ class AzureAIFoundryEvaluator(Evaluator):
             # Groundedness requires query and context
             eval_data.update({
                 "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
-                "context": kwargs.get("context", str(label))
+                "context": kwargs.get("context", ground_truth_text)
             })
         elif self.metric_type in ["coherence", "fluency"]:
             # Coherence and fluency only need the response
@@ -339,7 +374,13 @@ class AzureAIFoundryEvaluator(Evaluator):
             # Response completeness needs query, response, and ground truth
             eval_data.update({
                 "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
-                "ground_truth": kwargs.get("ground_truth", str(label))
+                "ground_truth": kwargs.get("ground_truth", ground_truth_text)
+            })
+        elif self.metric_type == "qaevaluator":
+            # QA evaluator needs query, response, and ground truth
+            eval_data.update({
+                "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
+                "ground_truth": ground_truth_text
             })
         
         return eval_data
@@ -501,6 +542,26 @@ class AzureAIMultiEvaluator(Evaluator):
                 logger.warning("AZURE_AI_FOUNDRY_UPLOAD=true but AZURE_AI_PROJECT not set. Upload disabled.")
                 self.upload_enabled = False
     
+    def _process_label(self, label) -> str:
+        """
+        Process label to handle both string and list formats.
+        If label is a list of acceptable answers, join them with ' OR ' for better evaluation context.
+        
+        Args:
+            label: Either a string or list of acceptable answer strings
+            
+        Returns:
+            String representation suitable for Azure AI evaluation
+        """
+        if isinstance(label, list):
+            if len(label) == 0:
+                return ""
+            elif len(label) == 1:
+                return str(label[0])
+            else:
+                # Join multiple acceptable answers with OR for context
+                return " OR ".join([str(item) for item in label])
+        return str(label)
     
     def _eval(self, pred: str, label: str, **kwargs) -> Dict[str, Any]:
         """Evaluate using Azure AI's evaluate() function with all configured evaluators.
@@ -520,13 +581,16 @@ class AzureAIMultiEvaluator(Evaluator):
         logger.info(f"Running Azure AI evaluate() with {len(self.evaluator_configs)} evaluators: {list(self.evaluator_configs.keys())}")
         
         try:
+            # Handle list of acceptable answers
+            ground_truth_text = self._process_label(label)
+            
             # Create temporary file with single data point
             with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as temp_file:
                 data_entry = {
                     "query": kwargs.get("query", kwargs.get("question", "")),
                     "response": kwargs.get("response", pred),
-                    "context": kwargs.get("context", label),
-                    "ground_truth": label
+                    "context": kwargs.get("context", ground_truth_text),
+                    "ground_truth": ground_truth_text
                 }
                 temp_file.write(json.dumps(data_entry) + '\n')
                 temp_file_path = temp_file.name
@@ -640,9 +704,20 @@ class AzureAIMultiEvaluator(Evaluator):
             # Generate output path using evaluation name in proper output directory
             # Get output directory from kwargs if provided by pipeline, otherwise use default
             pipeline_output_dir = kwargs.get('output_directory', 'output')
-            output_dir = os.path.join(pipeline_output_dir, "multi_evaluation")
-            os.makedirs(output_dir, exist_ok=True)
-            output_file_path = os.path.join(output_dir, f"{eval_name or 'combined_evaluation'}_results.json")
+            
+            # Extract base filename from recorder if available to maintain consistent naming
+            recorder_filename = kwargs.get('recorder_filename')
+            if recorder_filename:
+                # Extract base name (e.g., "20250116_123045_azure-ai-foundry" from full path)
+                base_name = os.path.splitext(os.path.basename(recorder_filename))[0]
+                # Append evaluation name to maintain pattern: timestamp_evaluatorname_evaluationname_results.json
+                output_file_path = os.path.join(pipeline_output_dir, f"{base_name}_{eval_name}_results.json")
+            else:
+                # Fallback to subdirectory approach if recorder filename not available
+                output_dir = os.path.join(pipeline_output_dir, "multi_evaluation")
+                os.makedirs(output_dir, exist_ok=True)
+                output_file_path = os.path.join(output_dir, f"{eval_name or 'combined_evaluation'}_results.json")
+            
             logger.info(f"Combined evaluation results will be saved to: {output_file_path}")
             
             response = evaluate(
@@ -740,6 +815,27 @@ class AzureAIBatchEvaluator(Evaluator):
         else:
             raise ValueError(f"Unknown evaluator config: {self.evaluator_name}")
     
+    def _process_label(self, label) -> str:
+        """
+        Process label to handle both string and list formats.
+        If label is a list of acceptable answers, join them with ' OR ' for better evaluation context.
+        
+        Args:
+            label: Either a string or list of acceptable answer strings
+            
+        Returns:
+            String representation suitable for Azure AI evaluation
+        """
+        if isinstance(label, list):
+            if len(label) == 0:
+                return ""
+            elif len(label) == 1:
+                return str(label[0])
+            else:
+                # Join multiple acceptable answers with OR for context
+                return " OR ".join([str(item) for item in label])
+        return str(label)
+    
     def _eval(self, pred: str, label: str, **kwargs) -> Dict[str, Any]:
         """
         Collect sample for batch evaluation. Returns placeholder result.
@@ -758,12 +854,15 @@ class AzureAIBatchEvaluator(Evaluator):
                 logger.info(f"Set default batch size to {self.batch_size}")
             self.dataset_size_estimated = True
         
+        # Handle list of acceptable answers
+        ground_truth_text = self._process_label(label)
+        
         # Collect sample data
         sample_data = {
             "query": kwargs.get("query", kwargs.get("question", "")),
             "response": kwargs.get("response", pred),
-            "context": kwargs.get("context", label),
-            "ground_truth": label
+            "context": kwargs.get("context", ground_truth_text),
+            "ground_truth": ground_truth_text
         }
         
         # Store sample metadata for result mapping
@@ -771,7 +870,8 @@ class AzureAIBatchEvaluator(Evaluator):
         sample_metadata = {
             "id": sample_id,
             "pred": pred,
-            "label": label,
+            "label": label,  # Keep original label for reference
+            "ground_truth_text": ground_truth_text,  # Store processed version too
             "kwargs": kwargs
         }
         
@@ -818,7 +918,17 @@ class AzureAIBatchEvaluator(Evaluator):
                 logger.info(f"Running Azure AI batch evaluation on {len(self.batch_samples)} samples")
                 
                 # Generate output path for batch evaluation results in same directory as recorder
-                batch_output_file = os.path.join(self.output_directory, f"{self.evaluation_name}-Batch-{len(self.batch_samples)}_results.json")
+                # Extract base filename from recorder if available to maintain consistent naming
+                if hasattr(self, 'recorder_filename') and self.recorder_filename:
+                    # Extract base name (e.g., "20250116_123045_azure-ai-foundry" from full path)
+                    base_name = os.path.splitext(os.path.basename(self.recorder_filename))[0]
+                    # Append evaluation name to maintain pattern: timestamp_evaluatorname_evaluationname_results.json
+                    eval_name = f"{self.evaluation_name}-Batch-{len(self.batch_samples)}"
+                    batch_output_file = os.path.join(self.output_directory, f"{base_name}_{eval_name}_results.json")
+                else:
+                    # Fallback to old naming pattern if recorder filename not available
+                    batch_output_file = os.path.join(self.output_directory, f"{self.evaluation_name}-Batch-{len(self.batch_samples)}_results.json")
+                
                 logger.info(f"Batch evaluation results will be saved to: {batch_output_file}")
                 
                 # Run Azure AI evaluate() function
@@ -862,10 +972,11 @@ class AzureAIBatchEvaluator(Evaluator):
             # Return placeholder results for all samples
             return [{"error": str(e), "batch_failed": True} for _ in self.batch_samples]
     
-    def finalize_evaluation(self, recorder=None, output_directory: str = "output", **kwargs):
+    def finalize_evaluation(self, recorder=None, output_directory: str = "output", recorder_filename: str = None, **kwargs):
         """Process any remaining samples in the batch and write batch results to JSONL"""
-        # Store output directory for use in _process_batch
+        # Store output directory and recorder filename for use in _process_batch
         self.output_directory = output_directory
+        self.recorder_filename = recorder_filename
         
         if self.batch_samples:
             # If batch size was 0 or never set, process all collected samples at once

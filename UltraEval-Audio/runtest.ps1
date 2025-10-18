@@ -248,10 +248,18 @@ function Get-TestSuiteConfig {
         "firsteval" {
             return @{
                 ModelConfigs = @("VoiceLive-gpt-realtime")
-                Datasets = @("llama-questions-voicelive")
+                Datasets = @("llama-questions-voicelive", "speech-triviaqa", "speech-web-questions")
                 Evaluators = @("qa-exist-match", "azure-ai-batch-qaevaluator", "azure-ai-batch-agent-base")
                 Description = "Simple test with one model, one dataset, multiple evaluators"
             }
+        }
+        "llama-test" {
+            return @{
+                ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
+                Datasets = @("llama-questions-voicelive")
+                Evaluators = @("qa-exist-match", "azure-ai-batch-qaevaluator", "azure-ai-batch-agent-base")
+                Description = "Full test on llama-questions-voicelive dataset"
+            }   
         }
         "comprehensive" {
             return @{
