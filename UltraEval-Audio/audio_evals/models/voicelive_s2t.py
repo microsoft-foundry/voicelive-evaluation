@@ -342,7 +342,8 @@ class BasicVoiceAssistant:
             async with connect(
                 endpoint=self.endpoint, 
                 credential=self.credential, 
-                model=self.model
+                model=self.model,
+                query={"debug": "on"}
             ) as conn:
                 self.connection = conn
                 
@@ -395,7 +396,9 @@ class BasicVoiceAssistant:
         turn_detection_config = ServerVad(
             threshold=0.5,
             prefix_padding_ms=300,
-            silence_duration_ms=500)
+            silence_duration_ms=500,
+            interrupt_response=False if os.getenv("VOICELIVE_INTERRUPT_RESPONSE").lower() == "false" else True
+        )
 
         # Create strongly typed session configuration with enhanced options
         session_config = RequestSession(
@@ -606,7 +609,7 @@ class VoiceLiveS2TModel(APIModel):
             wav_path=padded_wav_path, reply_wav_path=reply_wav_path
         )
         text = ""
-        input_text = ""
+        transcript_text = ""
         sessionID = ""
         barge_in = False  # Initialize barge_in flag
         try:
@@ -615,7 +618,7 @@ class VoiceLiveS2TModel(APIModel):
                 logger.info("Starting VoiceLive assistant...")
                 run_async_in_thread(assistant.start())
                 text = assistant.transcript
-                input_text = assistant.inputtranscript
+                transcript_text = assistant.inputtranscript
                 sessionID = assistant.sessionID
                 barge_in = assistant.barge_in
                 logger.info("VoiceLive assistant completed successfully")
@@ -627,7 +630,7 @@ class VoiceLiveS2TModel(APIModel):
                 logger.error(f"VoiceLive I/O error (possibly Windows completion port issue): {oe}")
                 # Don't re-raise OSError as it might be recoverable
                 text = ""
-                input_text = ""
+                transcript_text = ""
                 barge_in = False
             except Exception as e:
                 logger.exception(f"VoiceLive assistant failed: {e}")
@@ -645,16 +648,16 @@ class VoiceLiveS2TModel(APIModel):
             
             # Sanitize texts to ensure valid UTF-8 encoding
             # text = sanitize_text_for_utf8(text).strip()
-            # input_text = sanitize_text_for_utf8(input_text).strip()
+            # transcript_text = sanitize_text_for_utf8(transcript_text).strip()
             # text = text.encode('utf-8', errors='replace').decode('utf-8')
-            # input_text = input_text.encode('utf-8', errors='replace').decode('utf-8')
+            # transcript_text = transcript_text.encode('utf-8', errors='replace').decode('utf-8')
             text = text.strip()
-            input_text = input_text.strip()
-            
+            transcript_text = transcript_text.strip()
+
             # Create result with evaluator-friendly key names
             result: str = {
                 "audio": reply_wav_path, 
-                "query": input_text,    # Primary key for evaluators
+                "transcript": transcript_text,    # Primary key for evaluators
                 "response": text, # Legacy key for backward compatibility
                 "context": "", # Conversation history for context-aware evaluators
                 "barge_in": barge_in,  # Whether user interrupted the assistant                

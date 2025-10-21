@@ -284,10 +284,13 @@ class AzureAIFoundryEvaluator(Evaluator):
                 base_name = os.path.splitext(os.path.basename(recorder_filename))[0]
                 output_file_path = os.path.join(pipeline_output_dir, f"{base_name}_{self.evaluation_name}_results.json")
             else:
-                # Fallback to subdirectory approach
+                # Fallback to subdirectory approach - only create directory in this fallback case
                 output_dir = os.path.join(pipeline_output_dir, self.metric_type)
                 os.makedirs(output_dir, exist_ok=True)
                 output_file_path = os.path.join(output_dir, f"{self.evaluation_name}_results.json")
+            
+            # Ensure parent directory exists (Azure AI SDK requires it)
+            os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
             
             logger.info(f"Evaluation results will be saved to: {output_file_path}")
             
@@ -337,49 +340,62 @@ class AzureAIFoundryEvaluator(Evaluator):
         # Handle list of acceptable answers by joining them or picking first one
         ground_truth_text = self._process_label(label)
         
+        # Extract response text from pred
+        # If pred is a dict (from VoiceLive with passthrough), extract the response field
+        # Otherwise, use pred as-is (string response)
+        if isinstance(pred, dict):
+            response_text = pred.get("response", str(pred))
+        else:
+            response_text = str(pred)
+        
+        # Get query from dataset fields (standardized via col_aliases to 'question')
+        # Priority: Question (capital for raw datasets) → question (lowercase standard) → query (fallback)
+        # Datasets should use col_aliases to map their question fields to 'question' for consistency
+        query_text = kwargs.get("Question", kwargs.get("question", kwargs.get("query", "")))
+        
         # Base data required for all evaluators
         eval_data = {
-            "response": str(pred),
+            "response": response_text,
         }
         
         # Add metric-specific data
         if self.metric_type == "groundedness":
             # Groundedness requires query and context
             eval_data.update({
-                "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
+                "query": query_text,
                 "context": kwargs.get("context", ground_truth_text)
             })
         elif self.metric_type in ["coherence", "fluency"]:
             # Coherence and fluency only need the response
-            eval_data["query"] = kwargs.get("query", kwargs.get("question", kwargs.get("input_text", "")))
+            eval_data["query"] = query_text
         elif self.metric_type == "relevance":
             # Relevance needs query and response
-            eval_data["query"] = kwargs.get("query", kwargs.get("question", kwargs.get("input_text", "")))
+            eval_data["query"] = query_text
         elif self.metric_type == "intent_resolution":
             # Intent resolution needs query and response
-            eval_data["query"] = kwargs.get("query", kwargs.get("question", kwargs.get("input_text", "")))
+            eval_data["query"] = query_text
         elif self.metric_type == "tool_call_accuracy":
             # Tool call accuracy needs query, response, and tools configuration
             eval_data.update({
-                "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
+                "query": query_text,
                 "tools": kwargs.get("tools", [])
             })
         elif self.metric_type == "task_adherence":
             # Task adherence needs query, response, and system message
             eval_data.update({
-                "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
+                "query": query_text,
                 "system_message": kwargs.get("system_message", kwargs.get("system", ""))
             })
         elif self.metric_type == "response_completeness":
             # Response completeness needs query, response, and ground truth
             eval_data.update({
-                "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
+                "query": query_text,
                 "ground_truth": kwargs.get("ground_truth", ground_truth_text)
             })
         elif self.metric_type == "qaevaluator":
             # QA evaluator needs query, response, and ground truth
             eval_data.update({
-                "query": kwargs.get("query", kwargs.get("question", kwargs.get("input_text", ""))),
+                "query": query_text,
                 "ground_truth": ground_truth_text
             })
         
@@ -584,11 +600,22 @@ class AzureAIMultiEvaluator(Evaluator):
             # Handle list of acceptable answers
             ground_truth_text = self._process_label(label)
             
+            # Extract response text from pred if it's a dict (from VoiceLive with passthrough)
+            if isinstance(pred, dict):
+                response_text = pred.get("response", str(pred))
+            else:
+                response_text = str(pred)
+            
+            # Get query from dataset fields (standardized via col_aliases to 'question')
+            # Priority: Question (capital for raw datasets) → question (lowercase standard) → query (fallback)
+            # Datasets should use col_aliases to map their question fields to 'question' for consistency
+            query_text = kwargs.get("Question", kwargs.get("question", kwargs.get("query", "")))
+            
             # Create temporary file with single data point
             with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as temp_file:
                 data_entry = {
-                    "query": kwargs.get("query", kwargs.get("question", "")),
-                    "response": kwargs.get("response", pred),
+                    "query": query_text,
+                    "response": response_text,
                     "context": kwargs.get("context", ground_truth_text),
                     "ground_truth": ground_truth_text
                 }
@@ -713,10 +740,13 @@ class AzureAIMultiEvaluator(Evaluator):
                 # Append evaluation name to maintain pattern: timestamp_evaluatorname_evaluationname_results.json
                 output_file_path = os.path.join(pipeline_output_dir, f"{base_name}_{eval_name}_results.json")
             else:
-                # Fallback to subdirectory approach if recorder filename not available
+                # Fallback to subdirectory approach if recorder filename not available - only create in fallback case
                 output_dir = os.path.join(pipeline_output_dir, "multi_evaluation")
                 os.makedirs(output_dir, exist_ok=True)
                 output_file_path = os.path.join(output_dir, f"{eval_name or 'combined_evaluation'}_results.json")
+            
+            # Ensure parent directory exists (Azure AI SDK requires it)
+            os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
             
             logger.info(f"Combined evaluation results will be saved to: {output_file_path}")
             
@@ -775,7 +805,7 @@ class AzureAIBatchEvaluator(Evaluator):
         self.upload_to_project = os.getenv("AZURE_AI_FOUNDRY_UPLOAD", "false").lower() == "true"
         self.dataset_size_estimated = False
         self.max_azure_evaluate_size = 1000  # Conservative limit for Azure AI evaluate()
-        self.output_directory = "output"  # Default, will be updated by finalize_evaluation
+        self.output_directory = None  # Will be set by pipeline or finalize_evaluation
         
         # Set evaluation name with proper precedence
         self.evaluation_name = (
@@ -854,13 +884,28 @@ class AzureAIBatchEvaluator(Evaluator):
                 logger.info(f"Set default batch size to {self.batch_size}")
             self.dataset_size_estimated = True
         
+        # Capture output directory from kwargs if provided by pipeline
+        if 'output_directory' in kwargs and not self.output_directory:
+            self.output_directory = kwargs['output_directory']
+        
         # Handle list of acceptable answers
         ground_truth_text = self._process_label(label)
         
+        # Extract response text from pred if it's a dict (from VoiceLive with passthrough)
+        if isinstance(pred, dict):
+            response_text = pred.get("response", str(pred))
+        else:
+            response_text = str(pred)
+        
+        # Get query from dataset fields (standardized via col_aliases to 'question')
+        # Priority: Question (capital for raw datasets) → question (lowercase standard) → query (fallback)
+        # Datasets should use col_aliases to map their question fields to 'question' for consistency
+        query_text = kwargs.get("Question", kwargs.get("question", kwargs.get("query", "")))
+        
         # Collect sample data
         sample_data = {
-            "query": kwargs.get("query", kwargs.get("question", "")),
-            "response": kwargs.get("response", pred),
+            "query": query_text,
+            "response": response_text,
             "context": kwargs.get("context", ground_truth_text),
             "ground_truth": ground_truth_text
         }
@@ -893,7 +938,17 @@ class AzureAIBatchEvaluator(Evaluator):
             # Clear the batch
             self.batch_samples = []
             self.sample_metadata = []
-            return batch_results[sample_id] if batch_results else placeholder_result
+            
+            # Return result with proper error handling
+            if batch_results and len(batch_results) > sample_id:
+                return batch_results[sample_id]
+            elif batch_results:
+                # Sample ID out of range, return first error if available
+                logger.warning(f"Sample ID {sample_id} out of range for batch results (size: {len(batch_results)})")
+                return batch_results[0] if batch_results else placeholder_result
+            else:
+                # Batch failed, return placeholder
+                return placeholder_result
             
         return placeholder_result
     
@@ -917,6 +972,13 @@ class AzureAIBatchEvaluator(Evaluator):
                 
                 logger.info(f"Running Azure AI batch evaluation on {len(self.batch_samples)} samples")
                 
+                # Determine output directory - use pipeline-provided directory or fallback to 'output'
+                output_dir = self.output_directory if self.output_directory else "output"
+                
+                # Ensure output directory exists (Azure AI SDK requires it)
+                # Only create if it doesn't exist - respect pipeline's directory structure
+                os.makedirs(output_dir, exist_ok=True)
+                
                 # Generate output path for batch evaluation results in same directory as recorder
                 # Extract base filename from recorder if available to maintain consistent naming
                 if hasattr(self, 'recorder_filename') and self.recorder_filename:
@@ -924,10 +986,10 @@ class AzureAIBatchEvaluator(Evaluator):
                     base_name = os.path.splitext(os.path.basename(self.recorder_filename))[0]
                     # Append evaluation name to maintain pattern: timestamp_evaluatorname_evaluationname_results.json
                     eval_name = f"{self.evaluation_name}-Batch-{len(self.batch_samples)}"
-                    batch_output_file = os.path.join(self.output_directory, f"{base_name}_{eval_name}_results.json")
+                    batch_output_file = os.path.join(output_dir, f"{base_name}_{eval_name}_results.json")
                 else:
                     # Fallback to old naming pattern if recorder filename not available
-                    batch_output_file = os.path.join(self.output_directory, f"{self.evaluation_name}-Batch-{len(self.batch_samples)}_results.json")
+                    batch_output_file = os.path.join(output_dir, f"{self.evaluation_name}-Batch-{len(self.batch_samples)}_results.json")
                 
                 logger.info(f"Batch evaluation results will be saved to: {batch_output_file}")
                 
@@ -975,6 +1037,7 @@ class AzureAIBatchEvaluator(Evaluator):
     def finalize_evaluation(self, recorder=None, output_directory: str = "output", recorder_filename: str = None, **kwargs):
         """Process any remaining samples in the batch and write batch results to JSONL"""
         # Store output directory and recorder filename for use in _process_batch
+        # Use pipeline-provided directory if available, otherwise fallback to default
         self.output_directory = output_directory
         self.recorder_filename = recorder_filename
         

@@ -4,12 +4,12 @@
 # Compatible with Windows, macOS, and Linux
 
 param(
-    [int]$Workers = 2,
-    [int]$Limit = 2,
+    [int]$Workers = 20,
+    [int]$Limit = 0,
     [switch]$InferenceOnly,          # Only run inference, skip evaluation
     [switch]$EvaluationOnly,         # Only run evaluation, skip inference 
     [string]$InferenceFile = "",     # Path to existing inference results
-    [string]$TestSuite = "firsteval",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
+    [string]$TestSuite = "comprehensive",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
     [string[]]$ModelConfigs = @(),   # Override model configs: e.g., @("GPT4o", "GPT4o-Mini")
     [string[]]$Datasets = @(),       # Override datasets: e.g., @("llama-questions", "speech-triviaqa")
     [string[]]$Evaluators = @(),     # Override evaluators: e.g., @("azure-ai-batch-qaevaluator", "em")
@@ -193,7 +193,7 @@ $allEvaluators = @(
     @{Name="em"; Args="--evaluator em"; Description="Exact Match"; PostProcess="extract_response"},
     @{Name="exist-match"; Args="--evaluator exist-match"; Description="Existence Match"; PostProcess="extract_response"},
     @{Name="prefix-match"; Args="--evaluator prefix-match"; Description="Prefix Match"; PostProcess="extract_response"},
-    @{Name="wer"; Args="--evaluator wer"; Description="Word Error Rate"; PostProcess="extract_query"},
+    @{Name="wer"; Args="--evaluator wer"; Description="Word Error Rate"; PostProcess="extract_transcription"},
     @{Name="cer"; Args="--evaluator cer"; Description="Character Error Rate"; PostProcess="extract_response"},
     @{Name="bleu"; Args="--evaluator bleu"; Description="BLEU Score"; PostProcess="extract_response"},
     @{Name="dump"; Args="--evaluator dump"; Description="Dump (No Scoring)"; PostProcess="passthrough"},
@@ -248,8 +248,8 @@ function Get-TestSuiteConfig {
         "firsteval" {
             return @{
                 ModelConfigs = @("VoiceLive-gpt-realtime")
-                Datasets = @("llama-questions-voicelive", "speech-triviaqa", "speech-web-questions")
-                Evaluators = @("qa-exist-match")
+                Datasets = @("llama-questions-voicelive")
+                Evaluators = @("azure-ai-batch-agent-base")
                 Description = "Simple test with one model, one dataset, multiple evaluators"
             }
         }
@@ -279,7 +279,7 @@ function Get-TestSuiteConfig {
         }        
         "wer" {
             return @{
-                ModelConfigs = @("VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini") #("VoiceLive-gpt-realtime") #, (
+                ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini") #("VoiceLive-gpt-realtime") #, (
                 Datasets = @("librispeech-test-clean")
                 Evaluators = @("wer")
                 Description = "WER Test"

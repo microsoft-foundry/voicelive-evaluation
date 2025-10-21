@@ -8,10 +8,10 @@ extract_text:
   args:
     extract_key: text
 
-extract_query:
+extract_transcription:
   class: audio_evals.process.base.JsonExtract
   args:
-    extract_key: query
+    extract_key: transcript
 
 extract_response:
   class: audio_evals.process.base.JsonExtract
