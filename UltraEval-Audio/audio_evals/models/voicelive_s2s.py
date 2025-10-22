@@ -383,16 +383,68 @@ class VoiceLiveS2SModel(APIModel):
             _dec_active()
             raise ValueError("No audio file found in the prompt.")
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as padded_wav:
-            padded_wav_path = padded_wav.name
+        # Extract output directory structure from recorder_filename if available
+        # Expected path format: res/VoiceLiveS2S/<model>/<dataset>/<evaluator>/<timestamp>_<task>.jsonl
+        recorder_filename = kwargs.get('recorder_filename', '')
+        output_base_dir = "raw/voicelive"
+        
+        if recorder_filename:
+            # Parse the recorder path to extract evaluation name and timestamp
+            # Example: res/VoiceLiveS2S/VoiceLive-gpt-4.1-mini/librispeech-test-clean/inference/2025-10-20_12-22-18_inference.jsonl
+            path_parts = recorder_filename.split(os.sep)
+            try:
+                # Find the index of the timestamp part (contains _inference, _evaluation, etc.)
+                timestamp_part = None
+                evaluation_name = None
+                
+                for i, part in enumerate(path_parts):
+                    if '_' in part and part.endswith('.jsonl'):
+                        # Extract timestamp (e.g., "2025-10-20_12-22-18" from "2025-10-20_12-22-18_inference.jsonl")
+                        timestamp_part = '_'.join(part.split('_')[:-1])  # Remove the last part (e.g., "inference")
+                        
+                        # Build evaluation name from the path components before the timestamp
+                        # Format: <model>/<dataset> (skip evaluator folder like "inference")
+                        if i >= 3:  # Need at least model/dataset before timestamp
+                            # Skip 'res', top-level folder (e.g., 'VoiceLiveS2S'), and evaluator folder
+                            relevant_parts = path_parts[2:i-1]  # Get model, dataset (exclude evaluator)
+                            evaluation_name = os.sep.join(relevant_parts)
+                        break
+                
+                if timestamp_part and evaluation_name:
+                    # Create directory: raw/voicelive/output/<model>/<dataset>/<timestamp>/
+                    voicelive_output_dir = os.path.join(output_base_dir, "output", evaluation_name, timestamp_part)
+                    os.makedirs(voicelive_output_dir, exist_ok=True)
+                    logger.info(f"Created VoiceLive output directory: {voicelive_output_dir}")
+                    
+                    # Generate unique filenames for this inference
+                    import uuid
+                    unique_id = str(uuid.uuid4())[:8]
+                    padded_wav_path = os.path.join(voicelive_output_dir, f"padded_input_{unique_id}.wav")
+                    reply_wav_path = os.path.join(voicelive_output_dir, f"response_{unique_id}.wav")
+                else:
+                    # Fallback to tempfile if parsing fails
+                    logger.warning(f"Could not parse recorder path, using tempfile: {recorder_filename}")
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as padded_wav:
+                        padded_wav_path = padded_wav.name
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as reply_wav:
+                        reply_wav_path = reply_wav.name
+            except Exception as e:
+                logger.warning(f"Error parsing recorder path, using tempfile: {e}")
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as padded_wav:
+                    padded_wav_path = padded_wav.name
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as reply_wav:
+                    reply_wav_path = reply_wav.name
+        else:
+            # No recorder_filename provided, use tempfile
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as padded_wav:
+                padded_wav_path = padded_wav.name
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as reply_wav:
+                reply_wav_path = reply_wav.name
 
         audio = AudioSegment.from_wav(audio_file)
         silence = AudioSegment.silent(duration=2000, frame_rate=audio.frame_rate)
         padded_audio = audio + silence
         padded_audio.export(padded_wav_path, format="wav")
-
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as reply_wav:
-            reply_wav_path = reply_wav.name
 
         credential = self._get_credential()
         instructions = self.instructions
