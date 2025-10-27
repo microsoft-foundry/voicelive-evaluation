@@ -804,7 +804,6 @@ class AzureAIBatchEvaluator(Evaluator):
         self.batch_size = batch_size  # Will be dynamically adjusted
         self.upload_to_project = os.getenv("AZURE_AI_FOUNDRY_UPLOAD", "false").lower() == "true"
         self.dataset_size_estimated = False
-        self.max_azure_evaluate_size = 1000  # Conservative limit for Azure AI evaluate()
         self.output_directory = None  # Will be set by pipeline or finalize_evaluation
         
         # Set evaluation name with proper precedence
@@ -872,16 +871,9 @@ class AzureAIBatchEvaluator(Evaluator):
         """
         # Auto-adjust batch size on first call if not set or set to 0
         if not self.dataset_size_estimated and (self.batch_size == 0 or self.initial_batch_size == 0):
-            # Try to estimate dataset size from environment or use conservative default
-            limit = kwargs.get('limit', 0) or int(os.getenv('EVAL_LIMIT', '0'))
-            if limit > 0:
-                # Set batch size to match limit (up to max supported)
-                self.batch_size = min(limit, self.max_azure_evaluate_size)
-                logger.info(f"Auto-adjusted batch size to {self.batch_size} based on limit {limit}")
-            else:
-                # Use conservative default
-                self.batch_size = min(100, self.max_azure_evaluate_size)
-                logger.info(f"Set default batch size to {self.batch_size}")
+            # Set batch size to 0 - will process all collected samples in finalize_evaluation()
+            self.batch_size = 0
+            logger.info(f"Batch size set to 0 - will process all samples at finalize")
             self.dataset_size_estimated = True
         
         # Capture output directory from kwargs if provided by pipeline
@@ -928,28 +920,10 @@ class AzureAIBatchEvaluator(Evaluator):
             "batch_placeholder": True,
             "sample_id": sample_id,
             "evaluator": self.evaluator_name,
-            "message": f"Sample {sample_id + 1} collected for batch evaluation (batch size: {self.batch_size})"
+            "message": f"Sample {sample_id + 1} collected for batch evaluation"
         }
         
-        # Check if we should process this batch
-        if len(self.batch_samples) >= self.batch_size:
-            logger.info(f"Processing batch of {len(self.batch_samples)} samples")
-            batch_results = self._process_batch()
-            # Clear the batch
-            self.batch_samples = []
-            self.sample_metadata = []
-            
-            # Return result with proper error handling
-            if batch_results and len(batch_results) > sample_id:
-                return batch_results[sample_id]
-            elif batch_results:
-                # Sample ID out of range, return first error if available
-                logger.warning(f"Sample ID {sample_id} out of range for batch results (size: {len(batch_results)})")
-                return batch_results[0] if batch_results else placeholder_result
-            else:
-                # Batch failed, return placeholder
-                return placeholder_result
-            
+        # All samples will be processed in finalize_evaluation()
         return placeholder_result
     
     def _process_batch(self) -> List[Dict[str, Any]]:
@@ -1042,12 +1016,7 @@ class AzureAIBatchEvaluator(Evaluator):
         self.recorder_filename = recorder_filename
         
         if self.batch_samples:
-            # If batch size was 0 or never set, process all collected samples at once
-            if self.batch_size == 0 or not self.dataset_size_estimated:
-                self.batch_size = len(self.batch_samples)
-                logger.info(f"Setting batch size to total sample count: {self.batch_size}")
-            
-            logger.info(f"Processing final batch of {len(self.batch_samples)} samples")
+            logger.info(f"Processing batch of {len(self.batch_samples)} samples")
             batch_results = self._process_batch()
             
             # Write batch evaluation results to the main JSONL file

@@ -5,11 +5,11 @@
 
 param(
     [int]$Workers = 20,
-    [int]$Limit = 0,
+    [int]$Limit = 2,
     [switch]$InferenceOnly,          # Only run inference, skip evaluation
-    [switch]$EvaluationOnly,         # Only run evaluation, skip inference 
+    [bool]$EvaluationOnly = $false,         # Only run evaluation, skip inference
     [string]$InferenceFile = "",     # Path to existing inference results
-    [string]$TestSuite = "comprehensive",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
+    [string]$TestSuite = "comprehensive-nollama",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
     [string[]]$ModelConfigs = @(),   # Override model configs: e.g., @("GPT4o", "GPT4o-Mini")
     [string[]]$Datasets = @(),       # Override datasets: e.g., @("llama-questions", "speech-triviaqa")
     [string[]]$Evaluators = @(),     # Override evaluators: e.g., @("azure-ai-batch-qaevaluator", "em")
@@ -261,6 +261,30 @@ function Get-TestSuiteConfig {
                 Description = "Full test on llama-questions-voicelive dataset"
             }   
         }
+        "foundry-batch-speech-trivia" {
+            return @{
+                ModelConfigs = @("VoiceLive-gpt-realtime")
+                Datasets = @("speech-triviaqa")
+                Evaluators = @("azure-ai-batch-agent-base", "azure-ai-batch-qaevaluator")
+                Description = "Full test on speech-triviaqa dataset"
+            }   
+        }        
+        "foundry-batch-speech-web" {
+            return @{
+                ModelConfigs = @("VoiceLive-gpt-realtime")
+                Datasets = @("speech-web-questions")
+                Evaluators = @("azure-ai-batch-agent-base", "azure-ai-batch-qaevaluator")
+                Description = "Full test on speech-web-questions dataset"
+            }   
+        }              
+        "comprehensive-nollama" {
+            return @{
+                ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
+                Datasets = @("speech-triviaqa", "speech-web-questions")
+                Evaluators = @("qa-exist-match", "azure-ai-batch-qaevaluator", "azure-ai-batch-agent-base")
+                Description = "Full comprehensive test (all models, multiple datasets without LLAMA, main evaluators)"
+            }
+        }
         "comprehensive" {
             return @{
                 ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
@@ -268,7 +292,7 @@ function Get-TestSuiteConfig {
                 Evaluators = @("qa-exist-match", "azure-ai-batch-qaevaluator", "azure-ai-batch-agent-base")
                 Description = "Full comprehensive test (all models, multiple datasets, main evaluators)"
             }
-        }     
+        }            
         "repeat" {
             return @{
                 ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
@@ -312,16 +336,38 @@ $selectedModelConfigs = if ($ModelConfigs.Count -gt 0) { $ModelConfigs } else { 
 $selectedDatasets = if ($Datasets.Count -gt 0) { $Datasets } else { $testConfig.Datasets }
 $selectedEvaluators = if ($Evaluators.Count -gt 0) { $Evaluators } else { $testConfig.Evaluators }
 
+# Ensure arrays (PowerShell can return single items as non-arrays)
+$selectedModelConfigs = @($selectedModelConfigs)
+$selectedDatasets = @($selectedDatasets)
+$selectedEvaluators = @($selectedEvaluators)
+
+# Debug output
+Write-Host "DEBUG: Selected Model Configs: $($selectedModelConfigs -join ', ')" -ForegroundColor Gray
+Write-Host "DEBUG: Selected Datasets: $($selectedDatasets -join ', ')" -ForegroundColor Gray
+Write-Host "DEBUG: Selected Evaluators: $($selectedEvaluators -join ', ')" -ForegroundColor Gray
+Write-Host "DEBUG: All Model Configs Count: $($allModelConfigs.Count)" -ForegroundColor Gray
+Write-Host "DEBUG: All Datasets Count: $($allDatasets.Count)" -ForegroundColor Gray
+Write-Host "DEBUG: All Evaluators Count: $($allEvaluators.Count)" -ForegroundColor Gray
+
 # Filter configurations based on selections
-$modelConfigs = $allModelConfigs | Where-Object { $_.Name -in $selectedModelConfigs }
-$datasets = $allDatasets | Where-Object { $_.Name -in $selectedDatasets }
-$evaluators = $allEvaluators | Where-Object { $_.Name -in $selectedEvaluators }
+$modelConfigs = @($allModelConfigs | Where-Object { $_.Name -in $selectedModelConfigs })
+$datasets = @($allDatasets | Where-Object { $_.Name -in $selectedDatasets })
+$evaluators = @($allEvaluators | Where-Object { $_.Name -in $selectedEvaluators })
+
+Write-Host "DEBUG: Filtered Model Configs: $($modelConfigs.Count)" -ForegroundColor Gray
+if ($modelConfigs.Count -gt 0) {
+    Write-Host "DEBUG: First Model Config Type: $($modelConfigs[0].GetType().Name)" -ForegroundColor Gray
+    Write-Host "DEBUG: First Model Config Name: $($modelConfigs[0].Name)" -ForegroundColor Gray
+    Write-Host "DEBUG: First Model Config Keys: $($modelConfigs[0].Keys -join ', ')" -ForegroundColor Gray
+}
+Write-Host "DEBUG: Filtered Datasets: $($datasets.Count)" -ForegroundColor Gray
+Write-Host "DEBUG: Filtered Evaluators: $($evaluators.Count)" -ForegroundColor Gray
 
 # Display test configuration
 Write-Host "📋 Test Suite: $TestSuite - $($testConfig.Description)" -ForegroundColor Cyan
-Write-Host "🤖 Model Configs: $($modelConfigs.Name -join ', ')" -ForegroundColor Yellow
-Write-Host "📊 Datasets: $($datasets.Name -join ', ')" -ForegroundColor Yellow
-Write-Host "⚖️  Evaluators: $($evaluators.Name -join ', ')" -ForegroundColor Yellow
+Write-Host "🤖 Model Configs: $(($modelConfigs | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor Yellow
+Write-Host "📊 Datasets: $(($datasets | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor Yellow
+Write-Host "⚖️  Evaluators: $(($evaluators | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor Yellow
 Write-Host "📁 Results will be saved to: $baseResultsDir\<model-config>\<dataset-name>\<evaluator-name>\" -ForegroundColor Cyan
 
 if ($DryRun) {
