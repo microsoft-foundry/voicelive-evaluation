@@ -297,7 +297,9 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
             root_eval_dir = os.path.join(evaluation_dir, session_timestamp_global) if session_timestamp_global else evaluation_dir
             os.makedirs(root_eval_dir, exist_ok=True)
             print(f"Using evaluation directory (timestamp root): {root_eval_dir}")
-            evaluation_output_file = os.path.join(root_eval_dir, f"evaluation_{session_timestamp}.jsonl")
+            # Extract dataset name from test_files_path (remove .jsonl extension)
+            dataset_name = os.path.splitext(os.path.basename(test_files_path))[0] if test_files_path else "dataset"
+            evaluation_output_file = os.path.join(root_eval_dir, f"{session_timestamp}_{dataset_name}.jsonl")
     # Set environment variables or edit the corresponding values here.
     endpoint = os.environ.get("AZURE_VOICE_LIVE_ENDPOINT") or "https://your-endpoint.azure.com/"
     model = os.environ.get("AZURE_VOICE_LIVE_MODEL") or "your_model"
@@ -569,7 +571,9 @@ def read_test_files(test_files_path: str = None) -> List[Dict[str, str]]:
                         'audio_path': resolved_path,
                         'ground_truth': record.get('Answer', record.get('answer')),
                         'question': record.get('Question', record.get('question')),
-                        'tool_calls': record.get('tool_calls', [])
+                        'tool_calls': record.get('tool_calls', []),
+                        'expected_tool_calls': record.get('expected_tool_calls', []),
+                        'tool_definitions': record.get('tool_definitions', [])
                     }
                     audio_files.append(file_info)
                 except json.JSONDecodeError as e:
@@ -584,7 +588,7 @@ def read_test_files(test_files_path: str = None) -> List[Dict[str, str]]:
                     continue
                 # Check if file exists
                 if os.path.exists(line):
-                    audio_files.append({'audio_path': line, 'ground_truth': None, 'question': None, 'tool_calls': []})
+                    audio_files.append({'audio_path': line, 'ground_truth': None, 'question': None, 'tool_calls': [], 'expected_tool_calls': [], 'tool_definitions': []})
                 else:
                     print(f"Warning: Audio file not found: {line}")
     
@@ -822,6 +826,12 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
     for file_index, file_path in enumerate(audio_files):
         file_name = os.path.basename(file_path)
         print(f"\nProcessing file {file_index + 1}/{len(audio_files)}: {file_name}")
+        
+        # Wait for previous file's response to complete before loading new metadata
+        # This ensures the previous turn's evaluation gets the correct metadata
+        if file_index > 0:
+            print(f"  Waiting for previous file's response to complete before loading new metadata...")
+            audio_transcript_complete_event.wait(timeout=120)
         
         # Set ground truth, expected_tool_calls, and tool_definitions for this file if available
         if file_path in audio_metadata:
@@ -1795,7 +1805,9 @@ if __name__ == "__main__":
                 os.makedirs(aggregated_eval_dir_base, exist_ok=True)
             aggregated_eval_dir = os.path.join(aggregated_eval_dir_base, aggregate_run_id)
             os.makedirs(aggregated_eval_dir, exist_ok=True)
-            aggregated_eval_file = os.path.join(aggregated_eval_dir, f"evaluation_aggregate_{aggregate_run_id}.jsonl")
+            # Extract dataset name from test_files_path (remove .jsonl or .txt extension)
+            dataset_name = os.path.splitext(os.path.basename(args.test_files_path))[0] if args.test_files_path else "dataset"
+            aggregated_eval_file = os.path.join(aggregated_eval_dir, f"{aggregate_run_id}_aggregate_{dataset_name}.jsonl")
             if os.path.exists(aggregated_eval_file):
                 # Avoid mixing with previous run
                 os.remove(aggregated_eval_file)
