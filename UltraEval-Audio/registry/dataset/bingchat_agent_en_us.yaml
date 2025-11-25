@@ -4,6 +4,6 @@ bingchat-agent-en-us:
     default_task: voicelive-aqa
     f_name: registry/dataset/data/bingchat-agent-en-us.jsonl
     ref_col: answer
-    split: test
     col_aliases:
       question: label  # Map 'question' field to 'label' for compatibility
+      audio: WavPath   # Map 'audio' field to 'WavPath' for prompt compatibility

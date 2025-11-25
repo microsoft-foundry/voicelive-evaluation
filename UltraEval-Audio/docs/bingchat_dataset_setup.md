@@ -51,28 +51,43 @@ Each language directory contains:
 
 ### Usage
 
-#### Convert English BTEST dataset:
+#### Convert English dataset (combines BTEST + DTEST):
+```bash
+python3 UltraEval-Audio/scripts/convert_bingchat_dataset.py \
+  --dataset-dir raw/BingChat_AgentTestSet_FY26/en-us_14112025 \
+  --output-dir UltraEval-Audio/registry/dataset/data \
+  --test-type both
+
+# Output: registry/dataset/data/bingchat-agent-en-us.jsonl
+```
+
+#### Convert all test types (BTEST + DTEST) - Recommended:
+```bash
+# English
+python3 UltraEval-Audio/scripts/convert_bingchat_dataset.py \
+  --dataset-dir raw/BingChat_AgentTestSet_FY26/en-us_14112025 \
+  --output-dir UltraEval-Audio/registry/dataset/data \
+  --test-type both
+
+# Output: registry/dataset/data/bingchat-agent-en-us.jsonl (combined BTEST + DTEST)
+
+# French
+python3 UltraEval-Audio/scripts/convert_bingchat_dataset.py \
+  --dataset-dir raw/BingChat_AgentTestSet_FY26/fr-fr_14112025 \
+  --output-dir UltraEval-Audio/registry/dataset/data \
+  --test-type both
+
+# Output: registry/dataset/data/bingchat-agent-fr-fr.jsonl (combined BTEST + DTEST)
+```
+
+#### Convert single test type (BTEST or DTEST separately):
 ```bash
 python3 UltraEval-Audio/scripts/convert_bingchat_dataset.py \
   --dataset-dir raw/BingChat_AgentTestSet_FY26/en-us_14112025 \
   --output-dir UltraEval-Audio/registry/dataset/data \
   --test-type BTEST
-```
 
-#### Convert all test types (BTEST + DTEST):
-```bash
-python3 UltraEval-Audio/scripts/convert_bingchat_dataset.py \
-  --dataset-dir raw/BingChat_AgentTestSet_FY26/en-us_14112025 \
-  --output-dir UltraEval-Audio/registry/dataset/data \
-  --test-type both
-```
-
-#### Convert French dataset:
-```bash
-python3 UltraEval-Audio/scripts/convert_bingchat_dataset.py \
-  --dataset-dir raw/BingChat_AgentTestSet_FY26/fr-fr_14112025 \
-  --output-dir UltraEval-Audio/registry/dataset/data \
-  --test-type both
+# Output: registry/dataset/data/bingchat-agent-en-us-btest.jsonl
 ```
 
 ### Output Format (JSONL)
@@ -89,32 +104,61 @@ Each line in the output file is a JSON record:
 ```
 
 ### Field Mapping
-| Source Field | Target Field | Description |
-|-------------|--------------|-------------|
-| CompareKey | uuid | Unique identifier (reference column) |
-| Transcription | question | Ground truth transcription text |
-| AudioUrl | audio_url | Original remote audio URL (for reference) |
-| {UUID}.wav | audio | Local audio file path |
-| N/A | answer | Empty (no QA answers in this dataset) |
+| Source Field | Target Field | Aliased To | Description |
+|-------------|--------------|------------|-------------|
+| CompareKey | uuid | - | Unique identifier (reference column) |
+| Transcription | question | label | Ground truth transcription text |
+| AudioUrl | audio_url | - | Original remote audio URL (for reference) |
+| {UUID}.wav | audio | WavPath | Local audio file path (required by prompts) |
+| N/A | answer | - | Empty (no QA answers in this dataset) |
 
 ## Dataset Configuration
 
-### YAML Configuration File
+### YAML Configuration Files
 `/UltraEval-Audio/registry/dataset/bingchat_agent_en_us.yaml`
+`/UltraEval-Audio/registry/dataset/bingchat_agent_fr_fr.yaml`
 
 ```yaml
-bingchat_agent_en_us_btest:
+bingchat-agent-en-us:
   class: audio_evals.dataset.dataset.JsonlFile
   args:
-    default_task: asr  # ASR task - evaluates speech recognition quality
-    f_name: /Volumes/GIGIMUNDO/Localrepos/voicelive-evaluation/voicelive-evaluation/UltraEval-Audio/registry/dataset/data/bingchat_agent_en-us_btest.jsonl
-    ref_col: uuid
+    default_task: voicelive-aqa
+    f_name: registry/dataset/data/bingchat-agent-en-us.jsonl
+    ref_col: answer
     col_aliases:
       question: label  # Map 'question' field to 'label' for compatibility
+      audio: WavPath   # Map 'audio' field to 'WavPath' for prompt compatibility
+
+bingchat-agent-fr-fr:
+  class: audio_evals.dataset.dataset.JsonlFile
+  args:
+    default_task: voicelive-aqa
+    f_name: registry/dataset/data/bingchat-agent-fr-fr.jsonl
+    ref_col: answer
+    col_aliases:
+      question: label  # Map 'question' field to 'label' for compatibility
+      audio: WavPath   # Map 'audio' field to 'WavPath' for prompt compatibility
 ```
 
-### Dataset Registry Name
-Use `bingchat_agent_en_us_btest` when referencing this dataset in evaluation tasks.
+### Dataset Registry Names
+- English: `bingchat-agent-en-us`
+- French: `bingchat-agent-fr-fr`
+
+### Important Configuration Notes
+
+#### Column Aliases
+The `col_aliases` configuration is critical for compatibility with the evaluation pipeline:
+
+1. **`question: label`** - Maps the transcription field to `label` for evaluators expecting labeled data
+2. **`audio: WavPath`** - Maps the audio file path to `WavPath`, which is required by all audio prompt templates (e.g., `direct-aqa`, `stt`, etc.)
+
+Without these aliases, the evaluation will fail with errors like:
+- `'WavPath' is undefined` - Missing audio → WavPath mapping
+- Field name mismatches in evaluators
+
+#### Reference Column
+- **`ref_col: answer`** - Uses the `answer` field as reference (even though it's empty for this dataset)
+- For ASR-only evaluation, you may want to change this to `ref_col: question` to use transcription as reference
 
 ## Usage in Evaluation
 
@@ -123,8 +167,11 @@ Use `bingchat_agent_en_us_btest` when referencing this dataset in evaluation tas
 ```python
 from audio_evals.registry import registry
 
-# Load the dataset
-ds = registry.get_dataset('bingchat_agent_en_us_btest')
+# Load the English dataset
+ds = registry.get_dataset('bingchat-agent-en-us')
+
+# Load the French dataset
+ds_fr = registry.get_dataset('bingchat-agent-fr-fr')
 
 # Load samples (optionally limit the number)
 samples = ds.load(limit=10)  # Load first 10 samples
@@ -137,6 +184,7 @@ Each loaded sample has the following fields:
 ```python
 {
     'audio': 'raw/BingChat_AgentTestSet_FY26/en-us_14112025/5a2b885d-640b-4eab-b281-735f99921a48.wav',
+    'WavPath': 'raw/BingChat_AgentTestSet_FY26/en-us_14112025/5a2b885d-640b-4eab-b281-735f99921a48.wav',  # Same as audio (via col_aliases)
     'question': 'Mail but. Kanye West net worth.',
     'label': 'Mail but. Kanye West net worth.',  # Same as question (via col_aliases)
     'answer': '',  # Empty - no QA answers
@@ -160,15 +208,18 @@ Since this is an **ASR dataset** (no QA answers), use evaluators that work with 
 
 ### Example Evaluation Task
 
-Create a YAML file in `/UltraEval-Audio/registry/eval_task/` (e.g., `bingchat_asr_eval.yaml`):
+Create a YAML file in `/UltraEval-Audio/registry/eval_task/` (e.g., `bingchat_eval.yaml`):
 
 ```yaml
-bingchat_asr_basic:
-  dataset: bingchat_agent_en_us_btest
-  model: your_asr_model_name
-  evaluator: your_transcription_evaluator
-  agg: avg  # or appropriate aggregation policy
-  limit: 100  # Optional: limit evaluation to first 100 samples
+bingchat-voicelive-eval:
+  class: audio_evals.base.EvalTaskCfg
+  args:
+    dataset: bingchat-agent-en-us
+    prompt: direct-aqa
+    model: VoiceLiveS2T
+    post_process: ['passthrough']
+    evaluator: qa-exist-match
+    agg: acc
 ```
 
 ## Important Notes
@@ -193,19 +244,24 @@ These records were skipped during conversion. If needed, they can be downloaded 
 
 ## Next Steps
 
-1. **Convert DTEST dataset** (if needed):
+1. **Verify converted files exist**:
    ```bash
-   python3 UltraEval-Audio/scripts/convert_bingchat_dataset.py \
-     --dataset-dir raw/BingChat_AgentTestSet_FY26/en-us_14112025 \
-     --output-dir UltraEval-Audio/registry/dataset/data \
-     --test-type DTEST
+   ls -lh UltraEval-Audio/registry/dataset/data/bingchat-agent-*.jsonl
    ```
 
-2. **Create French dataset configuration** (similar process for fr-fr subdirectory)
+2. **Test dataset loading**:
+   ```python
+   from audio_evals.registry import registry
+   ds = registry.get_dataset('bingchat-agent-en-us')
+   samples = ds.load(limit=1)
+   print(samples[0].keys())  # Should include: audio, WavPath, question, label, answer, uuid, audio_url
+   ```
 
-3. **Create evaluation task configuration** to run your model against this dataset
-
-4. **Choose appropriate evaluators** that work with ASR transcription comparison
+3. **Run evaluation** with the test script:
+   ```bash
+   cd UltraEval-Audio
+   ./runtest.ps1  # or ./run.sh on Linux/macOS
+   ```
 
 ## File Locations Summary
 
@@ -214,8 +270,10 @@ These records were skipped during conversion. If needed, they can be downloaded 
 | Original JSON (en-us BTEST) | `/raw/BingChat_AgentTestSet_FY26/en-us_14112025/BingChat_AgentTestSet_FY26_en-us_BTEST_TxResults.json` |
 | Original WAV files | `/raw/BingChat_AgentTestSet_FY26/en-us_14112025/*.wav` |
 | Conversion script | `/UltraEval-Audio/scripts/convert_bingchat_dataset.py` |
-| Converted JSONL | `/UltraEval-Audio/registry/dataset/data/bingchat_agent_en-us_btest.jsonl` |
-| Dataset config YAML | `/UltraEval-Audio/registry/dataset/bingchat_agent_en_us.yaml` |
+| Converted JSONL (en-us) | `/UltraEval-Audio/registry/dataset/data/bingchat-agent-en-us.jsonl` |
+| Converted JSONL (fr-fr) | `/UltraEval-Audio/registry/dataset/data/bingchat-agent-fr-fr.jsonl` |
+| Dataset config YAML (en-us) | `/UltraEval-Audio/registry/dataset/bingchat_agent_en_us.yaml` |
+| Dataset config YAML (fr-fr) | `/UltraEval-Audio/registry/dataset/bingchat_agent_fr_fr.yaml` |
 
 ## Contact
 For issues or questions about this dataset configuration, refer to the UltraEval-Audio documentation or check the evaluation pipeline logs.

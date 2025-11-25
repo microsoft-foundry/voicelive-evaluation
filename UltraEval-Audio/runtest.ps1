@@ -5,7 +5,7 @@
 
 param(
     [int]$Workers = 20,
-    [int]$Limit = 2,
+    [int]$Limit = 10,
     [switch]$InferenceOnly,          # Only run inference, skip evaluation
     [bool]$EvaluationOnly = $false,         # Only run evaluation, skip inference
     [string]$InferenceFile = "",     # Path to existing inference results
