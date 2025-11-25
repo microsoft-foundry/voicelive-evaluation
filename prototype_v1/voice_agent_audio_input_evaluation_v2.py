@@ -18,16 +18,19 @@ from collections import deque
 from dotenv import load_dotenv
 from azure.core.credentials import TokenCredential
 from azure.identity import DefaultAzureCredential
-from typing import Dict, Union, Literal, Set, List
+from typing import Dict, Union, Literal, Set, List, Optional, Any
 from typing_extensions import Iterator, TypedDict, Required
 import websocket
 from websocket import WebSocketApp
 
+# System instruction constant - single source of truth
+SYSTEM_INSTRUCTION = "You are a helpful agent assisting users with their questions."
 
 # Global variables for thread coordination
 stop_event = threading.Event()
 connection_queue = queue.Queue()
 response_complete_event = threading.Event()
+audio_transcript_complete_event = threading.Event()  # Track when response.audio_transcript.done is received
 all_files_processed_event = threading.Event()
 current_output_file = None
 response_output_dir = None
@@ -37,6 +40,8 @@ current_user_input = None  # Track the current user input for multi-utterance ha
 current_turn_number = 0  # Global turn counter for output file naming
 expected_turns = 0  # Track how many input files we expect to process
 actual_turns = 0  # Track how many actual turns were created due to VAD
+turns_with_audio_response = 0  # Track how many turns received audio responses
+turns_with_text_only_response = 0  # Track how many turns had text but no audio
 session_timestamp_global = None  # Base timestamp for all outputs (no per-file uniqueness when aggregating)
 session_suffix_global = None  # Holds current session suffix like session-1, session-2
 pending_tool_followup_event = threading.Event()  # Track when a tool call follow-up response is expected
@@ -44,15 +49,17 @@ followup_created_event = threading.Event()  # Track when a follow-up response ha
 
 def reset_session_state():
     """Reset global state between per-file sessions when running in per-file session mode."""
-    global stop_event, connection_queue, response_complete_event, all_files_processed_event
+    global stop_event, connection_queue, response_complete_event, audio_transcript_complete_event, all_files_processed_event
     global current_output_file, response_output_dir, evaluation_output_file, evaluation_enabled
     global current_user_input, current_turn_number, expected_turns, actual_turns, session_timestamp_global
+    global turns_with_audio_response, turns_with_text_only_response
     global pending_tool_followup_event, followup_created_event, current_metrics, session_suffix_global
 
     # Recreate events to ensure no lingering set() state
     stop_event = threading.Event()
     connection_queue = queue.Queue()
     response_complete_event = threading.Event()
+    audio_transcript_complete_event = threading.Event()
     all_files_processed_event = threading.Event()
     pending_tool_followup_event = threading.Event()
     followup_created_event = threading.Event()
@@ -67,21 +74,23 @@ def reset_session_state():
     current_turn_number = 0
     expected_turns = 0
     actual_turns = 0
+    turns_with_audio_response = 0
+    turns_with_text_only_response = 0
     session_timestamp_global = None
     session_suffix_global = None
 
     # Fresh metrics tracker
-    current_metrics = ConversationMetrics()
+    current_metrics = ConversationMetrics(system_instruction=SYSTEM_INSTRUCTION)
 
 
 # Class for tracking conversation metrics for evaluation
 class ConversationMetrics:
-    def __init__(self):
+    def __init__(self, system_instruction: Optional[str] = None):
         self.audio_send_end_time = None
         self.first_text_response_time = None
         self.first_audio_response_time = None
         self.transcription_complete_time = None
-        self.system_message = "You are a helpful agent named 'Tobi the agent'. Introduce yourself as part of starting any conversation. Then help with providing information."
+        self.system_message = system_instruction if system_instruction else SYSTEM_INSTRUCTION
         self.user_content = []
         self.assistant_content = []
         self.tool_content = []  # Track tool call/results for the current logical turn
@@ -91,6 +100,8 @@ class ConversationMetrics:
         self.conversation_topic = None     # Track the current conversation topic across files
         self.conversation_history = []     # Full conversation history for context
         self.logical_turn_number = 0       # Track logical turns (not split by VAD)
+        self.ground_truth = None           # Track expected answer for ResponseCompleteness evaluation
+        self.audio_response_received = False  # Track if audio response was received (vs text-only)
 
     def calculate_metrics(self):
         metrics = {}
@@ -148,6 +159,7 @@ class ConversationMetrics:
         metrics["conversation_topic"] = self.conversation_topic
         metrics["inputs_in_turn"] = len(current_user_inputs)
         metrics["responses_in_turn"] = len(current_assistant_responses)
+        metrics["audio_response_received"] = self.audio_response_received
 
         evaluation_data = {
             "query": [
@@ -176,6 +188,10 @@ class ConversationMetrics:
             evaluation_data["tool_definitions"] = [
                 {"name": k, "type": "function"} for k in TOOL_REGISTRY.keys()
             ]
+        
+        # Add ground_truth for ResponseCompleteness evaluation
+        if self.ground_truth:
+            evaluation_data["ground_truth"] = self.ground_truth
 
         # Add conversation history for context (previous turns) including user, assistant, and tool roles
         for historical_turn in self.conversation_history:
@@ -239,8 +255,9 @@ class ConversationMetrics:
         self._tool_buffers.clear()
         # Don't set current_turn_complete to True here - let the next speech event reset it
 
-        # Reset timing metrics for next turn
+        # Reset timing and response tracking metrics for next turn
         self.audio_send_end_time = None
+        self.audio_response_received = False
         self.first_text_response_time = None
         self.first_audio_response_time = None
         self.transcription_complete_time = None
@@ -248,7 +265,7 @@ class ConversationMetrics:
         return evaluation_data
         
 # Global metrics object
-current_metrics = ConversationMetrics()
+current_metrics = ConversationMetrics(system_instruction=SYSTEM_INSTRUCTION)
 
 # Tool functions
 def get_horoscope(sign):
@@ -264,7 +281,7 @@ TOOL_REGISTRY = {
 }
 
 # This is the main function to run the Voice Live API client.
-def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: str = None, session_timestamp: str = None, evaluation_output_file_override: str | None = None, session_suffix: str | None = None) -> None: 
+def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: str = None, session_timestamp: str = None, evaluation_output_file_override: str | None = None, session_suffix: str | None = None, file_metadata: Dict[str, str] = None) -> None: 
     # Create a single session timestamp for all outputs
     print(f"Session timestamp: {session_timestamp}")
     
@@ -307,8 +324,7 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
     )
     
     connection = client.connect(model = model)
-    # instructions = "You are a helpful agent named 'Tobi the agent'. Introduce yourself as part of starting any conversation. Then help with providing information. Treat all user inputs as part of one ongoing conversation, even if they come in separate audio files. If the user asks about the same topic across multiple inputs, maintain context and provide detailed, coherent responses."
-    instructions = "You are a qna agent answering user questions."
+    instructions = SYSTEM_INSTRUCTION
     turn_detection = {
         "type": "azure_semantic_vad",  # server_vad is based on volume and is the default. azure_semantic_vad is based on semantic meaning.
         "threshold": 0.3,
@@ -428,10 +444,15 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
     response_output_dir = output_dir
 
     # Read the test files list
-    audio_files = read_test_files(test_files_path)
-    if not audio_files:
+    audio_file_records = read_test_files(test_files_path)
+    if not audio_file_records:
         print("No audio files found in the specified file list. Exiting.")
         return
+    
+    audio_files = [record['audio_path'] for record in audio_file_records]
+    
+    # Build metadata lookup for ground truth and other fields
+    audio_metadata = {record['audio_path']: record for record in audio_file_records}
 
     # Set expected turns for operational metrics
     global expected_turns
@@ -439,7 +460,7 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
     print(f"Expected turns from {expected_turns} input files")
 
     # Create and start threads
-    send_thread = threading.Thread(target=send_audio_from_files, args=(connection, audio_files))
+    send_thread = threading.Thread(target=send_audio_from_files, args=(connection, audio_files, audio_metadata))
     receive_thread = threading.Thread(target=receive_audio_and_save, args=(connection, modalities))
     keyboard_thread = threading.Thread(target=read_keyboard_and_quit)
 
@@ -472,12 +493,16 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
 
 # --- End of Main Function ---
 
-def read_test_files(test_files_path: str = None) -> List[str]:
-    """Read the list of audio files from test_files.txt
+def read_test_files(test_files_path: str = None) -> List[Dict[str, str]]:
+    """Read the list of audio files from test_files.txt or JSONL format
     
     Args:
         test_files_path (str, optional): Path to the file containing the list of audio files.
             If None, defaults to "test_files.txt" in the script directory.
+            Supports both plain text (one file per line) and JSONL with WavPath field.
+    
+    Returns:
+        List of dicts with 'audio_path', 'ground_truth' (Answer field if available), and other metadata
     """
     if test_files_path is None:
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -488,17 +513,86 @@ def read_test_files(test_files_path: str = None) -> List[str]:
         return []
     
     audio_files = []
-    with open(test_files_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            # Skip comments and empty lines
-            if not line or line.startswith('#'):
-                continue
-            # Check if file exists
-            if os.path.exists(line):
-                audio_files.append(line)
-            else:
-                print(f"Warning: Audio file not found: {line}")
+    
+    # Get the directory containing the test files list for resolving relative paths
+    test_files_dir = os.path.dirname(os.path.abspath(test_files_path))
+    
+    # Detect if file is JSONL format
+    is_jsonl = test_files_path.endswith('.jsonl')
+    
+    with open(test_files_path, 'r', encoding='utf-8') as f:
+        if is_jsonl:
+            # Parse JSONL format
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                    wav_path = record.get('WavPath', record.get('audio'))
+                    if not wav_path:
+                        print(f"Warning: Line {line_num} missing WavPath/audio field")
+                        continue
+                    
+                    # Convert relative paths to absolute
+                    # Try multiple strategies to find the file:
+                    # 1. If already absolute and exists, use it
+                    # 2. If relative, try relative to JSONL file directory (same folder)
+                    # 3. If path starts with "prototype_v1/", navigate to repo root
+                    resolved_path = None
+                    if os.path.isabs(wav_path):
+                        if os.path.exists(wav_path):
+                            resolved_path = wav_path
+                    else:
+                        # Try relative to JSONL file directory (same directory as JSONL)
+                        candidate = os.path.join(test_files_dir, os.path.basename(wav_path))
+                        if os.path.exists(candidate):
+                            resolved_path = os.path.abspath(candidate)
+                        else:
+                            # Try the full relative path from JSONL directory
+                            candidate = os.path.join(test_files_dir, wav_path)
+                            if os.path.exists(candidate):
+                                resolved_path = os.path.abspath(candidate)
+                            else:
+                                # Navigate up to find repo root and try from there
+                                current_dir = test_files_dir
+                                for _ in range(5):  # Try up to 5 levels up
+                                    candidate = os.path.join(current_dir, wav_path)
+                                    if os.path.exists(candidate):
+                                        resolved_path = os.path.abspath(candidate)
+                                        break
+                                    parent = os.path.dirname(current_dir)
+                                    if parent == current_dir:  # Reached root
+                                        break
+                                    current_dir = parent
+                    
+                    if not resolved_path:
+                        print(f"Warning: Audio file not found: {wav_path}")
+                        print(f"  Searched in: {test_files_dir}")
+                        continue
+                    
+                    file_info = {
+                        'audio_path': resolved_path,
+                        'ground_truth': record.get('Answer', record.get('answer')),
+                        'question': record.get('Question', record.get('question')),
+                        'tool_calls': record.get('tool_calls', [])
+                    }
+                    audio_files.append(file_info)
+                except json.JSONDecodeError as e:
+                    print(f"Warning: Failed to parse JSON on line {line_num}: {e}")
+                    continue
+        else:
+            # Plain text format (backward compatibility)
+            for line in f:
+                line = line.strip()
+                # Skip comments and empty lines
+                if not line or line.startswith('#'):
+                    continue
+                # Check if file exists
+                if os.path.exists(line):
+                    audio_files.append({'audio_path': line, 'ground_truth': None, 'question': None, 'tool_calls': []})
+                else:
+                    print(f"Warning: Audio file not found: {line}")
     
     print(f"Found {len(audio_files)} audio files to process")
     return audio_files
@@ -677,6 +771,7 @@ def update_output_file_for_new_turn():
 def write_operational_metrics_summary():
     """Write operational metrics summary to evaluation directory if enabled"""
     global evaluation_enabled, evaluation_output_file, expected_turns, actual_turns, session_timestamp_global
+    global turns_with_audio_response, turns_with_text_only_response
     
     if evaluation_enabled and evaluation_output_file:
         operational_metrics = {
@@ -685,7 +780,10 @@ def write_operational_metrics_summary():
                 "expected_turns": expected_turns,
                 "actual_turns": actual_turns,
                 "vad_splitting_detected": actual_turns > expected_turns,
-                "turn_expansion_factor": round(actual_turns / expected_turns, 2) if expected_turns > 0 else 0
+                "turn_expansion_factor": round(actual_turns / expected_turns, 2) if expected_turns > 0 else 0,
+                "turns_with_audio_response": turns_with_audio_response,
+                "turns_with_text_only_response": turns_with_text_only_response,
+                "audio_response_rate": round(turns_with_audio_response / actual_turns, 2) if actual_turns > 0 else 0
             },
             "session_info": {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -719,18 +817,29 @@ def write_operational_metrics_summary():
         if actual_turns > expected_turns:
             print(f"VAD splitting detected: {actual_turns - expected_turns} additional turns created by Azure turn detection")
 
-def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str]) -> None:
+def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str], audio_metadata: Optional[Dict[str, Any]] = None) -> None:
     global current_metrics
     logger.info("Starting audio file processing...")
+    
+    if audio_metadata is None:
+        audio_metadata = {}
     
     # Process each file in sequence
     for file_index, file_path in enumerate(audio_files):
         file_name = os.path.basename(file_path)
         print(f"\nProcessing file {file_index + 1}/{len(audio_files)}: {file_name}")
         
+        # Set ground truth for this file if available
+        if file_path in audio_metadata:
+            current_metrics.ground_truth = audio_metadata[file_path].get('ground_truth')
+            if current_metrics.ground_truth:
+                gt_preview = current_metrics.ground_truth[:100] + "..." if len(current_metrics.ground_truth) > 100 else current_metrics.ground_truth
+                print(f"  Ground truth loaded for evaluation: {gt_preview}")
+        
         # Note: output file will be set when each turn starts (in transcription handler)
-        # Reset the response completion event for this turn
+        # Reset the completion events for this turn
         response_complete_event.clear()
+        audio_transcript_complete_event.clear()
         
         # Read and process the audio file
         try:
@@ -767,78 +876,47 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
             
             print(f"Finished sending audio, waiting for response...")
             
-            # Wait for response to complete before proceeding to next file
-            # Send silence while waiting for response
+            # Wait for audio transcript completion before proceeding to next file
+            # The primary completion signal is audio_transcript_complete_event (set when response.audio_transcript.done is processed)
+            # Timeout is only a safety mechanism to prevent infinite waiting if the service fails
             silence_chunk = np.zeros(chunk_size, dtype=np.int16)
             silence_audio = base64.b64encode(silence_chunk.tobytes()).decode("utf-8")
             
-            # Wait for response with timeout
-            timeout = 30  # seconds (increased timeout to allow longer responses)
-            inactivity_timeout = 5  # seconds of inactivity before giving up
+            # Safety timeout to prevent infinite waiting if service fails
+            safety_timeout = 60  # seconds - only triggers if service never responds
             start_time = time.time()
-            last_activity_time = time.time()  # Track when we last saw activity
             
-            while not response_complete_event.is_set() and not stop_event.is_set():
-                if time.time() - start_time > timeout:
-                    print(f"Overall timeout ({timeout}s) waiting for response, moving to next file")
-                    break
-                
-                # Check if we're getting any events from the server
-                current_queue_size = connection._message_queue.qsize()
-                if current_queue_size > 0:
-                    # If there's activity, update the last activity time
-                    last_activity_time = time.time()
-                
-                # Only apply the 1-second inactivity timeout if we're NOT currently receiving audio deltas
-                # Check if the last few messages contain audio deltas to determine if response is still streaming
-                has_recent_audio = False
-                temp_messages = []
-                
-                # Peek at the last few messages to see if there are recent audio deltas
-                for _ in range(min(5, current_queue_size)):
-                    try:
-                        temp_message = connection._message_queue.get_nowait()
-                        temp_messages.append(temp_message)
-                        temp_event = json.loads(temp_message)
-                        if temp_event.get("type") in ["response.audio.delta", "response.audio_transcript.delta"]:
-                            has_recent_audio = True
-                    except (queue.Empty, json.JSONDecodeError):
-                        break
-                
-                # Put the messages back in the queue
-                for msg in reversed(temp_messages):
-                    temp_queue = queue.Queue()
-                    temp_queue.put(msg)
-                    while not connection._message_queue.empty():
-                        temp_queue.put(connection._message_queue.get())
-                    connection._message_queue = temp_queue
-                
-                # If we haven't seen activity for inactivity_timeout seconds and there's no recent audio streaming,
-                # then we can assume the response is complete
-                inactivity_time = time.time() - last_activity_time
-                if (inactivity_time > inactivity_timeout and not has_recent_audio \
-                    and last_activity_time > start_time + 2 \
-                    and not pending_tool_followup_event.is_set()):
-                    print(f"No response activity for {inactivity_timeout} seconds and no active audio streaming, proceeding to next file")
+            while not audio_transcript_complete_event.is_set() and not stop_event.is_set():
+                # Safety timeout check - only to prevent infinite waiting if service fails
+                if time.time() - start_time > safety_timeout:
+                    print(f"SAFETY TIMEOUT ({safety_timeout}s): No audio transcript received, service may have failed")
                     
-                    # Make sure we've captured metrics for this turn before moving on
+                    # Write evaluation data with timeout status
                     if evaluation_enabled and evaluation_output_file and current_metrics.audio_send_end_time:
                         try:
-                            # Finalize the current turn and write evaluation data
                             evaluation_data = current_metrics.finalize_turn_and_get_evaluation_data()
                             
                             if evaluation_data:
-                                print(f"DEBUG - Timeout: Turn {evaluation_data['metrics'].get('logical_turn_number')} evaluation data: {json.dumps(evaluation_data)[:200]}...")
+                                global turns_with_audio_response, turns_with_text_only_response
+                                if evaluation_data['metrics'].get('audio_response_received', False):
+                                    turns_with_audio_response += 1
+                                else:
+                                    turns_with_text_only_response += 1
+                                    print(f"WARNING - Safety timeout on turn {evaluation_data['metrics'].get('logical_turn_number')}: No response received within {safety_timeout}s")
+                                    logger.warning(f"Turn {evaluation_data['metrics'].get('logical_turn_number')}: Safety timeout - service may have failed")
+                                
+                                print(f"DEBUG - Safety timeout: Turn {evaluation_data['metrics'].get('logical_turn_number')} evaluation data: {json.dumps(evaluation_data)[:200]}...")
                                 with open(evaluation_output_file, 'a', encoding='utf-8') as f:
                                     f.write(json.dumps(evaluation_data) + '\n')
-                                print(f"Timeout: Turn {evaluation_data['metrics'].get('logical_turn_number')} evaluation data written")
+                                print(f"Safety timeout: Turn {evaluation_data['metrics'].get('logical_turn_number')} evaluation data written")
                             else:
-                                print("DEBUG - Timeout: No valid turn data to write")
+                                print("DEBUG - Safety timeout: No valid turn data to write")
                         except Exception as e:
                             logger.error(f"Error writing timeout evaluation data: {e}")
                             print(f"Error writing timeout evaluation data: {e}")
                     
-                    response_complete_event.set()  # Signal to move on, but don't reset conversation context
+                    response_complete_event.set()
+                    audio_transcript_complete_event.set()
                     break
                 
                 # Send silence to keep the connection active
@@ -846,7 +924,7 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
                 data_json = json.dumps(param)
                 connection.send(data_json)
                 
-                # Wait briefly before sending more silence
+                # Wait briefly before checking again
                 time.sleep(0.1)
             
             # Don't reset metrics object between files to maintain conversation context
@@ -897,9 +975,10 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                     incoming_item_id = event.get("item_id")
                     if incoming_item_id != last_audio_item_id:
                         last_audio_item_id = incoming_item_id
-                        # Record first audio response time for metrics
+                        # Record first audio response time for metrics and mark audio as received
                         if evaluation_enabled and current_metrics.first_audio_response_time is None:
                             current_metrics.first_audio_response_time = datetime.now()
+                            current_metrics.audio_response_received = True
                         # If there's an existing recorder and a brand-new item, stop and roll to the same file (append within one turn)
                         if current_recorder and current_recorder.is_recording:
                             current_recorder.stop()
@@ -1093,6 +1172,8 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                     # If no additional response is detected, we can proceed
                     if not additional_response_detected:
                         print("No additional responses detected, response appears complete")
+                        # Signal that audio transcript is complete
+                        audio_transcript_complete_event.set()
                 
                 # Capture tool/function events for evaluation history
                 elif ("tool" in (event_type or "")) or ("function" in (event_type or "")):
@@ -1384,17 +1465,18 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                     print(f"DEBUG - evaluation_output_file: {evaluation_output_file}")
                     print(f"DEBUG - audio_send_end_time: {current_metrics.audio_send_end_time}")
                     
-                    # Wait 500ms after response.done to ensure no more audio deltas are coming
-                    print("Waiting 1000ms after response.done to check for additional audio...")
-                    time.sleep(1.0)
+                    # Wait 1000ms after response.done to ensure transcript events are processed
+                    print("Waiting 2000ms after response.done to allow transcript processing...")
+                    time.sleep(2.0)
                     
-                    # Check if there are still audio deltas in the queue
+                    # Check if there are still audio deltas or transcript events in the queue
                     additional_audio_detected = False
+                    additional_transcript_detected = False
                     temp_messages = []
                     
-                    # Check up to 10 messages ahead to see if there are more audio deltas or pending tool calls
+                    # Check up to 20 messages ahead to see if there are more audio/transcript events or pending tool calls
                     upcoming_function_events_detected = False
-                    for _ in range(10):
+                    for _ in range(20):
                         try:
                             temp_message = connection._message_queue.get_nowait()
                             temp_messages.append(temp_message)
@@ -1403,7 +1485,10 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                             if t in ["response.audio.delta", "response.audio_transcript.delta"]:
                                 additional_audio_detected = True
                                 print(f"DEBUG - Additional audio detected after response.done: {t}")
-                                break
+                            # Check for pending transcript.done events that haven't been processed yet
+                            if t == "response.audio_transcript.done":
+                                additional_transcript_detected = True
+                                print(f"DEBUG - Audio transcript.done event still pending processing")
                             # Detect upcoming function call events so we don't finalize yet
                             if t and (t.startswith("response.function_call") or ".function" in t or ".tool" in t or t.endswith(".arguments.delta") or t.endswith(".arguments.done")):
                                 upcoming_function_events_detected = True
@@ -1422,6 +1507,11 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                         while not connection._message_queue.empty():
                             temp_queue.put(connection._message_queue.get())
                         connection._message_queue = temp_queue
+                    
+                    # If there are pending transcript.done events, wait for them to be processed
+                    if additional_transcript_detected:
+                        print("Waiting additional 2000ms for transcript.done events to be processed...")
+                        time.sleep(2.0)
                     
                     # If additional audio is detected, wait longer before completing
                     if additional_audio_detected:
@@ -1442,10 +1532,32 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                     if evaluation_enabled and evaluation_output_file:
                         try:
                             if current_metrics.audio_send_end_time and not current_metrics.current_turn_complete:
+                                # Check if we received audio but don't have assistant content yet
+                                # This means audio_transcript.done hasn't been processed yet
+                                if current_metrics.audio_response_received and not current_metrics.assistant_content:
+                                    print("DEBUG - Audio response received but transcript not yet processed. Waiting 3 more seconds...")
+                                    time.sleep(3.0)
+                                
                                 # Finalize the current turn and get evaluation data
                                 evaluation_data = current_metrics.finalize_turn_and_get_evaluation_data()
                                 
                                 if evaluation_data:
+                                    # Verify we have response content if audio was received
+                                    if evaluation_data['metrics'].get('audio_response_received', False) and not evaluation_data.get('response'):
+                                        print(f"WARNING - Turn {evaluation_data['metrics'].get('logical_turn_number')}: Audio received but no response content captured. Waiting 2 more seconds...")
+                                        time.sleep(2.0)
+                                        # Re-finalize to capture any late-arriving content
+                                        evaluation_data = current_metrics.finalize_turn_and_get_evaluation_data()
+                                    
+                                    # Track audio response statistics
+                                    global turns_with_audio_response, turns_with_text_only_response
+                                    if evaluation_data['metrics'].get('audio_response_received', False):
+                                        turns_with_audio_response += 1
+                                    else:
+                                        turns_with_text_only_response += 1
+                                        print(f"WARNING - Turn {evaluation_data['metrics'].get('logical_turn_number')}: Text response received but no audio response. This may indicate an audio generation issue.")
+                                        logger.warning(f"Turn {evaluation_data['metrics'].get('logical_turn_number')}: Text-only response (no audio)")
+                                    
                                     print(f"DEBUG - Turn {evaluation_data['metrics'].get('logical_turn_number')} evaluation data: {json.dumps(evaluation_data)[:200]}...")
                                     with open(evaluation_output_file, 'a', encoding='utf-8') as f:
                                         f.write(json.dumps(evaluation_data) + '\n')
@@ -1485,10 +1597,11 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                                 # Mark the previous turn as complete
                                 current_metrics.current_turn_complete = True
                             
-                        # When starting a new speech segment, reset the response complete event
+                        # When starting a new speech segment, reset the completion events
                         # to allow the system to wait for a response after the speech is processed
                         response_complete_event.clear()
-                        print("Reset response_complete_event for new speech segment")
+                        audio_transcript_complete_event.clear()
+                        print("Reset completion events for new speech segment")
                 
                 # Track speech stopped to handle multi-utterance files
                 elif event_type == "input_audio_buffer.speech_stopped":
@@ -1598,6 +1711,14 @@ if __name__ == "__main__":
         )
         args = parser.parse_args()
         
+        # Convert relative paths to absolute paths before changing directory
+        if args.test_files_path and not os.path.isabs(args.test_files_path):
+            args.test_files_path = os.path.abspath(args.test_files_path)
+        if args.output_dir and not os.path.isabs(args.output_dir):
+            args.output_dir = os.path.abspath(args.output_dir)
+        if args.evaluation_dir and not os.path.isabs(args.evaluation_dir):
+            args.evaluation_dir = os.path.abspath(args.evaluation_dir)
+        
         # Change to the directory where this script is located
         os.chdir(os.path.dirname(os.path.abspath(__file__)))
         # Add folder for logging
@@ -1677,19 +1798,26 @@ if __name__ == "__main__":
                 "All per-file session evaluation JSONL entries will be appended here."
             )
 
-            for idx, audio_path in enumerate(file_list, start=1):
+            for idx, file_record in enumerate(file_list, start=1):
                 # Reset global state between sessions
                 reset_session_state()
-                # Create a temporary file list containing only this file
-                temp_list_path = f"temp_single_file_list_{idx}.txt"
+                audio_path = file_record['audio_path']
+                # Create a temporary JSONL file containing only this file with metadata
+                temp_list_path = f"temp_single_file_list_{idx}.jsonl"
                 with open(temp_list_path, 'w', encoding='utf-8') as tf:
-                    tf.write(audio_path + '\n')
+                    json.dump({
+                        'WavPath': audio_path,
+                        'Answer': file_record.get('ground_truth'),
+                        'Question': file_record.get('question'),
+                        'tool_calls': file_record.get('tool_calls', [])
+                    }, tf)
+                    tf.write('\n')
                 # Maintain same base timestamp; add session-<n> suffix
                 session_id = timestamp  # base timestamp reused
                 session_suffix = f"session-{idx}"
                 print(f"\n--- Starting session {idx}/{len(file_list)} for file: {audio_path} (session_id={session_id}, suffix={session_suffix}) ---")
                 # Pass override so all turns from this per-file session go into aggregate file, along with suffix
-                main(temp_list_path, args.output_dir, args.evaluation_dir, session_id, evaluation_output_file_override=aggregated_eval_file, session_suffix=session_suffix)
+                main(temp_list_path, args.output_dir, args.evaluation_dir, session_id, evaluation_output_file_override=aggregated_eval_file, session_suffix=session_suffix, file_metadata=file_record)
                 # Skip per-session evaluation run; we will run one aggregate evaluation after loop
                 try:
                     os.remove(temp_list_path)

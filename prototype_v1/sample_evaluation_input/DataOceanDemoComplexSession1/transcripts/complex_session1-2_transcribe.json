@@ -1,0 +1,159 @@
+{
+    "durationMilliseconds": 16497,
+    "combinedPhrases": [
+        {
+            "text": "Now, rewrite that same description in the style of a hard-boiled detective novel from the 1930s, and then convert it into a four-line poem with a rhyming scheme."
+        }
+    ],
+    "phrases": [
+        {
+            "offsetMilliseconds": 750,
+            "durationMilliseconds": 14800,
+            "text": "Now, rewrite that same description in the style of a hard-boiled detective novel from the 1930s, and then convert it into a four-line poem with a rhyming scheme.",
+            "words": [
+                {
+                    "text": "Now,",
+                    "offsetMilliseconds": 750,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "rewrite",
+                    "offsetMilliseconds": 1550,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "that",
+                    "offsetMilliseconds": 2110,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "same",
+                    "offsetMilliseconds": 2430,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "description",
+                    "offsetMilliseconds": 2750,
+                    "durationMilliseconds": 800
+                },
+                {
+                    "text": "in",
+                    "offsetMilliseconds": 3550,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 3750,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "style",
+                    "offsetMilliseconds": 3870,
+                    "durationMilliseconds": 720
+                },
+                {
+                    "text": "of",
+                    "offsetMilliseconds": 4630,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 4750,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "hard-boiled",
+                    "offsetMilliseconds": 4830,
+                    "durationMilliseconds": 1200
+                },
+                {
+                    "text": "detective",
+                    "offsetMilliseconds": 6310,
+                    "durationMilliseconds": 680
+                },
+                {
+                    "text": "novel",
+                    "offsetMilliseconds": 6990,
+                    "durationMilliseconds": 640
+                },
+                {
+                    "text": "from",
+                    "offsetMilliseconds": 7630,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 7910,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "1930s,",
+                    "offsetMilliseconds": 7990,
+                    "durationMilliseconds": 1480
+                },
+                {
+                    "text": "and",
+                    "offsetMilliseconds": 9710,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "then",
+                    "offsetMilliseconds": 9990,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "convert",
+                    "offsetMilliseconds": 10590,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "it",
+                    "offsetMilliseconds": 11150,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "into",
+                    "offsetMilliseconds": 11310,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 11710,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "four-line",
+                    "offsetMilliseconds": 11790,
+                    "durationMilliseconds": 1200
+                },
+                {
+                    "text": "poem",
+                    "offsetMilliseconds": 12990,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "with",
+                    "offsetMilliseconds": 13710,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 14030,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "rhyming",
+                    "offsetMilliseconds": 14110,
+                    "durationMilliseconds": 800
+                },
+                {
+                    "text": "scheme.",
+                    "offsetMilliseconds": 14910,
+                    "durationMilliseconds": 640
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        }
+    ]
+}

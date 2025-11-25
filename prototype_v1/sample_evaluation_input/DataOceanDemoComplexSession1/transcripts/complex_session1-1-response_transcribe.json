@@ -1,0 +1,351 @@
+{
+    "durationMilliseconds": 22117,
+    "combinedPhrases": [
+        {
+            "text": "As the rain taps gently against the window panes, the warm glow of the pub's amber light spills across the room. The soft murmur of conversation mingles with the clinking of glasses and the occasional laughter, creating a cozy, inviting haven. Outside, the city's hustle fades into a misty blur, while inside, the pug is a sanctuary of warmth and comfort."
+        }
+    ],
+    "phrases": [
+        {
+            "offsetMilliseconds": 870,
+            "durationMilliseconds": 6040,
+            "text": "As the rain taps gently against the window panes, the warm glow of the pub's amber light spills across the room.",
+            "words": [
+                {
+                    "text": "As",
+                    "offsetMilliseconds": 870,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 950,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "rain",
+                    "offsetMilliseconds": 1070,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "taps",
+                    "offsetMilliseconds": 1310,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "gently",
+                    "offsetMilliseconds": 1630,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "against",
+                    "offsetMilliseconds": 2070,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 2390,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "window",
+                    "offsetMilliseconds": 2470,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "panes,",
+                    "offsetMilliseconds": 2750,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 3550,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "warm",
+                    "offsetMilliseconds": 3670,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "glow",
+                    "offsetMilliseconds": 3950,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "of",
+                    "offsetMilliseconds": 4270,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 4350,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "pub's",
+                    "offsetMilliseconds": 4510,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "amber",
+                    "offsetMilliseconds": 4910,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "light",
+                    "offsetMilliseconds": 5230,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "spills",
+                    "offsetMilliseconds": 5550,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "across",
+                    "offsetMilliseconds": 6030,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 6350,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "room.",
+                    "offsetMilliseconds": 6470,
+                    "durationMilliseconds": 440
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 7150,
+            "durationMilliseconds": 7120,
+            "text": "The soft murmur of conversation mingles with the clinking of glasses and the occasional laughter, creating a cozy, inviting haven.",
+            "words": [
+                {
+                    "text": "The",
+                    "offsetMilliseconds": 7150,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "soft",
+                    "offsetMilliseconds": 7310,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "murmur",
+                    "offsetMilliseconds": 7710,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "of",
+                    "offsetMilliseconds": 7990,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "conversation",
+                    "offsetMilliseconds": 8110,
+                    "durationMilliseconds": 800
+                },
+                {
+                    "text": "mingles",
+                    "offsetMilliseconds": 8910,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "with",
+                    "offsetMilliseconds": 9390,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 9510,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "clinking",
+                    "offsetMilliseconds": 9590,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "of",
+                    "offsetMilliseconds": 9990,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "glasses",
+                    "offsetMilliseconds": 10110,
+                    "durationMilliseconds": 520
+                },
+                {
+                    "text": "and",
+                    "offsetMilliseconds": 10630,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 10750,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "occasional",
+                    "offsetMilliseconds": 10870,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "laughter,",
+                    "offsetMilliseconds": 11350,
+                    "durationMilliseconds": 600
+                },
+                {
+                    "text": "creating",
+                    "offsetMilliseconds": 12190,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 12630,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "cozy,",
+                    "offsetMilliseconds": 12670,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "inviting",
+                    "offsetMilliseconds": 13230,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "haven.",
+                    "offsetMilliseconds": 13710,
+                    "durationMilliseconds": 560
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 14590,
+            "durationMilliseconds": 720,
+            "text": "Outside,",
+            "words": [
+                {
+                    "text": "Outside,",
+                    "offsetMilliseconds": 14590,
+                    "durationMilliseconds": 720
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 15550,
+            "durationMilliseconds": 5720,
+            "text": "the city's hustle fades into a misty blur, while inside, the pug is a sanctuary of warmth and comfort.",
+            "words": [
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 15550,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "city's",
+                    "offsetMilliseconds": 15630,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "hustle",
+                    "offsetMilliseconds": 15990,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "fades",
+                    "offsetMilliseconds": 16430,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "into",
+                    "offsetMilliseconds": 16710,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 16950,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "misty",
+                    "offsetMilliseconds": 16990,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "blur,",
+                    "offsetMilliseconds": 17350,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "while",
+                    "offsetMilliseconds": 17670,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "inside,",
+                    "offsetMilliseconds": 17950,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 18670,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "pug",
+                    "offsetMilliseconds": 18830,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "is",
+                    "offsetMilliseconds": 19150,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 19310,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "sanctuary",
+                    "offsetMilliseconds": 19350,
+                    "durationMilliseconds": 640
+                },
+                {
+                    "text": "of",
+                    "offsetMilliseconds": 19990,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "warmth",
+                    "offsetMilliseconds": 20110,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "and",
+                    "offsetMilliseconds": 20590,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "comfort.",
+                    "offsetMilliseconds": 20750,
+                    "durationMilliseconds": 520
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        }
+    ]
+}

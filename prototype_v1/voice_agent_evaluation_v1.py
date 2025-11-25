@@ -167,29 +167,29 @@ def main(eval_input_path: str, eval_name: str, eval_description: str, output_fol
             "operational_metrics": operational_metrics_evaluator,
             "intent_resolution": intent_resolution_evaluator,
             "task_adherence": task_adherence_evaluator,
-            # "response_completeness": response_completeness_evaluator,
-            # "tool_call_accuracy": tool_call_accuracy_evaluator,
+            "response_completeness": response_completeness_evaluator,
+            "tool_call_accuracy": tool_call_accuracy_evaluator,
             # Other evaluators
             # "groundedness": groundedness_evaluator,
             # "coherence": coherence_evaluator,
             # "fluency": fluency_evaluator,
             # "relevance": relevance_evaluator
         },
-        evaluator_config={
-            "response_completeness": {
-                "column_mapping": {
-                    "ground_truth": "${data.ground_truth}",
-                    "response": "${data.response}"
-                }
-            },
-            "groundedness": {
-                "column_mapping": {
-                    "query": "${data.query}",
-                    "context": "${data.ground_truth}",
-                    "response": "${data.response}"
-                } 
-            },
-        },
+        # evaluator_config={
+        #     "response_completeness": {
+        #         "column_mapping": {
+        #             "ground_truth": "${data.ground_truth}",
+        #             "response": "${data.response}"
+        #         }
+        #     },
+        #     "groundedness": {
+        #         "column_mapping": {
+        #             "query": "${data.query}",
+        #             "context": "${data.ground_truth}",
+        #             "response": "${data.response}"
+        #         } 
+        #     },
+        # },
         azure_ai_project=azure_ai_project,
         # Optionally, provide an output path to dump a JSON file of metric summary, row-level data, and the metric and Azure AI project URL.
         output_path=eval_output_path

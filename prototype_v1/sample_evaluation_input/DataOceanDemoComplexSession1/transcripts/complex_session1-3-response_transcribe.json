@@ -1,0 +1,192 @@
+{
+    "durationMilliseconds": 9536,
+    "combinedPhrases": [
+        {
+            "text": "I'm glad you enjoyed that. It's always fun to play around with different styles and tones. If you want to tweak it further or try something else, just let me know."
+        }
+    ],
+    "phrases": [
+        {
+            "offsetMilliseconds": 670,
+            "durationMilliseconds": 1200,
+            "text": "I'm glad you enjoyed that.",
+            "words": [
+                {
+                    "text": "I'm",
+                    "offsetMilliseconds": 670,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "glad",
+                    "offsetMilliseconds": 870,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "you",
+                    "offsetMilliseconds": 1110,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "enjoyed",
+                    "offsetMilliseconds": 1190,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "that.",
+                    "offsetMilliseconds": 1550,
+                    "durationMilliseconds": 320
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 2190,
+            "durationMilliseconds": 3040,
+            "text": "It's always fun to play around with different styles and tones.",
+            "words": [
+                {
+                    "text": "It's",
+                    "offsetMilliseconds": 2190,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "always",
+                    "offsetMilliseconds": 2430,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "fun",
+                    "offsetMilliseconds": 2670,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "to",
+                    "offsetMilliseconds": 2910,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "play",
+                    "offsetMilliseconds": 3310,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "around",
+                    "offsetMilliseconds": 3550,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "with",
+                    "offsetMilliseconds": 3790,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "different",
+                    "offsetMilliseconds": 3910,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "styles",
+                    "offsetMilliseconds": 4230,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "and",
+                    "offsetMilliseconds": 4670,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "tones.",
+                    "offsetMilliseconds": 4790,
+                    "durationMilliseconds": 440
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 5550,
+            "durationMilliseconds": 3440,
+            "text": "If you want to tweak it further or try something else, just let me know.",
+            "words": [
+                {
+                    "text": "If",
+                    "offsetMilliseconds": 5550,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "you",
+                    "offsetMilliseconds": 5710,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "want",
+                    "offsetMilliseconds": 5790,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "to",
+                    "offsetMilliseconds": 5990,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "tweak",
+                    "offsetMilliseconds": 6070,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "it",
+                    "offsetMilliseconds": 6270,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "further",
+                    "offsetMilliseconds": 6350,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "or",
+                    "offsetMilliseconds": 6830,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "try",
+                    "offsetMilliseconds": 7390,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "something",
+                    "offsetMilliseconds": 7630,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "else,",
+                    "offsetMilliseconds": 7990,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "just",
+                    "offsetMilliseconds": 8270,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "let",
+                    "offsetMilliseconds": 8470,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "me",
+                    "offsetMilliseconds": 8590,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "know.",
+                    "offsetMilliseconds": 8710,
+                    "durationMilliseconds": 280
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        }
+    ]
+}
