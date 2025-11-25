@@ -13,3 +13,11 @@ llama-questions-s2t:
     name: TwinkStart/llama-questions
     split: test
     ref_col: Answer
+
+llama-questions-voicelive:
+  class: audio_evals.dataset.huggingface.Huggingface
+  args:
+    default_task: voicelive-aqa
+    name: TwinkStart/llama-questions
+    split: test
+    ref_col: Answer

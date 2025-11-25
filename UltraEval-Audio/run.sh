@@ -9,6 +9,6 @@ pip install -r requirments-offline-model.txt
 
 
 
-CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset llama-questions  --model  VoiceLiveS2S  --workers 20 #qwen2-audio-chat
-CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset speech-web-questions  --model  VoiceLiveS2S --workers 15 #qwen2-audio-chat
-CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset speech-triviaqa  --model  VoiceLiveS2S --workers 15 #qwen2-audio-chat
+CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset llama-questions  --model  VoiceLiveS2T  --workers 20 #qwen2-audio-chat
+CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset speech-web-questions  --model  VoiceLiveS2T --workers 15 #qwen2-audio-chat
+CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset speech-triviaqa  --model  VoiceLiveS2T --workers 15 #qwen2-audio-chat

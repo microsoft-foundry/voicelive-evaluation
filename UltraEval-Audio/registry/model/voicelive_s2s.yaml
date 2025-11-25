@@ -1,6 +1,0 @@
-VoiceLiveS2S:
-  class: audio_evals.models.voicelive_s2s.VoiceLiveS2SModel
-  args:
-    #voice: "alloy"
-    voice: "en-US-Ava:DragonHDLatestNeural"
-    instructions: "You are a helpful AI assistant. Respond naturally and conversationally. Keep your responses concise but engaging. Always generate UTF-8 encoded responses."

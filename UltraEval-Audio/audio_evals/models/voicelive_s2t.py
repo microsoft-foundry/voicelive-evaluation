@@ -1,4 +1,5 @@
 import os
+import json
 import re
 import sys
 import wave
@@ -327,6 +328,7 @@ class BasicVoiceAssistant:
         self.audio_processor: Optional[AudioProcessor] = None
         self.transcript: str = ""
         self.inputtranscript: str = ""
+        self.sessionID: str = ""
         self.barge_in: bool = False  # Track if user interrupted the assistant
         self.assistant_responding: bool = False  # Track if assistant is currently responding
 
@@ -340,7 +342,8 @@ class BasicVoiceAssistant:
             async with connect(
                 endpoint=self.endpoint, 
                 credential=self.credential, 
-                model=self.model
+                model=self.model,
+                query={"debug": "on"}
             ) as conn:
                 self.connection = conn
                 
@@ -393,7 +396,9 @@ class BasicVoiceAssistant:
         turn_detection_config = ServerVad(
             threshold=0.5,
             prefix_padding_ms=300,
-            silence_duration_ms=500)
+            silence_duration_ms=500,
+            interrupt_response=False if os.getenv("VOICELIVE_INTERRUPT_RESPONSE").lower() == "false" else True
+        )
 
         # Create strongly typed session configuration with enhanced options
         session_config = RequestSession(
@@ -427,6 +432,8 @@ class BasicVoiceAssistant:
         ap = self.audio_processor
         conn = self.connection
         if event.type == ServerEventType.SESSION_UPDATED:
+            logger.info(f"Session ready: {event.session.id}")
+            self.sessionID = event.session.id
             await ap.start_capture()
         elif event.type == ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
             # Check if this is a barge-in (user interrupting assistant response)
@@ -584,16 +591,68 @@ class VoiceLiveS2TModel(APIModel):
             _dec_active()
             raise ValueError("No audio file found in the prompt.")
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as padded_wav:
-            padded_wav_path = padded_wav.name
+        # Extract output directory structure from recorder_filename if available
+        # Expected path format: res/VoiceLiveS2T/<model>/<dataset>/<evaluator>/<timestamp>_<task>.jsonl
+        recorder_filename = kwargs.get('recorder_filename', '')
+        output_base_dir = "raw/voicelive"
+        
+        if recorder_filename:
+            # Parse the recorder path to extract evaluation name and timestamp
+            # Example: res/VoiceLiveS2T/VoiceLive-gpt-4.1-mini/librispeech-test-clean/inference/2025-10-20_12-22-18_inference.jsonl
+            path_parts = recorder_filename.split(os.sep)
+            try:
+                # Find the index of the timestamp part (contains _inference, _evaluation, etc.)
+                timestamp_part = None
+                evaluation_name = None
+                
+                for i, part in enumerate(path_parts):
+                    if '_' in part and part.endswith('.jsonl'):
+                        # Extract timestamp (e.g., "2025-10-20_12-22-18" from "2025-10-20_12-22-18_inference.jsonl")
+                        timestamp_part = '_'.join(part.split('_')[:-1])  # Remove the last part (e.g., "inference")
+                        
+                        # Build evaluation name from the path components before the timestamp
+                        # Format: <model>/<dataset> (skip evaluator folder like "inference")
+                        if i >= 3:  # Need at least model/dataset before timestamp
+                            # Skip 'res', top-level folder (e.g., 'VoiceLiveS2T'), and evaluator folder
+                            relevant_parts = path_parts[2:i-1]  # Get model, dataset (exclude evaluator)
+                            evaluation_name = os.sep.join(relevant_parts)
+                        break
+                
+                if timestamp_part and evaluation_name:
+                    # Create directory: raw/voicelive/output/<model>/<dataset>/<timestamp>/
+                    voicelive_output_dir = os.path.join(output_base_dir, "output", evaluation_name, timestamp_part)
+                    os.makedirs(voicelive_output_dir, exist_ok=True)
+                    logger.info(f"Created VoiceLive output directory: {voicelive_output_dir}")
+                    
+                    # Generate unique filenames for this inference
+                    import uuid
+                    unique_id = str(uuid.uuid4())[:8]
+                    padded_wav_path = os.path.join(voicelive_output_dir, f"padded_input_{unique_id}.wav")
+                    reply_wav_path = os.path.join(voicelive_output_dir, f"response_{unique_id}.wav")
+                else:
+                    # Fallback to tempfile if parsing fails
+                    logger.warning(f"Could not parse recorder path, using tempfile: {recorder_filename}")
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as padded_wav:
+                        padded_wav_path = padded_wav.name
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as reply_wav:
+                        reply_wav_path = reply_wav.name
+            except Exception as e:
+                logger.warning(f"Error parsing recorder path, using tempfile: {e}")
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as padded_wav:
+                    padded_wav_path = padded_wav.name
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as reply_wav:
+                    reply_wav_path = reply_wav.name
+        else:
+            # No recorder_filename provided, use tempfile
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as padded_wav:
+                padded_wav_path = padded_wav.name
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as reply_wav:
+                reply_wav_path = reply_wav.name
 
         audio = AudioSegment.from_wav(audio_file)
         silence = AudioSegment.silent(duration=2000, frame_rate=audio.frame_rate)
         padded_audio = audio + silence
         padded_audio.export(padded_wav_path, format="wav")
-
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as reply_wav:
-            reply_wav_path = reply_wav.name
 
         credential = self._get_credential()
         instructions = self.instructions
@@ -602,7 +661,8 @@ class VoiceLiveS2TModel(APIModel):
             wav_path=padded_wav_path, reply_wav_path=reply_wav_path
         )
         text = ""
-        input_text = ""
+        transcript_text = ""
+        sessionID = ""
         barge_in = False  # Initialize barge_in flag
         try:
             # run assistant (will block this worker thread) with improved error handling
@@ -610,7 +670,8 @@ class VoiceLiveS2TModel(APIModel):
                 logger.info("Starting VoiceLive assistant...")
                 run_async_in_thread(assistant.start())
                 text = assistant.transcript
-                input_text = assistant.inputtranscript
+                transcript_text = assistant.inputtranscript
+                sessionID = assistant.sessionID
                 barge_in = assistant.barge_in
                 logger.info("VoiceLive assistant completed successfully")
                         
@@ -621,7 +682,7 @@ class VoiceLiveS2TModel(APIModel):
                 logger.error(f"VoiceLive I/O error (possibly Windows completion port issue): {oe}")
                 # Don't re-raise OSError as it might be recoverable
                 text = ""
-                input_text = ""
+                transcript_text = ""
                 barge_in = False
             except Exception as e:
                 logger.exception(f"VoiceLive assistant failed: {e}")
@@ -639,12 +700,26 @@ class VoiceLiveS2TModel(APIModel):
             
             # Sanitize texts to ensure valid UTF-8 encoding
             # text = sanitize_text_for_utf8(text).strip()
-            # input_text = sanitize_text_for_utf8(input_text).strip()
+            # transcript_text = sanitize_text_for_utf8(transcript_text).strip()
             # text = text.encode('utf-8', errors='replace').decode('utf-8')
-            # input_text = input_text.encode('utf-8', errors='replace').decode('utf-8')
+            # transcript_text = transcript_text.encode('utf-8', errors='replace').decode('utf-8')
             text = text.strip()
-            input_text = input_text.strip()
-            logger.info({"audio": reply_wav_path, "text": text, "input_text": input_text, "barge-in": barge_in})
+            transcript_text = transcript_text.strip()
+
+            # Create result with evaluator-friendly key names
+            result: str = {
+                "audio": reply_wav_path, 
+                "transcript": transcript_text,    # Primary key for evaluators
+                "response": text, # Legacy key for backward compatibility
+                "context": "", # Conversation history for context-aware evaluators
+                "system_message": self.instructions,  # System prompt for task_adherence evaluator
+                "barge_in": barge_in,  # Whether user interrupted the assistant                
+                "session_id": sessionID  # Unique session identifier
+            }
+            result = json.dumps(result, ensure_ascii=False)
+            result = result.encode("utf-8", errors="replace").decode("utf-8")
+            result = json.loads(result)
+            logger.info(f"VoiceLive S2T result: {result}")
             logger.info(f"[VoiceLiveS2T] END   thread={thread_name} ts={end_ts:.3f} elapsed={(end_ts-start_ts):.3f}s active={cur}")
 
-        return {"audio": reply_wav_path, "text": text, "input_text": input_text, "barge-in": barge_in}
+        return result
