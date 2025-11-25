@@ -101,6 +101,8 @@ class ConversationMetrics:
         self.conversation_history = []     # Full conversation history for context
         self.logical_turn_number = 0       # Track logical turns (not split by VAD)
         self.ground_truth = None           # Track expected answer for ResponseCompleteness evaluation
+        self.expected_tool_calls = []      # Track expected tool calls from input dataset (defaults to empty)
+        self.tool_definitions = []         # Track tool definitions from input dataset (defaults to empty)
         self.audio_response_received = False  # Track if audio response was received (vs text-only)
 
     def calculate_metrics(self):
@@ -169,10 +171,8 @@ class ConversationMetrics:
             "metrics": metrics
         }
 
-        # Attach expected tool calls - set to empty for flexible evaluation
-        # This allows the evaluator to assess tool call quality without enforcing specific expected calls
-        # TODO: Could be made dynamic based on query analysis if needed
-        evaluation_data["expected_tool_calls"] = []
+        # Attach expected tool calls from input dataset (defaults to empty list if not provided)
+        evaluation_data["expected_tool_calls"] = self.expected_tool_calls if isinstance(self.expected_tool_calls, list) else []
 
         # Add tool_calls array for ToolCallAccuracyEvaluator
         if self.tool_calls_array:
@@ -180,14 +180,8 @@ class ConversationMetrics:
         else:
             evaluation_data["tool_calls"] = []
 
-        # Provide tool definitions for evaluator (mirror the session tool schema where possible)
-        if 'SESSION_TOOL_DEFINITIONS' in globals():
-            evaluation_data["tool_definitions"] = SESSION_TOOL_DEFINITIONS
-        else:
-            # Fallback minimal tool definition derived from registry keys (no parameter schema)
-            evaluation_data["tool_definitions"] = [
-                {"name": k, "type": "function"} for k in TOOL_REGISTRY.keys()
-            ]
+        # Use tool definitions from input dataset (defaults to empty list if not provided)
+        evaluation_data["tool_definitions"] = self.tool_definitions if isinstance(self.tool_definitions, list) else []
         
         # Add ground_truth for ResponseCompleteness evaluation
         if self.ground_truth:
@@ -829,12 +823,25 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
         file_name = os.path.basename(file_path)
         print(f"\nProcessing file {file_index + 1}/{len(audio_files)}: {file_name}")
         
-        # Set ground truth for this file if available
+        # Set ground truth, expected_tool_calls, and tool_definitions for this file if available
         if file_path in audio_metadata:
             current_metrics.ground_truth = audio_metadata[file_path].get('ground_truth')
             if current_metrics.ground_truth:
                 gt_preview = current_metrics.ground_truth[:100] + "..." if len(current_metrics.ground_truth) > 100 else current_metrics.ground_truth
                 print(f"  Ground truth loaded for evaluation: {gt_preview}")
+            
+            # Load expected_tool_calls from dataset (ensure it's a list, default to empty)
+            expected_tc = audio_metadata[file_path].get('expected_tool_calls')
+            current_metrics.expected_tool_calls = expected_tc if isinstance(expected_tc, list) else []
+            
+            # Load tool_definitions from dataset (ensure it's a list, default to empty)
+            tool_defs = audio_metadata[file_path].get('tool_definitions')
+            current_metrics.tool_definitions = tool_defs if isinstance(tool_defs, list) else []
+        else:
+            # Reset to defaults if no metadata available for this file
+            current_metrics.ground_truth = None
+            current_metrics.expected_tool_calls = []
+            current_metrics.tool_definitions = []
         
         # Note: output file will be set when each turn starts (in transcription handler)
         # Reset the completion events for this turn
