@@ -712,6 +712,7 @@ class VoiceLiveS2TModel(APIModel):
                 "transcript": transcript_text,    # Primary key for evaluators
                 "response": text, # Legacy key for backward compatibility
                 "context": "", # Conversation history for context-aware evaluators
+                "system_message": self.instructions,  # System prompt for task_adherence evaluator
                 "barge_in": barge_in,  # Whether user interrupted the assistant                
                 "session_id": sessionID  # Unique session identifier
             }

@@ -397,9 +397,16 @@ class AzureAIFoundryEvaluator(Evaluator):
             })
         elif self.metric_type == "task_adherence":
             # Task adherence needs query, response, and system message
+            # Check pred dict first (from VoiceLive model output), then fall back to kwargs
+            system_message = ""
+            if isinstance(pred, dict):
+                system_message = pred.get("system_message", pred.get("system", ""))
+            if not system_message:
+                system_message = kwargs.get("system_message", kwargs.get("system", ""))
+            
             eval_data.update({
                 "query": query_text,
-                "system_message": kwargs.get("system_message", kwargs.get("system", ""))
+                "system_message": system_message
             })
         elif self.metric_type == "response_completeness":
             # Response completeness needs query, response, and ground truth (expected answer)
@@ -929,12 +936,20 @@ class AzureAIBatchEvaluator(Evaluator):
         else:
             query_text = kwargs.get("Question", kwargs.get("question", kwargs.get("query", kwargs.get("transcript", ""))))
         
+        # Get system_message from pred dict (VoiceLive model output) or kwargs (dataset)
+        system_message = ""
+        if isinstance(pred, dict):
+            system_message = pred.get("system_message", pred.get("system", ""))
+        if not system_message:
+            system_message = kwargs.get("system_message", kwargs.get("system", ""))
+        
         # Collect sample data
         sample_data = {
             "query": query_text,
             "response": response_text,
             "context": kwargs.get("context", ""),  # Use empty string if no context, don't fallback to ground_truth
-            "ground_truth": ground_truth_text
+            "ground_truth": ground_truth_text,
+            "system_message": system_message  # Include system message for task_adherence evaluator
         }
         
         # Store sample metadata for result mapping

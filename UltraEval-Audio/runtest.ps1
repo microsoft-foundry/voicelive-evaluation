@@ -9,7 +9,7 @@ param(
     [switch]$InferenceOnly,          # Only run inference, skip evaluation
     [bool]$EvaluationOnly = $false,         # Only run evaluation, skip inference
     [string]$InferenceFile = "",     # Path to existing inference results
-    [string]$TestSuite = "firsteval-bingchat",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
+    [string]$TestSuite = "bingchat-agent-base",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
     [string[]]$ModelConfigs = @(),   # Override model configs: e.g., @("GPT4o", "GPT4o-Mini")
     [string[]]$Datasets = @(),       # Override datasets: e.g., @("llama-questions", "speech-triviaqa")
     [string[]]$Evaluators = @(),     # Override evaluators: e.g., @("azure-ai-batch-qaevaluator", "em")
@@ -264,7 +264,15 @@ function Get-TestSuiteConfig {
                 Evaluators = @("azure-ai-batch-agent-base")
                 Description = "Simple test with one model, one dataset, multiple evaluators"
             }
-        }        
+        }
+        "bingchat-agent-base" {
+            return @{
+                ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
+                Datasets = @("bingchat-agent-en-us", "bingchat-agent-fr-fr")
+                Evaluators = @("azure-ai-batch-agent-base")
+                Description = "Simple test with one model, one dataset, multiple evaluators"
+            }
+        }
         "llama-test" {
             return @{
                 ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
