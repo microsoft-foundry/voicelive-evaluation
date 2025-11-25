@@ -9,7 +9,7 @@ param(
     [switch]$InferenceOnly,          # Only run inference, skip evaluation
     [bool]$EvaluationOnly = $false,         # Only run evaluation, skip inference
     [string]$InferenceFile = "",     # Path to existing inference results
-    [string]$TestSuite = "comprehensive-nollama",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
+    [string]$TestSuite = "firsteval-bingchat",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
     [string[]]$ModelConfigs = @(),   # Override model configs: e.g., @("GPT4o", "GPT4o-Mini")
     [string[]]$Datasets = @(),       # Override datasets: e.g., @("llama-questions", "speech-triviaqa")
     [string[]]$Evaluators = @(),     # Override evaluators: e.g., @("azure-ai-batch-qaevaluator", "em")
@@ -227,7 +227,11 @@ $allDatasets = @(
     @{Name="cv-15-en"; Description="Common Voice 15 English"},
     @{Name="fleurs-en_us"; Description="FLEURS English US"},
     @{Name="tedlium-test"; Description="TED-LIUM Test Set (English ASR)"},
-    @{Name="peoples_speech-test"; Description="People's Speech Test Set"}
+    @{Name="peoples_speech-test"; Description="People's Speech Test Set"},
+    
+    # BingChat Agent Test Sets
+    @{Name="bingchat-agent-en-us"; Description="BingChat Agent Test Set - English (1583 utterances)"},
+    @{Name="bingchat-agent-fr-fr"; Description="BingChat Agent Test Set - French (784 utterances)"}
 )
 
 # Create base results directory structure (cross-platform)
@@ -253,6 +257,14 @@ function Get-TestSuiteConfig {
                 Description = "Simple test with one model, one dataset, multiple evaluators"
             }
         }
+        "firsteval-bingchat" {
+            return @{
+                ModelConfigs = @("VoiceLive-gpt-realtime")
+                Datasets = @("bingchat-agent-en-us", "bingchat-agent-fr-fr")
+                Evaluators = @("azure-ai-batch-agent-base")
+                Description = "Simple test with one model, one dataset, multiple evaluators"
+            }
+        }        
         "llama-test" {
             return @{
                 ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")

@@ -348,10 +348,13 @@ class AzureAIFoundryEvaluator(Evaluator):
         else:
             response_text = str(pred)
         
-        # Get query from dataset fields (standardized via col_aliases to 'question')
-        # Priority: Question (capital for raw datasets) → question (lowercase standard) → query (fallback)
-        # Datasets should use col_aliases to map their question fields to 'question' for consistency
-        query_text = kwargs.get("Question", kwargs.get("question", kwargs.get("query", "")))
+        # Get query from multiple sources with priority:
+        # 1. If pred is dict (VoiceLive with passthrough), check pred.transcript first
+        # 2. Then check dataset fields: Question (capital for raw) → question (standard) → query → transcript
+        if isinstance(pred, dict) and "transcript" in pred:
+            query_text = pred.get("transcript", "")
+        else:
+            query_text = kwargs.get("Question", kwargs.get("question", kwargs.get("query", kwargs.get("transcript", ""))))
         
         # Base data required for all evaluators
         eval_data = {
@@ -360,10 +363,22 @@ class AzureAIFoundryEvaluator(Evaluator):
         
         # Add metric-specific data
         if self.metric_type == "groundedness":
-            # Groundedness requires query and context
+            # Groundedness requires query and context (RAG documents)
+            # Context should be the retrieved documents, NOT ground truth/expected answer
+            context = kwargs.get("context", "")
+            if not context:
+                # Log warning and raise ValueError that will be caught by _eval's try-except
+                logger.warning(
+                    f"Groundedness evaluator: Missing 'context' field for sample. "
+                    f"This evaluator requires RAG context (retrieved documents), not ground truth. "
+                    f"Skipping groundedness evaluation for this sample."
+                )
+                raise ValueError(
+                    "Missing required 'context' field. Groundedness evaluator needs RAG documents."
+                )
             eval_data.update({
                 "query": query_text,
-                "context": kwargs.get("context", ground_truth_text)
+                "context": context
             })
         elif self.metric_type in ["coherence", "fluency"]:
             # Coherence and fluency only need the response
@@ -387,10 +402,16 @@ class AzureAIFoundryEvaluator(Evaluator):
                 "system_message": kwargs.get("system_message", kwargs.get("system", ""))
             })
         elif self.metric_type == "response_completeness":
-            # Response completeness needs query, response, and ground truth
+            # Response completeness needs query, response, and ground truth (expected answer)
+            ground_truth = kwargs.get("ground_truth", ground_truth_text)
+            if not ground_truth:
+                logger.warning(
+                    "ResponseCompleteness evaluator: No ground_truth found in dataset. "
+                    "Using empty ground truth may produce unreliable completeness scores."
+                )
             eval_data.update({
                 "query": query_text,
-                "ground_truth": kwargs.get("ground_truth", ground_truth_text)
+                "ground_truth": ground_truth
             })
         elif self.metric_type == "qaevaluator":
             # QA evaluator needs query, response, and ground truth
@@ -606,17 +627,28 @@ class AzureAIMultiEvaluator(Evaluator):
             else:
                 response_text = str(pred)
             
-            # Get query from dataset fields (standardized via col_aliases to 'question')
-            # Priority: Question (capital for raw datasets) → question (lowercase standard) → query (fallback)
-            # Datasets should use col_aliases to map their question fields to 'question' for consistency
-            query_text = kwargs.get("Question", kwargs.get("question", kwargs.get("query", "")))
+            # Get query from multiple sources with priority:
+            # 1. If pred is dict (VoiceLive with passthrough), check pred.transcript first
+            # 2. Then check dataset fields: Question (capital for raw) → question (standard) → query → transcript
+            if isinstance(pred, dict) and "transcript" in pred:
+                query_text = pred.get("transcript", "")
+            else:
+                query_text = kwargs.get("Question", kwargs.get("question", kwargs.get("query", kwargs.get("transcript", ""))))
             
             # Create temporary file with single data point
+            # Check if required fields are present for configured evaluators
+            context_value = kwargs.get("context", "")
+            if "groundedness" in self.evaluator_configs and not context_value:
+                logger.warning(
+                    "Multi-evaluator includes 'groundedness' but no 'context' field found. "
+                    "Groundedness requires RAG context. This evaluation may produce errors."
+                )
+            
             with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as temp_file:
                 data_entry = {
                     "query": query_text,
                     "response": response_text,
-                    "context": kwargs.get("context", ground_truth_text),
+                    "context": context_value,  # Empty if not provided - don't use ground_truth
                     "ground_truth": ground_truth_text
                 }
                 temp_file.write(json.dumps(data_entry) + '\n')
@@ -889,16 +921,19 @@ class AzureAIBatchEvaluator(Evaluator):
         else:
             response_text = str(pred)
         
-        # Get query from dataset fields (standardized via col_aliases to 'question')
-        # Priority: Question (capital for raw datasets) → question (lowercase standard) → query (fallback)
-        # Datasets should use col_aliases to map their question fields to 'question' for consistency
-        query_text = kwargs.get("Question", kwargs.get("question", kwargs.get("query", "")))
+        # Get query from multiple sources with priority:
+        # 1. If pred is dict (VoiceLive with passthrough), check pred.transcript first
+        # 2. Then check dataset fields: Question (capital for raw) → question (standard) → query → transcript
+        if isinstance(pred, dict) and "transcript" in pred:
+            query_text = pred.get("transcript", "")
+        else:
+            query_text = kwargs.get("Question", kwargs.get("question", kwargs.get("query", kwargs.get("transcript", ""))))
         
         # Collect sample data
         sample_data = {
             "query": query_text,
             "response": response_text,
-            "context": kwargs.get("context", ground_truth_text),
+            "context": kwargs.get("context", ""),  # Use empty string if no context, don't fallback to ground_truth
             "ground_truth": ground_truth_text
         }
         
@@ -968,6 +1003,7 @@ class AzureAIBatchEvaluator(Evaluator):
                 logger.info(f"Batch evaluation results will be saved to: {batch_output_file}")
                 
                 # Run Azure AI evaluate() function
+                logger.info(f"Calling evaluate() with: upload_to_project={self.upload_to_project}, azure_ai_project={azure_ai_project}, output_path={batch_output_file}")
                 response = evaluate(
                     data=temp_file_path,
                     evaluation_name=f"{self.evaluation_name}-Batch-{len(self.batch_samples)}",
@@ -977,19 +1013,41 @@ class AzureAIBatchEvaluator(Evaluator):
                     output_path=batch_output_file
                 )
                 
+                logger.info(f"Azure AI evaluate() response type: {type(response)}")
+                logger.info(f"Azure AI evaluate() response keys: {response.keys() if isinstance(response, dict) else 'N/A'}")
+                logger.info(f"Azure AI evaluate() metrics: {response.get('metrics', {})}")
+                logger.info(f"Azure AI evaluate() rows count: {len(response.get('rows', []))}")
+                if response.get('rows'):
+                    logger.info(f"Azure AI evaluate() first row keys: {response['rows'][0].keys()}")
+                
                 if response.get("studio_url"):
                     logger.info(f"Azure AI Foundry batch evaluation uploaded: {response['studio_url']}")
                 
                 # Process results for each sample
                 rows = response.get('rows', [])
+                metrics_dict = response.get('metrics', {})
+                
+                # Check if evaluation completed synchronously (has outputs.* fields in rows)
+                has_sync_results = rows and any(k.startswith('outputs.') for k in rows[0].keys()) if rows else False
+                
+                if not has_sync_results and response.get("studio_url"):
+                    logger.warning(
+                        f"Azure AI evaluation running asynchronously. "
+                        f"Metrics will be available in Azure AI Studio: {response['studio_url']}"
+                    )
+                
                 batch_results = []
                 
                 for i, (row, metadata) in enumerate(zip(rows, self.sample_metadata)):
+                    # Extract output metrics from row (outputs.* fields)
+                    row_metrics = {k: v for k, v in row.items() if k.startswith('outputs.')}
+                    
                     result = {
                         "azure_evaluate_response": {
                             "rows": [row],
-                            "metrics": {k: v for k, v in row.items() if k.startswith('outputs.')},
-                            "studio_url": response.get("studio_url")
+                            "metrics": row_metrics if row_metrics else metrics_dict,
+                            "studio_url": response.get("studio_url"),
+                            "async_evaluation": not has_sync_results
                         },
                         "batch_processed": True,
                         "batch_size": len(self.batch_samples),  
