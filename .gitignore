@@ -437,3 +437,6 @@ envs/
 init_model/
 res/
 raw/
+
+# Ignore outputs
+output/

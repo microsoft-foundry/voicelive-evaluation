@@ -53,7 +53,8 @@ def reset_session_state():
     global current_output_file, response_output_dir, evaluation_output_file, evaluation_enabled
     global current_user_input, current_turn_number, expected_turns, actual_turns, session_timestamp_global
     global turns_with_audio_response, turns_with_text_only_response
-    global pending_tool_followup_event, followup_created_event, current_metrics, session_suffix_global
+    global pending_tool_followup_event, followup_created_event, session_suffix_global
+    global current_metrics  # CRITICAL: Must declare global to reset the actual global variable
 
     # Recreate events to ensure no lingering set() state
     stop_event = threading.Event()
@@ -260,10 +261,8 @@ class ConversationMetrics:
         self.first_audio_response_time = None
         self.transcription_complete_time = None
         
-        # Clear snapshot variables for next turn
-        self.turn_ground_truth = None
-        self.turn_expected_tool_calls = []
-        self.turn_tool_definitions = []
+        # DO NOT clear snapshot variables here - they persist across multiple turns from the same file
+        # Snapshot is only updated when a new file is loaded in send_audio_from_files()
 
         return evaluation_data
         
@@ -836,8 +835,13 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
         file_name = os.path.basename(file_path)
         print(f"\nProcessing file {file_index + 1}/{len(audio_files)}: {file_name}")
         
-        # Load metadata for this file FIRST (before waiting)
-        # This ensures metadata is tied to the audio file being processed
+        # Wait for previous file's response to complete FIRST
+        if file_index > 0:
+            print(f"  Waiting for previous file's response to complete...")
+            audio_transcript_complete_event.wait(timeout=120)
+        
+        # Load metadata for this file AFTER waiting
+        # This ensures previous file's evaluation is complete before we overwrite class variables
         if file_path in audio_metadata:
             current_metrics.ground_truth = audio_metadata[file_path].get('ground_truth')
             if current_metrics.ground_truth:
@@ -863,11 +867,6 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
         current_metrics.turn_expected_tool_calls = list(current_metrics.expected_tool_calls) if current_metrics.expected_tool_calls else []
         current_metrics.turn_tool_definitions = list(current_metrics.tool_definitions) if current_metrics.tool_definitions else []
         print(f"  Metadata snapshot captured: expected_tool_calls={len(current_metrics.turn_expected_tool_calls)}, tool_definitions={len(current_metrics.turn_tool_definitions)}")
-        
-        # Wait for previous file's response to complete before sending new audio
-        if file_index > 0:
-            print(f"  Waiting for previous file's response to complete...")
-            audio_transcript_complete_event.wait(timeout=120)
         
         # Note: output file will be set when each turn starts (in transcription handler)
         # Reset the completion events for this turn
