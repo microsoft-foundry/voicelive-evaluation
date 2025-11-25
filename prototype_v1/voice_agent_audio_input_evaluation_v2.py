@@ -108,10 +108,6 @@ class ConversationMetrics:
         self.turn_ground_truth = None
         self.turn_expected_tool_calls = []
         self.turn_tool_definitions = []
-        # Snapshot of metadata at turn start (prevents overwrites from next file loading)
-        self.turn_ground_truth = None
-        self.turn_expected_tool_calls = []
-        self.turn_tool_definitions = []
 
     def calculate_metrics(self):
         metrics = {}
