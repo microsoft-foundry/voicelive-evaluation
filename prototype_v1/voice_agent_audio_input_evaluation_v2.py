@@ -104,6 +104,14 @@ class ConversationMetrics:
         self.expected_tool_calls = []      # Track expected tool calls from input dataset (defaults to empty)
         self.tool_definitions = []         # Track tool definitions from input dataset (defaults to empty)
         self.audio_response_received = False  # Track if audio response was received (vs text-only)
+        # Snapshot of metadata captured when audio file is loaded (prevents overwrites)
+        self.turn_ground_truth = None
+        self.turn_expected_tool_calls = []
+        self.turn_tool_definitions = []
+        # Snapshot of metadata at turn start (prevents overwrites from next file loading)
+        self.turn_ground_truth = None
+        self.turn_expected_tool_calls = []
+        self.turn_tool_definitions = []
 
     def calculate_metrics(self):
         metrics = {}
@@ -171,8 +179,8 @@ class ConversationMetrics:
             "metrics": metrics
         }
 
-        # Attach expected tool calls from input dataset (defaults to empty list if not provided)
-        evaluation_data["expected_tool_calls"] = self.expected_tool_calls if isinstance(self.expected_tool_calls, list) else []
+        # Use snapshotted metadata from turn start to prevent overwrites from next file
+        evaluation_data["expected_tool_calls"] = self.turn_expected_tool_calls if isinstance(self.turn_expected_tool_calls, list) else []
 
         # Add tool_calls array for ToolCallAccuracyEvaluator
         if self.tool_calls_array:
@@ -180,12 +188,12 @@ class ConversationMetrics:
         else:
             evaluation_data["tool_calls"] = []
 
-        # Use tool definitions from input dataset (defaults to empty list if not provided)
-        evaluation_data["tool_definitions"] = self.tool_definitions if isinstance(self.tool_definitions, list) else []
+        # Use tool definitions from turn start snapshot
+        evaluation_data["tool_definitions"] = self.turn_tool_definitions if isinstance(self.turn_tool_definitions, list) else []
         
-        # Add ground_truth for ResponseCompleteness evaluation
-        if self.ground_truth:
-            evaluation_data["ground_truth"] = self.ground_truth
+        # Add ground_truth from turn start snapshot
+        if self.turn_ground_truth:
+            evaluation_data["ground_truth"] = self.turn_ground_truth
 
         # Add conversation history for context (previous turns) including user, assistant, and tool roles
         for historical_turn in self.conversation_history:
@@ -255,6 +263,11 @@ class ConversationMetrics:
         self.first_text_response_time = None
         self.first_audio_response_time = None
         self.transcription_complete_time = None
+        
+        # Clear snapshot variables for next turn
+        self.turn_ground_truth = None
+        self.turn_expected_tool_calls = []
+        self.turn_tool_definitions = []
 
         return evaluation_data
         
@@ -827,13 +840,8 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
         file_name = os.path.basename(file_path)
         print(f"\nProcessing file {file_index + 1}/{len(audio_files)}: {file_name}")
         
-        # Wait for previous file's response to complete before loading new metadata
-        # This ensures the previous turn's evaluation gets the correct metadata
-        if file_index > 0:
-            print(f"  Waiting for previous file's response to complete before loading new metadata...")
-            audio_transcript_complete_event.wait(timeout=120)
-        
-        # Set ground truth, expected_tool_calls, and tool_definitions for this file if available
+        # Load metadata for this file FIRST (before waiting)
+        # This ensures metadata is tied to the audio file being processed
         if file_path in audio_metadata:
             current_metrics.ground_truth = audio_metadata[file_path].get('ground_truth')
             if current_metrics.ground_truth:
@@ -852,6 +860,18 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
             current_metrics.ground_truth = None
             current_metrics.expected_tool_calls = []
             current_metrics.tool_definitions = []
+        
+        # Take snapshot of metadata for this file's turn(s)
+        # This prevents metadata from being overwritten when next file loads
+        current_metrics.turn_ground_truth = current_metrics.ground_truth
+        current_metrics.turn_expected_tool_calls = list(current_metrics.expected_tool_calls) if current_metrics.expected_tool_calls else []
+        current_metrics.turn_tool_definitions = list(current_metrics.tool_definitions) if current_metrics.tool_definitions else []
+        print(f"  Metadata snapshot captured: expected_tool_calls={len(current_metrics.turn_expected_tool_calls)}, tool_definitions={len(current_metrics.turn_tool_definitions)}")
+        
+        # Wait for previous file's response to complete before sending new audio
+        if file_index > 0:
+            print(f"  Waiting for previous file's response to complete...")
+            audio_transcript_complete_event.wait(timeout=120)
         
         # Note: output file will be set when each turn starts (in transcription handler)
         # Reset the completion events for this turn
