@@ -866,6 +866,11 @@ class AzureAIBatchEvaluator(Evaluator):
                 'task_adherence': {'threshold': 3},
                 'response_completeness': {'threshold': 3}
             }
+        elif self.evaluator_name == "azure-ai-combined-agent-base-no-groundtruth":
+            return {
+                'intent_resolution': {'threshold': 3},
+                'task_adherence': {'threshold': 3}
+            }        
         elif self.evaluator_name == "azure-ai-combined-agent-full+tool":
             return {
                 'intent_resolution': {'threshold': 3},

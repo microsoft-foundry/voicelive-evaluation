@@ -112,6 +112,12 @@ azure-ai-batch-agent-base:
     evaluator_name: azure-ai-combined-agent-base
     batch_size: 0
 
+azure-ai-batch-agent-base-no-groundtruth:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
+  args:
+    evaluator_name: azure-ai-combined-agent-base-no-groundtruth
+    batch_size: 0
+
 azure-ai-batch-agent-full+tool:
   class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
   args:

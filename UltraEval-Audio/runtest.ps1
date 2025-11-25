@@ -5,11 +5,11 @@
 
 param(
     [int]$Workers = 20,
-    [int]$Limit = 10,
+    [int]$Limit = 1000,
     [switch]$InferenceOnly,          # Only run inference, skip evaluation
     [bool]$EvaluationOnly = $false,         # Only run evaluation, skip inference
     [string]$InferenceFile = "",     # Path to existing inference results
-    [string]$TestSuite = "bingchat-agent-base",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
+    [string]$TestSuite = "bingchat-agent-base-cascaded",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
     [string[]]$ModelConfigs = @(),   # Override model configs: e.g., @("GPT4o", "GPT4o-Mini")
     [string[]]$Datasets = @(),       # Override datasets: e.g., @("llama-questions", "speech-triviaqa")
     [string[]]$Evaluators = @(),     # Override evaluators: e.g., @("azure-ai-batch-qaevaluator", "em")
@@ -201,6 +201,7 @@ $allEvaluators = @(
     # Azure AI Foundry evaluators (batch optimized)
     @{Name="azure-ai-batch-qaevaluator"; Args="--evaluator azure-ai-batch-qaevaluator"; Description="Azure AI Batch QA Evaluator"; PostProcess="passthrough"},
     @{Name="azure-ai-batch-agent-base"; Args="--evaluator azure-ai-batch-agent-base"; Description="Azure AI Batch Agent Base (Intent + Task)"; PostProcess="passthrough"},
+    @{Name="azure-ai-batch-agent-base-no-groundtruth"; Args="--evaluator azure-ai-batch-agent-base-no-groundtruth"; Description="Azure AI Batch Agent Base No Groundtruth (Intent + Task)"; PostProcess="passthrough"},
     @{Name="azure-ai-batch-agent-full"; Args="--evaluator azure-ai-batch-agent-full+tool"; Description="Azure AI Batch Agent Full + Tool"; PostProcess="passthrough"},
     @{Name="azure-ai-batch-quality"; Args="--evaluator azure-ai-batch-quality"; Description="Azure AI Batch Quality (Coherence + Fluency + Relevance)"; PostProcess="passthrough"},
     
@@ -267,9 +268,17 @@ function Get-TestSuiteConfig {
         }
         "bingchat-agent-base" {
             return @{
-                ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
+                ModelConfigs = @("VoiceLive-gpt-4.1-mini")
                 Datasets = @("bingchat-agent-en-us", "bingchat-agent-fr-fr")
                 Evaluators = @("azure-ai-batch-agent-base")
+                Description = "Simple test with one model, one dataset, multiple evaluators"
+            }
+        }
+        "bingchat-agent-base-cascaded"
+            return @{
+                ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
+                Datasets = @("bingchat-agent-en-us", "bingchat-agent-fr-fr")
+                Evaluators = @("azure-ai-batch-agent-base-no-groundtruth")
                 Description = "Simple test with one model, one dataset, multiple evaluators"
             }
         }
