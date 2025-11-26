@@ -1839,6 +1839,7 @@ if __name__ == "__main__":
             # Group files by conversationID
             from itertools import groupby
             from operator import itemgetter
+            import shutil
             
             # Prepare aggregate evaluation file path (timestamp for the whole run)
             aggregate_run_id = timestamp  # use initial timestamp as aggregate id
@@ -1847,6 +1848,10 @@ if __name__ == "__main__":
                 os.makedirs(aggregated_eval_dir_base, exist_ok=True)
             aggregated_eval_dir = os.path.join(aggregated_eval_dir_base, aggregate_run_id)
             os.makedirs(aggregated_eval_dir, exist_ok=True)
+            
+            # Create temp folder for intermediate files (will be cleaned up at the end)
+            temp_folder = os.path.join(aggregated_eval_dir, "temp")
+            os.makedirs(temp_folder, exist_ok=True)
             
             # Extract dataset name from test_files_path (remove .jsonl or .txt extension)
             dataset_name = os.path.splitext(os.path.basename(args.test_files_path))[0] if args.test_files_path else "dataset"
@@ -1875,7 +1880,7 @@ if __name__ == "__main__":
                 reset_session_state(system_prompt=conv_system_prompt)
                 
                 # Create a temporary JSONL file containing only files for this conversation with metadata
-                temp_list_path = f"temp_conversation_{conversation_id}_{conv_idx}.jsonl"
+                temp_list_path = os.path.join(temp_folder, f"temp_conversation_{conversation_id}_{conv_idx}.jsonl")
                 with open(temp_list_path, 'w', encoding='utf-8') as tf:
                     for file_record in conv_files:
                         json.dump({
@@ -1897,14 +1902,15 @@ if __name__ == "__main__":
                 # Pass override so all turns from this per-conversation session go into aggregate file, along with suffix
                 # Also pass first file's metadata so system_prompt is used in session.update
                 main(temp_list_path, args.output_dir, args.evaluation_dir, session_id, evaluation_output_file_override=aggregated_eval_file, session_suffix=session_suffix, file_metadata=conv_files[0] if conv_files else None)
-                
-                # Skip per-session evaluation run; we will run one aggregate evaluation after loop
-                try:
-                    os.remove(temp_list_path)
-                except OSError:
-                    pass
             
-            print("All per-conversation sessions completed. Running aggregate evaluation...")
+            # Clean up temp folder after all conversations complete
+            print("All per-conversation sessions completed. Cleaning up temp files...")
+            try:
+                shutil.rmtree(temp_folder)
+            except OSError as e:
+                print(f"Warning: Could not remove temp folder {temp_folder}: {e}")
+            
+            print("Running aggregate evaluation...")
             run_evaluation_if_enabled(args.output_dir, aggregate_run_id, override_input_file=aggregated_eval_file, aggregate=True)
         else:
             print("Running in PER-FILE session mode with AGGREGATED evaluation (one evaluation run for all per-file sessions).")
@@ -1929,6 +1935,11 @@ if __name__ == "__main__":
                 f"{aggregated_eval_file}\n"
                 "All per-file session evaluation JSONL entries will be appended here."
             )
+            
+            # Create temp folder for intermediate files (will be cleaned up at the end)
+            import shutil
+            temp_folder = os.path.join(aggregated_eval_dir, "temp")
+            os.makedirs(temp_folder, exist_ok=True)
 
             for idx, file_record in enumerate(file_list, start=1):
                 # Get system_prompt from file record (each file can have its own system_prompt)
@@ -1938,7 +1949,7 @@ if __name__ == "__main__":
                 reset_session_state(system_prompt=file_system_prompt)
                 audio_path = file_record['audio_path']
                 # Create a temporary JSONL file containing only this file with metadata
-                temp_list_path = f"temp_single_file_list_{idx}.jsonl"
+                temp_list_path = os.path.join(temp_folder, f"temp_single_file_list_{idx}.jsonl")
                 with open(temp_list_path, 'w', encoding='utf-8') as tf:
                     json.dump({
                         'WavPath': audio_path,
@@ -1954,12 +1965,15 @@ if __name__ == "__main__":
                 print(f"\n--- Starting session {idx}/{len(file_list)} for file: {audio_path} (session_id={session_id}, suffix={session_suffix}) ---")
                 # Pass override so all turns from this per-file session go into aggregate file, along with suffix
                 main(temp_list_path, args.output_dir, args.evaluation_dir, session_id, evaluation_output_file_override=aggregated_eval_file, session_suffix=session_suffix, file_metadata=file_record)
-                # Skip per-session evaluation run; we will run one aggregate evaluation after loop
-                try:
-                    os.remove(temp_list_path)
-                except OSError:
-                    pass
-            print("All per-file sessions completed. Running aggregate evaluation...")
+            
+            # Clean up temp folder after all files complete
+            print("All per-file sessions completed. Cleaning up temp files...")
+            try:
+                shutil.rmtree(temp_folder)
+            except OSError as e:
+                print(f"Warning: Could not remove temp folder {temp_folder}: {e}")
+            
+            print("Running aggregate evaluation...")
             run_evaluation_if_enabled(args.output_dir, aggregate_run_id, override_input_file=aggregated_eval_file, aggregate=True)
 
     except Exception as e:
