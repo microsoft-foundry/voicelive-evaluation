@@ -46,6 +46,7 @@ session_timestamp_global = None  # Base timestamp for all outputs (no per-file u
 session_suffix_global = None  # Holds current session suffix like session-1, session-2
 pending_tool_followup_event = threading.Event()  # Track when a tool call follow-up response is expected
 followup_created_event = threading.Event()  # Track when a follow-up response has actually started
+tool_output_sent = False  # Track when we've sent a function_call_output and are awaiting the incorporating response
 
 def reset_session_state():
     """Reset global state between per-file sessions when running in per-file session mode."""
@@ -53,7 +54,7 @@ def reset_session_state():
     global current_output_file, response_output_dir, evaluation_output_file, evaluation_enabled
     global current_user_input, current_turn_number, expected_turns, actual_turns, session_timestamp_global
     global turns_with_audio_response, turns_with_text_only_response
-    global pending_tool_followup_event, followup_created_event, session_suffix_global
+    global pending_tool_followup_event, followup_created_event, session_suffix_global, tool_output_sent
     global current_metrics  # CRITICAL: Must declare global to reset the actual global variable
 
     # Recreate events to ensure no lingering set() state
@@ -64,6 +65,7 @@ def reset_session_state():
     all_files_processed_event = threading.Event()
     pending_tool_followup_event = threading.Event()
     followup_created_event = threading.Event()
+    tool_output_sent = False
 
     # Reset counters / globals
     current_output_file = None
@@ -409,15 +411,6 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
             "modalities": modalities,
             "instructions": f"{instructions} Use available tools when appropriate.",
             "tools": tools,  # Add the tools to the session
-            # "tools": [
-            #     {
-            #         "type": "function",
-            #         "name": "fetchWeather",
-            #         "parameters": {
-            #         "location": "Seattle"
-            #         }
-            #     }
-            # ]
         },
         "event_id": ""
     }
@@ -579,7 +572,6 @@ def read_test_files(test_files_path: str = None) -> List[Dict[str, str]]:
                         'audio_path': resolved_path,
                         'ground_truth': record.get('Answer', record.get('answer')),
                         'question': record.get('Question', record.get('question')),
-                        'tool_calls': record.get('tool_calls', []),
                         'expected_tool_calls': record.get('expected_tool_calls', []),
                         'tool_definitions': record.get('tool_definitions', [])
                     }
@@ -596,7 +588,7 @@ def read_test_files(test_files_path: str = None) -> List[Dict[str, str]]:
                     continue
                 # Check if file exists
                 if os.path.exists(line):
-                    audio_files.append({'audio_path': line, 'ground_truth': None, 'question': None, 'tool_calls': [], 'expected_tool_calls': [], 'tool_definitions': []})
+                    audio_files.append({'audio_path': line, 'ground_truth': None, 'question': None, 'expected_tool_calls': [], 'tool_definitions': []})
                 else:
                     print(f"Warning: Audio file not found: {line}")
     
@@ -835,10 +827,12 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
         file_name = os.path.basename(file_path)
         print(f"\nProcessing file {file_index + 1}/{len(audio_files)}: {file_name}")
         
-        # Wait for previous file's response to complete FIRST
+        # Wait for previous file's response AND turn finalization to complete FIRST
+        # CRITICAL: Must wait for response_complete_event (turn finalized) not audio_transcript_complete_event (just transcript done)
+        # This ensures the evaluation data is written BEFORE we load next file's metadata
         if file_index > 0:
-            print(f"  Waiting for previous file's response to complete...")
-            audio_transcript_complete_event.wait(timeout=120)
+            print(f"  Waiting for previous file's turn finalization to complete...")
+            response_complete_event.wait(timeout=120)
         
         # Load metadata for this file AFTER waiting
         # This ensures previous file's evaluation is complete before we overwrite class variables
@@ -908,9 +902,10 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
             
             print(f"Finished sending audio, waiting for response...")
             
-            # Wait for audio transcript completion before proceeding to next file
-            # The primary completion signal is audio_transcript_complete_event (set when response.audio_transcript.done is processed)
-            # Timeout is only a safety mechanism to prevent infinite waiting if the service fails
+            # Wait for audio transcript signal (indicates we're getting responses)
+            # NOTE: This loop waits for audio_transcript_complete_event just to detect response arrival
+            # The actual turn finalization happens in response.done event
+            # The next file's iteration will wait for response_complete_event (turn finalized) before loading metadata
             silence_chunk = np.zeros(chunk_size, dtype=np.int16)
             silence_audio = base64.b64encode(silence_chunk.tobytes()).decode("utf-8")
             
@@ -976,7 +971,7 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
     all_files_processed_event.set()  # Signal that all files have been processed
 
 def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
-    global current_metrics
+    global current_metrics, tool_output_sent
     last_audio_item_id = None
     current_recorder = None
     # Buffers for function-call arguments streaming
@@ -1308,6 +1303,7 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
 
                             # Send function output back to the model and request continuation
                             try:
+                                tool_output_sent = True  # Mark that we've sent tool output and expect follow-up response
                                 out_evt = {
                                     "type": "conversation.item.create",
                                     "item": {
@@ -1406,6 +1402,7 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
 
                             print(f"DEBUG - Tool executed (single event). call_id={call_id}, name={name}, result={result_text}")
                             try:
+                                tool_output_sent = True  # Mark that we've sent tool output and expect follow-up response
                                 out_evt = {
                                     "type": "conversation.item.create",
                                     "item": {
@@ -1545,21 +1542,30 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                         print("Waiting additional 2000ms for transcript.done events to be processed...")
                         time.sleep(2.0)
                     
-                    # If additional audio is detected, wait longer before completing
+                    # Check if we should defer finalization for tool follow-up response
+                    # Only defer if we sent tool output but haven't captured the follow-up response yet
+                    should_defer_for_tool = (tool_output_sent and not current_metrics.assistant_content)
+                    
+                    # If additional audio is detected, wait longer and defer finalization
                     if additional_audio_detected:
                         print("Additional audio detected, waiting 3 more seconds for completion...")
                         time.sleep(3.0)
-                        # Keep recorder running; do not stop here
-                    elif upcoming_function_events_detected or (pending_tool_followup_event.is_set() and not followup_created_event.is_set()):
-                        # Tool follow-up is expected but has NOT started generating yet; defer finalization
-                        print("DEBUG - Tool follow-up expected (not started); deferring turn finalization until next response.done")
+                        # Defer finalization - more content is coming
+                        continue
+                    elif upcoming_function_events_detected or pending_tool_followup_event.is_set() or should_defer_for_tool:
+                        # Tool follow-up is expected/in-progress; defer finalization until follow-up response completes
+                        # We need to wait for the agent's response that incorporates the tool result
+                        print(f"DEBUG - Tool follow-up pending (should_defer={should_defer_for_tool}, assistant_content={len(current_metrics.assistant_content) if current_metrics.assistant_content else 0}); deferring turn finalization until next response.done")
                         continue
                     else:
                         print("No additional audio detected, response appears complete")
                         # Now safe to stop recording
                         if current_recorder and current_recorder.is_recording:
                             current_recorder.stop()
-                        
+                    
+                    # Initialize evaluation_data to None before potential use
+                    evaluation_data = None
+                    
                     # Write evaluation data if enabled - use new turn finalization approach
                     if evaluation_enabled and evaluation_output_file:
                         try:
@@ -1602,10 +1608,14 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                             logger.error(f"Error writing evaluation data: {e}")
                             print(f"Error writing evaluation data: {e}")
                     
-                    # Clear tool-followup flag if it was set (this response.done should be the follow-up completion)
-                    if pending_tool_followup_event.is_set():
-                        print("DEBUG - Clearing pending_tool_followup_event on response completion")
+                    # Clear tool-followup flags ONLY if we actually finalized a turn (not deferred)
+                    # If we deferred finalization above (for tool follow-up), the flags stay set
+                    # Only clear them when we've successfully written evaluation data with the follow-up response
+                    if (pending_tool_followup_event.is_set() or tool_output_sent) and evaluation_data and evaluation_data.get('response'):
+                        print("DEBUG - Clearing tool follow-up flags after capturing follow-up response")
                         pending_tool_followup_event.clear()
+                        followup_created_event.clear()
+                        tool_output_sent = False
                     response_complete_event.set()
                     print("Response complete.")
 
