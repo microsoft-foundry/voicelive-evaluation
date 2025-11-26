@@ -573,7 +573,8 @@ def read_test_files(test_files_path: str = None) -> List[Dict[str, str]]:
                         'ground_truth': record.get('Answer', record.get('answer')),
                         'question': record.get('Question', record.get('question')),
                         'expected_tool_calls': record.get('expected_tool_calls', []),
-                        'tool_definitions': record.get('tool_definitions', [])
+                        'tool_definitions': record.get('tool_definitions', []),
+                        'conversation_id': record.get('conversationID', record.get('conversation_id', 'default'))
                     }
                     audio_files.append(file_info)
                 except json.JSONDecodeError as e:
@@ -1747,9 +1748,9 @@ if __name__ == "__main__":
         parser.add_argument(
             '--session-mode',
             dest='session_mode',
-            choices=['single', 'per-file'],
+            choices=['single', 'per-file', 'per-conversation'],
             default='single',
-            help='Session handling mode: single (all files in one conversational session) or per-file (each file in its own fresh session)'
+            help='Session handling mode: single (all files in one conversational session), per-file (each file in its own fresh session), or per-conversation (new session per conversationID)'
         )
         args = parser.parse_args()
         
@@ -1818,6 +1819,76 @@ if __name__ == "__main__":
             print("Running in SINGLE session mode (all files in one conversation). Use --session-mode per-file to isolate each file.")
             main(args.test_files_path, args.output_dir, args.evaluation_dir, timestamp)
             run_evaluation_if_enabled(args.output_dir, timestamp)
+        elif args.session_mode == 'per-conversation':
+            print("Running in PER-CONVERSATION session mode (new session per conversationID with AGGREGATED evaluation).")
+            # Read list of files first
+            file_list = read_test_files(args.test_files_path)
+            
+            # Group files by conversationID
+            from itertools import groupby
+            from operator import itemgetter
+            
+            # Prepare aggregate evaluation file path (timestamp for the whole run)
+            aggregate_run_id = timestamp  # use initial timestamp as aggregate id
+            aggregated_eval_dir_base = args.evaluation_dir or args.output_dir
+            if not os.path.exists(aggregated_eval_dir_base):
+                os.makedirs(aggregated_eval_dir_base, exist_ok=True)
+            aggregated_eval_dir = os.path.join(aggregated_eval_dir_base, aggregate_run_id)
+            os.makedirs(aggregated_eval_dir, exist_ok=True)
+            
+            # Extract dataset name from test_files_path (remove .jsonl or .txt extension)
+            dataset_name = os.path.splitext(os.path.basename(args.test_files_path))[0] if args.test_files_path else "dataset"
+            aggregated_eval_file = os.path.join(aggregated_eval_dir, f"{aggregate_run_id}_aggregate_{dataset_name}.jsonl")
+            if os.path.exists(aggregated_eval_file):
+                # Avoid mixing with previous run
+                os.remove(aggregated_eval_file)
+            print(
+                "Aggregate evaluation file: "
+                f"{aggregated_eval_file}\n"
+                "All per-conversation session evaluation JSONL entries will be appended here."
+            )
+            
+            # Group files by conversationID (assuming files are already sorted by conversationID and turn order)
+            conversation_groups = []
+            for conversation_id, group in groupby(file_list, key=itemgetter('conversation_id')):
+                conversation_groups.append((conversation_id, list(group)))
+            
+            print(f"Found {len(conversation_groups)} conversations to process")
+            
+            for conv_idx, (conversation_id, conv_files) in enumerate(conversation_groups, start=1):
+                # Reset global state between conversation sessions
+                reset_session_state()
+                
+                # Create a temporary JSONL file containing only files for this conversation with metadata
+                temp_list_path = f"temp_conversation_{conversation_id}_{conv_idx}.jsonl"
+                with open(temp_list_path, 'w', encoding='utf-8') as tf:
+                    for file_record in conv_files:
+                        json.dump({
+                            'WavPath': file_record['audio_path'],
+                            'Answer': file_record.get('ground_truth'),
+                            'Question': file_record.get('question'),
+                            'expected_tool_calls': file_record.get('expected_tool_calls', []),
+                            'tool_definitions': file_record.get('tool_definitions', []),
+                            'conversationID': file_record.get('conversation_id')
+                        }, tf)
+                        tf.write('\n')
+                
+                # Maintain same base timestamp; add conversation suffix
+                session_id = timestamp  # base timestamp reused
+                session_suffix = f"conv-{conversation_id}"
+                print(f"\n--- Starting conversation session {conv_idx}/{len(conversation_groups)} for conversationID: {conversation_id} ({len(conv_files)} turns) (session_id={session_id}, suffix={session_suffix}) ---")
+                
+                # Pass override so all turns from this per-conversation session go into aggregate file, along with suffix
+                main(temp_list_path, args.output_dir, args.evaluation_dir, session_id, evaluation_output_file_override=aggregated_eval_file, session_suffix=session_suffix, file_metadata=None)
+                
+                # Skip per-session evaluation run; we will run one aggregate evaluation after loop
+                try:
+                    os.remove(temp_list_path)
+                except OSError:
+                    pass
+            
+            print("All per-conversation sessions completed. Running aggregate evaluation...")
+            run_evaluation_if_enabled(args.output_dir, aggregate_run_id, override_input_file=aggregated_eval_file, aggregate=True)
         else:
             print("Running in PER-FILE session mode with AGGREGATED evaluation (one evaluation run for all per-file sessions).")
             # Read list of files first

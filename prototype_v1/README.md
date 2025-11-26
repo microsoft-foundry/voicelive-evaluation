@@ -116,16 +116,56 @@ TOOL_REGISTRY = {
 For evaluation with ground truth and tool expectations:
 
 ```jsonl
-{"WavPath": "path/to/audio1.wav", "Question": "What is my horoscope? I am an Aquarius.", "Answer": "Expected response text", "expected_tool_calls": [{"type": "tool_call", "tool_call_id": "expected_call_1", "name": "get_horoscope", "arguments": {"sign": "Aquarius"}}], "tool_definitions": [{"type": "function", "name": "get_horoscope", "description": "Get today's horoscope...", "parameters": {...}}]}
-{"WavPath": "path/to/audio2.wav", "Question": "Tell me a joke.", "Answer": "Expected joke response", "expected_tool_calls": [], "tool_definitions": []}
+{"WavPath": "path/to/audio1.wav", "Question": "What is my horoscope? I am an Aquarius.", "Answer": "Expected response text", "expected_tool_calls": [{"type": "tool_call", "tool_call_id": "expected_call_1", "name": "get_horoscope", "arguments": {"sign": "Aquarius"}}], "tool_definitions": [{"type": "function", "name": "get_horoscope", "description": "Get today's horoscope...", "parameters": {...}}], "conversationID": "horoscope_query"}
+{"WavPath": "path/to/audio2.wav", "Question": "Tell me a joke.", "Answer": "Expected joke response", "expected_tool_calls": [], "tool_definitions": [], "conversationID": "joke_request"}
 ```
 
-**Fields:**
-- `WavPath` (required): Path to audio file (absolute or relative to JSONL file)
-- `Question` (optional): Transcript or description of the user's query
-- `Answer` (optional): Expected ground truth response for evaluation
-- `expected_tool_calls` (optional): Array of expected tool calls for validation
-- `tool_definitions` (optional): Available tools for this turn
+#### JSONL Field Requirements
+
+**MANDATORY Fields:**
+
+- **`WavPath`** or **`audio`** (required): Path to audio file (absolute or relative to JSONL file)
+  - The script will skip lines missing this field with a warning
+  - Can use either field name; `WavPath` takes precedence
+
+**OPTIONAL Fields:**
+
+- **`Question`** or **`question`**: Transcript or description of the user's query
+  - Used for documentation and logging
+  - Defaults to `None` if missing
+
+- **`Answer`** or **`answer`**: Expected ground truth response for evaluation
+  - Used by `ResponseCompletenessEvaluator` and other quality metrics
+  - Defaults to `None` if missing; evaluation can still run without it
+
+- **`expected_tool_calls`**: Array of expected tool calls for validation
+  - Used by `ToolCallAccuracyEvaluator`
+  - Defaults to `[]` (empty array) if missing
+  - Format: `[{"type": "tool_call", "tool_call_id": "id", "name": "function_name", "arguments": {...}}]`
+
+- **`tool_definitions`**: Array of tool/function definitions available for the turn
+  - Used for evaluation context
+  - Defaults to `[]` (empty array) if missing
+  - Format matches Azure OpenAI function calling schema
+
+- **`conversationID`** or **`conversation_id`**: Identifier for grouping turns into conversations
+  - **Required for `--session-mode per-conversation`**
+  - Defaults to `'default'` if missing (all turns treated as same conversation)
+  - Used to determine when to reset session state
+
+#### Minimal Valid JSONL
+
+```jsonl
+{"WavPath": "audio.wav"}
+```
+
+This is the minimum required to run the script. All other fields enhance evaluation capabilities but aren't required for basic operation.
+
+#### Complete JSONL Example
+
+```jsonl
+{"WavPath": "turn1.wav", "Question": "What's the weather?", "Answer": "It's sunny today.", "expected_tool_calls": [{"type": "tool_call", "name": "get_weather", "arguments": {"location": "Seattle"}}], "tool_definitions": [{"type": "function", "name": "get_weather", "parameters": {...}}], "conversationID": "weather_conv"}
+```
 
 ### Plain Text Format
 
@@ -193,7 +233,7 @@ python voice_agent_audio_input_evaluation_v2.py \
 | `--test-files` | `-f` | `./test_files.txt` | Path to JSONL or text file with audio file list |
 | `--output-dir` | `-o` | `./output` | Directory for response audio and logs |
 | `--evaluation` | `-e` | `./output` | Directory for evaluation JSONL output |
-| `--session-mode` | - | `single` | `single` (one conversation) or `per-file` (isolated sessions) |
+| `--session-mode` | - | `single` | Session handling mode: `single`, `per-file`, or `per-conversation` |
 
 ### Session Modes
 
@@ -222,6 +262,35 @@ python voice_agent_audio_input_evaluation_v2.py \
 - Testing single-turn interactions
 - Files are independent queries
 - Avoiding context contamination between tests
+
+#### Per-Conversation Session Mode
+New session created for each unique `conversationID`:
+```bash
+python voice_agent_audio_input_evaluation_v2.py \
+  --test-files dataset.jsonl \
+  --session-mode per-conversation
+```
+
+**Use when:**
+- Testing multiple conversations in one dataset
+- Each conversation needs isolated context
+- Evaluating conversation-level metrics across different scenarios
+
+**How it works:**
+1. Script groups turns by `conversationID` field in JSONL
+2. Creates new session for each unique conversationID
+3. Maintains context within each conversation
+4. Resets session when conversationID changes
+5. Aggregates all results for single evaluation run
+
+**Example dataset structure:**
+```jsonl
+{"WavPath": "conv1_turn1.wav", "conversationID": "Eiffel_Tower_Visit"}
+{"WavPath": "conv1_turn2.wav", "conversationID": "Eiffel_Tower_Visit"}
+{"WavPath": "conv2_turn1.wav", "conversationID": "Weather_Query"}
+{"WavPath": "conv2_turn2.wav", "conversationID": "Weather_Query"}
+```
+This creates 2 sessions: one for Eiffel_Tower_Visit (2 turns) and one for Weather_Query (2 turns)
 
 ## Output Files
 
@@ -445,19 +514,12 @@ AUDIO_CHUNK_MS = 20        # Milliseconds per chunk
 ### Transcription Model Selection
 
 ```python
-# For gpt-4o-realtime models
+# For gpt-realtime models
 transcription_model = "gpt-4o-transcribe"
 
 # For other models  
-transcription_model = "azure-fast-transcription"
+transcription_model = "azure-speech"
 ```
-
-## Sample Datasets
-
-See `sample_evaluation_input/` for example datasets:
-- `DataOceanDemoComplexSession1/` - Multi-turn conversation with tool calling
-- `Eiffel_Tower_Visit/` - Travel information queries
-- `BingChat_7days_en_zh_ja/` - Multi-language examples
 
 ## Logs
 
