@@ -48,8 +48,13 @@ pending_tool_followup_event = threading.Event()  # Track when a tool call follow
 followup_created_event = threading.Event()  # Track when a follow-up response has actually started
 tool_output_sent = False  # Track when we've sent a function_call_output and are awaiting the incorporating response
 
-def reset_session_state():
-    """Reset global state between per-file sessions when running in per-file session mode."""
+def reset_session_state(system_prompt: Optional[str] = None):
+    """Reset global state between per-file sessions when running in per-file session mode.
+    
+    Args:
+        system_prompt: Optional custom system prompt from dataset JSONL. If provided, replaces
+                      the default SYSTEM_INSTRUCTION for this session.
+    """
     global stop_event, connection_queue, response_complete_event, audio_transcript_complete_event, all_files_processed_event
     global current_output_file, response_output_dir, evaluation_output_file, evaluation_enabled
     global current_user_input, current_turn_number, expected_turns, actual_turns, session_timestamp_global
@@ -82,8 +87,9 @@ def reset_session_state():
     session_timestamp_global = None
     session_suffix_global = None
 
-    # Fresh metrics tracker
-    current_metrics = ConversationMetrics(system_instruction=SYSTEM_INSTRUCTION)
+    # Fresh metrics tracker - use custom system_prompt if provided, otherwise default
+    effective_instruction = system_prompt if system_prompt else SYSTEM_INSTRUCTION
+    current_metrics = ConversationMetrics(system_instruction=effective_instruction)
 
 
 # Class for tracking conversation metrics for evaluation
@@ -157,11 +163,6 @@ class ConversationMetrics:
         if not current_user_inputs:
             return None  # No valid turn to process
 
-        # Enhance system message with conversation topic if detected
-        enhanced_system_message = self.system_message
-        if self.conversation_topic:
-            enhanced_system_message += f" The current conversation is about {self.conversation_topic}."
-
         # Create the evaluation data structure for this specific turn
         # Merge former turn_info fields directly into metrics per new requirement
         metrics["logical_turn_number"] = self.logical_turn_number
@@ -172,7 +173,7 @@ class ConversationMetrics:
 
         evaluation_data = {
             "query": [
-                {"role": "system", "content": enhanced_system_message}
+                {"role": "system", "content": self.system_message}
             ],
             "response": current_assistant_responses,
             "metrics": metrics
@@ -574,7 +575,8 @@ def read_test_files(test_files_path: str = None) -> List[Dict[str, str]]:
                         'question': record.get('Question', record.get('question')),
                         'expected_tool_calls': record.get('expected_tool_calls', []),
                         'tool_definitions': record.get('tool_definitions', []),
-                        'conversation_id': record.get('conversationID', record.get('conversation_id', 'default'))
+                        'conversation_id': record.get('conversationID', record.get('conversation_id', 'default')),
+                        'system_prompt': record.get('system_prompt')
                     }
                     audio_files.append(file_info)
                 except json.JSONDecodeError as e:
@@ -1059,14 +1061,6 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                                 }]
                             })
                             print(f"DEBUG - Created new user content entry for transcript")
-                            
-                        # Track conversation topic from the transcript
-                        # This helps maintain context across files
-                        if "eiffel tower" in transcript.lower() or "restaurant" in transcript.lower():
-                            if not current_metrics.conversation_topic:
-                                current_metrics.conversation_topic = "eiffel tower"
-                                print(f"DEBUG - Detected conversation topic: Eiffel Tower")
-                            print(f"DEBUG - Continuing Eiffel Tower conversation thread")
 
                 # Added response text logging and output. Only returned by the API if audio output is disabled for the session.
                 elif event_type == "response.text.done":
@@ -1817,6 +1811,13 @@ if __name__ == "__main__":
 
         if args.session_mode == 'single':
             print("Running in SINGLE session mode (all files in one conversation). Use --session-mode per-file to isolate each file.")
+            # For single mode, read first file's system_prompt if available
+            file_list = read_test_files(args.test_files_path)
+            if file_list:
+                first_file_system_prompt = file_list[0].get('system_prompt')
+                if first_file_system_prompt:
+                    reset_session_state(system_prompt=first_file_system_prompt)
+                    print(f"Using custom system_prompt from dataset: {first_file_system_prompt[:50]}...")
             main(args.test_files_path, args.output_dir, args.evaluation_dir, timestamp)
             run_evaluation_if_enabled(args.output_dir, timestamp)
         elif args.session_mode == 'per-conversation':
@@ -1856,8 +1857,11 @@ if __name__ == "__main__":
             print(f"Found {len(conversation_groups)} conversations to process")
             
             for conv_idx, (conversation_id, conv_files) in enumerate(conversation_groups, start=1):
-                # Reset global state between conversation sessions
-                reset_session_state()
+                # Get system_prompt from first file of conversation (applies to entire conversation)
+                conv_system_prompt = conv_files[0].get('system_prompt') if conv_files else None
+                
+                # Reset global state between conversation sessions, with custom system_prompt if available
+                reset_session_state(system_prompt=conv_system_prompt)
                 
                 # Create a temporary JSONL file containing only files for this conversation with metadata
                 temp_list_path = f"temp_conversation_{conversation_id}_{conv_idx}.jsonl"
@@ -1869,7 +1873,8 @@ if __name__ == "__main__":
                             'Question': file_record.get('question'),
                             'expected_tool_calls': file_record.get('expected_tool_calls', []),
                             'tool_definitions': file_record.get('tool_definitions', []),
-                            'conversationID': file_record.get('conversation_id')
+                            'conversationID': file_record.get('conversation_id'),
+                            'system_prompt': file_record.get('system_prompt')
                         }, tf)
                         tf.write('\n')
                 
@@ -1914,8 +1919,11 @@ if __name__ == "__main__":
             )
 
             for idx, file_record in enumerate(file_list, start=1):
-                # Reset global state between sessions
-                reset_session_state()
+                # Get system_prompt from file record (each file can have its own system_prompt)
+                file_system_prompt = file_record.get('system_prompt')
+                
+                # Reset global state between sessions, with custom system_prompt if available
+                reset_session_state(system_prompt=file_system_prompt)
                 audio_path = file_record['audio_path']
                 # Create a temporary JSONL file containing only this file with metadata
                 temp_list_path = f"temp_single_file_list_{idx}.jsonl"
@@ -1924,7 +1932,8 @@ if __name__ == "__main__":
                         'WavPath': audio_path,
                         'Answer': file_record.get('ground_truth'),
                         'Question': file_record.get('question'),
-                        'tool_calls': file_record.get('tool_calls', [])
+                        'tool_calls': file_record.get('tool_calls', []),
+                        'system_prompt': file_record.get('system_prompt')
                     }, tf)
                     tf.write('\n')
                 # Maintain same base timestamp; add session-<n> suffix
