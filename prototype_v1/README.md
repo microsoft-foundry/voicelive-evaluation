@@ -149,6 +149,8 @@ A creative writing conversation with 3 turns demonstrating context retention:
 - Turn 2: Rewrite in detective novel style + convert to poem
 - Turn 3: Brief acknowledgment showing conversation continuity
 
+A sample result can be found in `sample_evaluation_input/2025-11-25_16-31-15_DataOceanDemoComplexSession1`.
+
 ```bash
 python voice_agent_audio_input_evaluation_v2.py \
   --test-files ./prototype_v1/sample_evaluation_input/DataOceanDemoComplexSession1/DataOceanDemoComplexSession1.jsonl \
@@ -162,6 +164,8 @@ A 6-turn conversation demonstrating tool calling and context building:
 - Turn 1: Greeting
 - Turn 2-3: Horoscope query with tool call (Aquarius sign)
 - Turn 4-6: Eiffel Tower visit planning (hours, Sunday programs, restaurants)
+
+A sample result can be found in `sample_evaluation_input/2025-11-25_16-23-13_Eiffel_Tower_Visit_1`.
 
 ```bash
 python voice_agent_audio_input_evaluation_v2.py \
