@@ -183,8 +183,9 @@ class ConversationMetrics:
         evaluation_data["expected_tool_calls"] = self.turn_expected_tool_calls if isinstance(self.turn_expected_tool_calls, list) else []
 
         # Add tool_calls array for ToolCallAccuracyEvaluator
+        # IMPORTANT: Make a copy of the list to prevent clear() from emptying the evaluation_data
         if self.tool_calls_array:
-            evaluation_data["tool_calls"] = self.tool_calls_array
+            evaluation_data["tool_calls"] = list(self.tool_calls_array)  # Copy, not reference
         else:
             evaluation_data["tool_calls"] = []
 
