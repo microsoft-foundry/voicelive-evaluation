@@ -331,7 +331,15 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
     )
     
     connection = client.connect(model = model)
-    instructions = SYSTEM_INSTRUCTION
+    
+    # Use system_prompt from file_metadata if provided, otherwise fall back to default
+    if file_metadata and file_metadata.get('system_prompt'):
+        instructions = file_metadata.get('system_prompt')
+        print(f"Using custom system_prompt from dataset: {instructions[:100]}...")
+    else:
+        instructions = SYSTEM_INSTRUCTION
+        print(f"Using default SYSTEM_INSTRUCTION: {instructions}")
+    
     turn_detection = {
         "type": "azure_semantic_vad",  # server_vad is based on volume and is the default. azure_semantic_vad is based on semantic meaning.
         "threshold": 0.3,
@@ -1813,12 +1821,14 @@ if __name__ == "__main__":
             print("Running in SINGLE session mode (all files in one conversation). Use --session-mode per-file to isolate each file.")
             # For single mode, read first file's system_prompt if available
             file_list = read_test_files(args.test_files_path)
+            first_file_record = None
             if file_list:
-                first_file_system_prompt = file_list[0].get('system_prompt')
+                first_file_record = file_list[0]
+                first_file_system_prompt = first_file_record.get('system_prompt')
                 if first_file_system_prompt:
                     reset_session_state(system_prompt=first_file_system_prompt)
                     print(f"Using custom system_prompt from dataset: {first_file_system_prompt[:50]}...")
-            main(args.test_files_path, args.output_dir, args.evaluation_dir, timestamp)
+            main(args.test_files_path, args.output_dir, args.evaluation_dir, timestamp, file_metadata=first_file_record)
             run_evaluation_if_enabled(args.output_dir, timestamp)
         elif args.session_mode == 'per-conversation':
             print("Running in PER-CONVERSATION session mode (new session per conversationID with AGGREGATED evaluation).")
@@ -1884,7 +1894,8 @@ if __name__ == "__main__":
                 print(f"\n--- Starting conversation session {conv_idx}/{len(conversation_groups)} for conversationID: {conversation_id} ({len(conv_files)} turns) (session_id={session_id}, suffix={session_suffix}) ---")
                 
                 # Pass override so all turns from this per-conversation session go into aggregate file, along with suffix
-                main(temp_list_path, args.output_dir, args.evaluation_dir, session_id, evaluation_output_file_override=aggregated_eval_file, session_suffix=session_suffix, file_metadata=None)
+                # Also pass first file's metadata so system_prompt is used in session.update
+                main(temp_list_path, args.output_dir, args.evaluation_dir, session_id, evaluation_output_file_override=aggregated_eval_file, session_suffix=session_suffix, file_metadata=conv_files[0] if conv_files else None)
                 
                 # Skip per-session evaluation run; we will run one aggregate evaluation after loop
                 try:
