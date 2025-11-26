@@ -274,7 +274,7 @@ function Get-TestSuiteConfig {
                 Description = "Simple test with one model, one dataset, multiple evaluators"
             }
         }
-        "bingchat-agent-base-cascaded"
+        "bingchat-agent-base-cascaded" {
             return @{
                 ModelConfigs = @("VoiceLive-gpt-realtime", "VoiceLive-phi4-mm-realtime", "VoiceLive-gpt-4.1-mini")
                 Datasets = @("bingchat-agent-en-us", "bingchat-agent-fr-fr")

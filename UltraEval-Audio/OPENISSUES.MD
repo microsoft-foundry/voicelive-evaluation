@@ -1,5 +1,8 @@
 ## Open Issues
 
+### Bingtest dataset DTEST
+- Currently only BTEST data was added to the Bingchat datasets but the DTEST metadata based data wasn't yet added.
+
 ### Platform-Specific Issues
 - Cross-Platform Windows multi-threading support not working properly
 - Huggingface data download does not happen on Windows (works on mac)
