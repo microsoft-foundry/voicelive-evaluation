@@ -110,12 +110,10 @@ class ConversationMetrics:
         self.conversation_history = []     # Full conversation history for context
         self.logical_turn_number = 0       # Track logical turns (not split by VAD)
         self.ground_truth = None           # Track expected answer for ResponseCompleteness evaluation
-        self.expected_tool_calls = []      # Track expected tool calls from input dataset (defaults to empty)
         self.tool_definitions = []         # Track tool definitions from input dataset (defaults to empty)
         self.audio_response_received = False  # Track if audio response was received (vs text-only)
         # Snapshot of metadata captured when audio file is loaded (prevents overwrites)
         self.turn_ground_truth = None
-        self.turn_expected_tool_calls = []
         self.turn_tool_definitions = []
 
     def calculate_metrics(self):
@@ -178,9 +176,6 @@ class ConversationMetrics:
             "response": current_assistant_responses,
             "metrics": metrics
         }
-
-        # Use snapshotted metadata from turn start to prevent overwrites from next file
-        evaluation_data["expected_tool_calls"] = self.turn_expected_tool_calls if isinstance(self.turn_expected_tool_calls, list) else []
 
         # Add tool_calls array for ToolCallAccuracyEvaluator
         # IMPORTANT: Make a copy of the list to prevent clear() from emptying the evaluation_data
@@ -283,7 +278,7 @@ def fetchWeather(location):
 # Map tool names to callables for execution
 TOOL_REGISTRY = {
     "get_horoscope": get_horoscope,
-    # "fetchWeather": fetchWeather
+    "fetchWeather": fetchWeather
 }
 
 # This is the main function to run the Voice Live API client.
@@ -365,63 +360,57 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
             "timeout": 4,      # Default timeout for semantic detection is 4 seconds
         }
 
-    # Define a list of callable tools for the model
-    tools = [
-        # {
-        #     "type": "function",
-        #     "name": "fetchWeather",
-        #     "parameters": {
-        #     "location": "Seattle"
-        #     }
-        # },
-        {
-            "type": "function",
-            "name": "get_horoscope",
-            "description": "Get today's horoscope for an astrological sign.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "sign": {
-                        "type": "string",
-                        "description": "An astrological sign like Taurus or Aquarius",
-                    },
-                },
-                "required": ["sign"],
-            },
-        },
-    ]
+    # Get tool definitions from dataset (file_metadata) or use empty list
+    # In per-conversation mode: uses first file's tool_definitions for entire conversation
+    # In per-file mode: uses each file's tool_definitions for its session
+    # In single mode: uses first file's tool_definitions for the entire session
+    if file_metadata and file_metadata.get('tool_definitions'):
+        tools = file_metadata.get('tool_definitions')
+        print(f"Using tool_definitions from dataset: {len(tools)} tool(s) configured")
+        for tool in tools:
+            print(f"  - {tool.get('name', 'unnamed')}: {tool.get('description', 'no description')[:50]}...")
+    else:
+        tools = []  # No tools configured - VoiceLive session will not have function calling
+        print("No tool_definitions in dataset - session will run without function calling tools")
 
     # Expose tool definitions globally for evaluation logging (tool_call accuracy, etc.)
     global SESSION_TOOL_DEFINITIONS
     SESSION_TOOL_DEFINITIONS = tools
 
     modalities = ["audio"] # You can only set "audio" in combination with tool calling! Specify modalities for the session, e.g., ["text", "audio"] for text and audio input/output.
+    
+    # Build session configuration
+    session_config = {
+        "turn_detection": turn_detection,
+        "input_audio_noise_reduction": {
+            "type": "azure_deep_noise_suppression"
+        },
+        "input_audio_echo_cancellation": {
+            "type": "server_echo_cancellation"
+        },
+        "input_audio_transcription": {
+            "model": f"{transcription_model}",
+            # "prompt": "<your-prompt-for-gpt-transcribe-or-whisper-model>", # Optional prompt for gpt-4o-transcribe or whisper models.
+            # "phrase_list": ["Jan", "Goergen", "Jan Goergen", "Neo QLED TV", "TUF Gaming", "AutoQuote Explorer"] # Does not support gpt-4o-realtime-preview, gpt-4o-mini-realtime-preview, and phi4-mm-realtime
+        },
+        "voice": {
+            "name": "en-US-Steffan:DragonHDLatestNeural", #en-US-Aria:DragonHDLatestNeural
+            "type": "azure-standard", # azure-standard or azure-custom
+            # "endpoint_id": "your-endpoint-id", # Custom Voice endpoint id
+            "temperature": 0.8,
+        },
+        "output_audio_timestamp_types": ["word"], 
+        "modalities": modalities,
+        "instructions": instructions if not tools else f"{instructions} Use available tools when appropriate.",
+    }
+    
+    # Only add tools to session if tool_definitions are provided
+    if tools:
+        session_config["tools"] = tools
+    
     session_update = {
         "type": "session.update",
-        "session": {
-            "turn_detection": turn_detection,
-            "input_audio_noise_reduction": {
-                "type": "azure_deep_noise_suppression"
-            },
-            "input_audio_echo_cancellation": {
-                "type": "server_echo_cancellation"
-            },
-            "input_audio_transcription": {
-                "model": f"{transcription_model}",
-                # "prompt": "<your-prompt-for-gpt-transcribe-or-whisper-model>", # Optional prompt for gpt-4o-transcribe or whisper models.
-                # "phrase_list": ["Jan", "Goergen", "Jan Goergen", "Neo QLED TV", "TUF Gaming", "AutoQuote Explorer"] # Does not support gpt-4o-realtime-preview, gpt-4o-mini-realtime-preview, and phi4-mm-realtime
-            },
-            "voice": {
-                "name": "en-US-Steffan:DragonHDLatestNeural", #en-US-Aria:DragonHDLatestNeural
-                "type": "azure-standard", # azure-standard or azure-custom
-                # "endpoint_id": "your-endpoint-id", # Custom Voice endpoint id
-                "temperature": 0.8,
-            },
-            "output_audio_timestamp_types": ["word"], 
-            "modalities": modalities,
-            "instructions": f"{instructions} Use available tools when appropriate.",
-            "tools": tools,  # Add the tools to the session
-        },
+        "session": session_config,
         "event_id": ""
     }
     connection.send(json.dumps(session_update))
@@ -582,7 +571,6 @@ def read_test_files(test_files_path: str = None) -> List[Dict[str, str]]:
                         'audio_path': resolved_path,
                         'ground_truth': record.get('Answer', record.get('answer')),
                         'question': record.get('Question', record.get('question')),
-                        'expected_tool_calls': record.get('expected_tool_calls', []),
                         'tool_definitions': record.get('tool_definitions', []),
                         'conversation_id': record.get('conversationID', record.get('conversation_id', 'default')),
                         'system_prompt': record.get('system_prompt')
@@ -600,7 +588,7 @@ def read_test_files(test_files_path: str = None) -> List[Dict[str, str]]:
                     continue
                 # Check if file exists
                 if os.path.exists(line):
-                    audio_files.append({'audio_path': line, 'ground_truth': None, 'question': None, 'expected_tool_calls': [], 'tool_definitions': []})
+                    audio_files.append({'audio_path': line, 'ground_truth': None, 'question': None, 'tool_definitions': []})
                 else:
                     print(f"Warning: Audio file not found: {line}")
     
@@ -854,25 +842,19 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
                 gt_preview = current_metrics.ground_truth[:100] + "..." if len(current_metrics.ground_truth) > 100 else current_metrics.ground_truth
                 print(f"  Ground truth loaded for evaluation: {gt_preview}")
             
-            # Load expected_tool_calls from dataset (ensure it's a list, default to empty)
-            expected_tc = audio_metadata[file_path].get('expected_tool_calls')
-            current_metrics.expected_tool_calls = expected_tc if isinstance(expected_tc, list) else []
-            
             # Load tool_definitions from dataset (ensure it's a list, default to empty)
             tool_defs = audio_metadata[file_path].get('tool_definitions')
             current_metrics.tool_definitions = tool_defs if isinstance(tool_defs, list) else []
         else:
             # Reset to defaults if no metadata available for this file
             current_metrics.ground_truth = None
-            current_metrics.expected_tool_calls = []
             current_metrics.tool_definitions = []
         
         # Take snapshot of metadata for this file's turn(s)
         # This prevents metadata from being overwritten when next file loads
         current_metrics.turn_ground_truth = current_metrics.ground_truth
-        current_metrics.turn_expected_tool_calls = list(current_metrics.expected_tool_calls) if current_metrics.expected_tool_calls else []
         current_metrics.turn_tool_definitions = list(current_metrics.tool_definitions) if current_metrics.tool_definitions else []
-        print(f"  Metadata snapshot captured: expected_tool_calls={len(current_metrics.turn_expected_tool_calls)}, tool_definitions={len(current_metrics.turn_tool_definitions)}")
+        print(f"  Metadata snapshot captured: tool_definitions={len(current_metrics.turn_tool_definitions)}")
         
         # Note: output file will be set when each turn starts (in transcription handler)
         # Reset the completion events for this turn
@@ -1887,7 +1869,6 @@ if __name__ == "__main__":
                             'WavPath': file_record['audio_path'],
                             'Answer': file_record.get('ground_truth'),
                             'Question': file_record.get('question'),
-                            'expected_tool_calls': file_record.get('expected_tool_calls', []),
                             'tool_definitions': file_record.get('tool_definitions', []),
                             'conversationID': file_record.get('conversation_id'),
                             'system_prompt': file_record.get('system_prompt')
@@ -1955,7 +1936,7 @@ if __name__ == "__main__":
                         'WavPath': audio_path,
                         'Answer': file_record.get('ground_truth'),
                         'Question': file_record.get('question'),
-                        'tool_calls': file_record.get('tool_calls', []),
+                        'tool_definitions': file_record.get('tool_definitions', []),
                         'system_prompt': file_record.get('system_prompt')
                     }, tf)
                     tf.write('\n')

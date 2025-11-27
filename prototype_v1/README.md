@@ -9,7 +9,7 @@ The `voice_agent_audio_input_evaluation_v2.py` script enables you to:
 - Capture agent responses (text and audio)
 - Generate evaluation data in JSONL format compatible with Azure AI Evaluation SDK
 - Track operational metrics including latency, tool usage, and VAD behavior
-- Support both single-session and per-file session modes
+- Support single, per-file, and per-conversation session modes
 
 ## Features
 
@@ -18,7 +18,8 @@ The `voice_agent_audio_input_evaluation_v2.py` script enables you to:
 - **Tool calling support**: Track and evaluate tool/function calls made by the agent
 - **VAD (Voice Activity Detection) handling**: Automatically detects when silence in audio causes turn splitting
 - **Metadata alignment**: Ensures ground truth, expected tool calls, and tool definitions align correctly with agent responses
-- **Dual session modes**: Run all files in one conversation or each file in isolated sessions
+- **Three session modes**: Single session (all files in one conversation), per-file (isolated sessions), or per-conversation (grouped by conversationID)
+- **Custom system prompts**: Override default system prompt per-conversation using the `system_prompt` field
 - **Operational metrics**: Comprehensive tracking of response latencies, turn counts, and audio response rates
 
 ### Evaluation Integration
@@ -26,7 +27,7 @@ The `voice_agent_audio_input_evaluation_v2.py` script enables you to:
   - `IntentResolutionEvaluator`: Measures how well the agent identifies correct intent from user query (Scale: 1-5)
   - `TaskAdherenceEvaluator`: Measures adherence to task based on system message (Scale: 1-5)
   - `ResponseCompletenessEvaluator`: Assesses how completely the response addresses the query using ground truth (Scale: 1-5)
-  - `ToolCallAccuracyEvaluator`: Validates tool calling behavior (Scale: 0-1)
+  - `ToolCallAccuracyEvaluator`: Uses LLM-as-judge to assess if actual tool calls were appropriate for the user query given available tool definitions (Scale: 1-5)
   - `OperationalMetricsEvaluator`: Collects runtime execution metrics
 
 ## Prerequisites
@@ -113,11 +114,11 @@ TOOL_REGISTRY = {
 
 ### JSONL Format (Recommended)
 
-For evaluation with ground truth and tool expectations:
+For evaluation with ground truth and tool definitions:
 
 ```jsonl
-{"WavPath": "path/to/audio1.wav", "Question": "What is my horoscope? I am an Aquarius.", "Answer": "Expected response text", "expected_tool_calls": [{"type": "tool_call", "tool_call_id": "expected_call_1", "name": "get_horoscope", "arguments": {"sign": "Aquarius"}}], "tool_definitions": [{"type": "function", "name": "get_horoscope", "description": "Get today's horoscope...", "parameters": {...}}], "conversationID": "horoscope_query"}
-{"WavPath": "path/to/audio2.wav", "Question": "Tell me a joke.", "Answer": "Expected joke response", "expected_tool_calls": [], "tool_definitions": [], "conversationID": "joke_request"}
+{"WavPath": "path/to/audio1.wav", "Question": "What is my horoscope? I am an Aquarius.", "Answer": "Expected response text", "tool_definitions": [{"type": "function", "name": "get_horoscope", "description": "Get today's horoscope...", "parameters": {...}}], "conversationID": "horoscope_query"}
+{"WavPath": "path/to/audio2.wav", "Question": "Tell me a joke.", "Answer": "Expected joke response", "tool_definitions": [], "conversationID": "joke_request"}
 ```
 
 #### JSONL Field Requirements
@@ -138,20 +139,70 @@ For evaluation with ground truth and tool expectations:
   - Used by `ResponseCompletenessEvaluator` and other quality metrics
   - Defaults to `None` if missing; evaluation can still run without it
 
-- **`expected_tool_calls`**: Array of expected tool calls for validation
-  - Used by `ToolCallAccuracyEvaluator`
-  - Defaults to `[]` (empty array) if missing
-  - Format: `[{"type": "tool_call", "tool_call_id": "id", "name": "function_name", "arguments": {...}}]`
-
-- **`tool_definitions`**: Array of tool/function definitions available for the turn
-  - Used for evaluation context
-  - Defaults to `[]` (empty array) if missing
+- **`tool_definitions`**: Array of tool/function definitions available for the session
+  - **Configures VoiceLive session tools**: These tools are sent to VoiceLive and become callable by the agent
+  - **Required by `ToolCallAccuracyEvaluator`** to assess if tool calls were appropriate
+  - Defaults to `[]` (empty array) if missing - session runs without function calling
   - Format matches Azure OpenAI function calling schema
+  - **Single mode**: Uses `tool_definitions` from the first file for the entire session
+  - **Per-file mode**: Each file can have its own `tool_definitions`
+  - **Per-conversation mode**: Uses `tool_definitions` from the first file of each conversation
+
+#### Example Tool Definitions
+
+Here are example tool definitions you can use in your JSONL datasets:
+
+**get_horoscope** - Astrological horoscope lookup:
+```json
+{
+  "type": "function",
+  "name": "get_horoscope",
+  "description": "Get today's horoscope for an astrological sign.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "sign": {
+        "type": "string",
+        "description": "An astrological sign like Taurus or Aquarius"
+      }
+    },
+    "required": ["sign"]
+  }
+}
+```
+
+**fetch_weather** - Weather information lookup:
+```json
+{
+  "type": "function",
+  "name": "fetch_weather",
+  "description": "Fetches the current weather for a specified location.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "location": {
+        "type": "string",
+        "description": "The city or location to get weather for (e.g., 'Seattle', 'London')"
+      }
+    },
+    "required": ["location"]
+  }
+}
+```
+
+**Note:** These are example tool schemas. The actual tool execution is handled by VoiceLive - you only need to define the tool schema in your dataset.
 
 - **`conversationID`** or **`conversation_id`**: Identifier for grouping turns into conversations
   - **Required for `--session-mode per-conversation`**
   - Defaults to `'default'` if missing (all turns treated as same conversation)
   - Used to determine when to reset session state
+
+- **`system_prompt`**: Custom system prompt/instructions for the agent
+  - Overrides the default system prompt when starting a new session
+  - **Single mode**: Uses `system_prompt` from the first file for the entire session
+  - **Per-file mode**: Each file can have its own `system_prompt`
+  - **Per-conversation mode**: Uses `system_prompt` from the first file of each conversation
+  - If not provided, uses the script's default system prompt
 
 #### Minimal Valid JSONL
 
@@ -164,7 +215,7 @@ This is the minimum required to run the script. All other fields enhance evaluat
 #### Complete JSONL Example
 
 ```jsonl
-{"WavPath": "turn1.wav", "Question": "What's the weather?", "Answer": "It's sunny today.", "expected_tool_calls": [{"type": "tool_call", "name": "get_weather", "arguments": {"location": "Seattle"}}], "tool_definitions": [{"type": "function", "name": "get_weather", "parameters": {...}}], "conversationID": "weather_conv"}
+{"WavPath": "turn1.wav", "Question": "What's the weather?", "Answer": "It's sunny today.", "tool_definitions": [{"type": "function", "name": "get_weather", "parameters": {...}}], "conversationID": "weather_conv", "system_prompt": "You are a helpful weather assistant."}
 ```
 
 ### Plain Text Format
@@ -181,7 +232,7 @@ One audio file path per line. Lines starting with `#` are treated as comments.
 
 ## Sample Datasets
 
-Two multi-turn conversation datasets are provided in `sample_evaluation_input/`:
+Multiple sample datasets are provided in `sample_evaluation_input/` to demonstrate different evaluation scenarios:
 
 ### DataOceanDemoComplexSession1
 A creative writing conversation with 3 turns demonstrating context retention:
@@ -189,7 +240,7 @@ A creative writing conversation with 3 turns demonstrating context retention:
 - Turn 2: Rewrite in detective novel style + convert to poem
 - Turn 3: Brief acknowledgment showing conversation continuity
 
-A sample result can be found in `sample_evaluation_input/2025-11-25_16-31-15_DataOceanDemoComplexSession1`.
+**Use case:** Testing multi-turn creative tasks and conversation coherence.
 
 ```bash
 python voice_agent_audio_input_evaluation_v2.py \
@@ -199,13 +250,41 @@ python voice_agent_audio_input_evaluation_v2.py \
   --session-mode single
 ```
 
-### Eiffel_Tower_Visit_1
-A 6-turn conversation demonstrating tool calling and context building:
+---
+
+### Eiffel_Tower_Visit (5 turns)
+A conversation demonstrating tool calling with the horoscope query in a **single audio file**:
 - Turn 1: Greeting
-- Turn 2-3: Horoscope query with tool call (Aquarius sign)
+- Turn 2: Combined horoscope query + sign in one utterance ("What is my horoscope? I am an Aquarius.")
+- Turn 3-5: Eiffel Tower visit planning (hours, Sunday programs, restaurants)
+
+**Use case:** Testing VAD (Voice Activity Detection) behavior. Because the horoscope question and sign are in one audio file with a natural pause between them, this dataset helps test whether:
+- The agent correctly handles multi-sentence utterances
+- VAD splitting occurs and how it affects turn counting
+- The agent skips or ignores part of the input due to incorrect VAD segmentation
+
+If the agent only responds to "What is my horoscope?" and ignores "I am an Aquarius," it indicates VAD is incorrectly splitting the audio.
+
+```bash
+python voice_agent_audio_input_evaluation_v2.py \
+  --test-files ./prototype_v1/sample_evaluation_input/Eiffel_Tower_Visit/Eiffel_Tower_Visit.jsonl \
+  --output-dir ./output \
+  --evaluation ./output \
+  --session-mode single
+```
+
+---
+
+### Eiffel_Tower_Visit_1 (6 turns)
+A similar conversation but with the horoscope query split across **two separate audio files**:
+- Turn 1: Greeting
+- Turn 2: Horoscope query alone ("What is my horoscope?")
+- Turn 3: Sign provided separately ("I am an Aquarius.") - triggers tool call
 - Turn 4-6: Eiffel Tower visit planning (hours, Sunday programs, restaurants)
 
-A sample result can be found in `sample_evaluation_input/2025-11-25_16-23-13_Eiffel_Tower_Visit_1`.
+**Key difference from Eiffel_Tower_Visit:** The horoscope question and sign are in separate audio files, which avoids VAD splitting issues. This dataset includes `conversationID` and `system_prompt` fields.
+
+**Use case:** Testing tool calling behavior, custom system prompts, and conversation context.
 
 ```bash
 python voice_agent_audio_input_evaluation_v2.py \
@@ -213,6 +292,77 @@ python voice_agent_audio_input_evaluation_v2.py \
   --output-dir ./output \
   --evaluation ./output \
   --session-mode single
+```
+
+---
+
+### MultiConversationSample
+A combined dataset containing **multiple conversations** for testing `per-conversation` session mode:
+- **Conversation 1 (Eiffel_Tower_Visit_1)**: 6 turns - travel assistant with horoscope tool call
+- **Conversation 2 (DataOceanDemoComplexSession1)**: 3 turns - creative writing assistant
+
+Each conversation has its own `conversationID` and `system_prompt`, demonstrating:
+- Different agent personas in the same evaluation run
+- Isolated conversation contexts
+- Aggregated evaluation across multiple scenarios
+
+**Use case:** Testing multiple independent conversations in a single evaluation run with different system prompts per conversation.
+
+```bash
+python voice_agent_audio_input_evaluation_v2.py \
+  --test-files ./prototype_v1/sample_evaluation_input/MultiConversationSample/multiConversationSample.jsonl \
+  --output-dir ./output \
+  --evaluation ./output \
+  --session-mode per-conversation
+```
+
+---
+
+### Tool_Call_Test_Sample
+A specialized dataset for testing tool calling behavior with **contrasting system prompts**:
+
+**Conversation 1 (Tool_Call_Correct_Case)**: 3 turns
+- System prompt instructs agent to **please use** the `get_horoscope` tool when appropriate
+- Turn 3: User says "I am an Aquarius" - agent should call the tool
+- Tests that the agent correctly uses tools when guided to do so
+
+**Conversation 2 (Tool_Call_Incorrect_Case)**: 3 turns  
+- System prompt instructs agent to **prefer using own knowledge** rather than external tools
+- Same user inputs as Conversation 1
+- Tool is available but should preferably not be called
+- Tests that the agent respects tool usage preferences
+
+**How evaluation works:**
+- `ToolCallAccuracyEvaluator` uses an LLM judge to assess if actual tool calls were appropriate
+- It compares: **query** + **actual tool_calls** + **tool_definitions** → score 1-5
+- It does NOT compare against "expected" tool calls
+- `TaskAdherenceEvaluator` assesses if the agent followed system prompt instructions
+
+**Use case:** Testing agent behavior under different system prompt constraints
+
+```bash
+python voice_agent_audio_input_evaluation_v2.py \
+  --test-files ./prototype_v1/sample_evaluation_input/Tool_Call_Test_Sample/Tool_Call_Test_Sample.jsonl \
+  --output-dir ./output \
+  --evaluation ./output \
+  --session-mode per-conversation
+```
+
+---
+
+### BingChat_7days_en
+English dataset extracted from real Bing Chat conversations:
+- `BingChat_en_minimal_10.jsonl`: 10 English samples for quick testing
+- Audio files organized in `en-us/` subfolder
+
+**Use case:** Testing agent behavior with real-world English query patterns. Uses `per-file` mode since these are single-turn QnA samples.
+
+```bash
+python voice_agent_audio_input_evaluation_v2.py \
+  --test-files ./prototype_v1/sample_evaluation_input/BingChat_7days_en/BingChat_en_minimal_10.jsonl \
+  --output-dir ./output \
+  --evaluation ./output \
+  --session-mode per-file
 ```
 
 ## Usage
@@ -330,9 +480,6 @@ One record per logical turn:
     "responses_in_turn": 1,
     "audio_response_received": true
   },
-  "expected_tool_calls": [
-    {"type": "tool_call", "tool_call_id": "expected_call_1", "name": "get_horoscope", "arguments": {"sign": "Aquarius"}}
-  ],
   "tool_calls": [
     {"type": "tool_call", "tool_call_id": "call_123", "name": "get_horoscope", "arguments": {"sign": "Aquarius"}}
   ],
@@ -431,11 +578,10 @@ VAD splitting can cause multiple user inputs within a single logical turn. For e
 
 ## Metadata Alignment
 
-The script implements a snapshot mechanism to ensure metadata (ground truth, expected tool calls, tool definitions) stays aligned with the correct turn, even when VAD causes turn splitting:
+The script implements a snapshot mechanism to ensure metadata (ground truth, tool definitions) stays aligned with the correct turn, even when VAD causes turn splitting:
 
 1. **Snapshot on File Load**: When each audio file is loaded, metadata is captured in snapshot variables:
    - `turn_ground_truth`
-   - `turn_expected_tool_calls`
    - `turn_tool_definitions`
 
 2. **Persistence Across VAD Splits**: Snapshots persist across ALL turns generated from a single audio file

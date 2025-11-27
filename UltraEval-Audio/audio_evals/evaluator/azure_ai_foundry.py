@@ -390,10 +390,13 @@ class AzureAIFoundryEvaluator(Evaluator):
             # Intent resolution needs query and response
             eval_data["query"] = query_text
         elif self.metric_type == "tool_call_accuracy":
-            # Tool call accuracy needs query, response, and tools configuration
+            # Tool call accuracy needs query, tool_calls, and tool_definitions
+            # tool_definitions is REQUIRED by ToolCallAccuracyEvaluator
+            # tool_calls is extracted from response if available
             eval_data.update({
                 "query": query_text,
-                "tools": kwargs.get("tools", [])
+                "tool_calls": kwargs.get("tool_calls", []),
+                "tool_definitions": kwargs.get("tool_definitions", [])
             })
         elif self.metric_type == "task_adherence":
             # Task adherence needs query, response, and system message
