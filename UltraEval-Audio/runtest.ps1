@@ -4,12 +4,12 @@
 # Compatible with Windows, macOS, and Linux
 
 param(
-    [int]$Workers = 20,
-    [int]$Limit = 1000,
-    [switch]$InferenceOnly,          # Only run inference, skip evaluation
+    [int]$Workers = 1,
+    [int]$Limit = 1,
+    [switch]$InferenceOnly = $true,          # Only run inference, skip evaluation
     [bool]$EvaluationOnly = $false,         # Only run evaluation, skip inference
     [string]$InferenceFile = "",     # Path to existing inference results
-    [string]$TestSuite = "bingchat-agent-base-cascaded",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
+    [string]$TestSuite = "unhcr",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
     [string[]]$ModelConfigs = @(),   # Override model configs: e.g., @("GPT4o", "GPT4o-Mini")
     [string[]]$Datasets = @(),       # Override datasets: e.g., @("llama-questions", "speech-triviaqa")
     [string[]]$Evaluators = @(),     # Override evaluators: e.g., @("azure-ai-batch-qaevaluator", "em")
@@ -59,12 +59,22 @@ $ultraEvalPath = Join-Path $projectRoot "UltraEval-Audio"
 Set-Location $ultraEvalPath
 
 # Cross-platform virtual environment activation
+# Check parent directory first, then UltraEval-Audio directory
+$parentPath = Split-Path $ultraEvalPath -Parent
 if ($platformInfo.IsWindows) {
-    $venvActivateScript = Join-Path $ultraEvalPath ".venv" "Scripts" "Activate.ps1"
-    $venvPython = Join-Path $ultraEvalPath ".venv" "Scripts" "python.exe"
+    $venvActivateScript = Join-Path $parentPath ".venv" "Scripts" "Activate.ps1"
+    $venvPython = Join-Path $parentPath ".venv" "Scripts" "python.exe"
+    if (!(Test-Path $venvActivateScript)) {
+        $venvActivateScript = Join-Path $ultraEvalPath ".venv" "Scripts" "Activate.ps1"
+        $venvPython = Join-Path $ultraEvalPath ".venv" "Scripts" "python.exe"
+    }
 } else {
-    $venvActivateScript = Join-Path $ultraEvalPath ".venv" "bin" "Activate.ps1"
-    $venvPython = Join-Path $ultraEvalPath ".venv" "bin" "python"
+    $venvActivateScript = Join-Path $parentPath ".venv" "bin" "Activate.ps1"
+    $venvPython = Join-Path $parentPath ".venv" "bin" "python"
+    if (!(Test-Path $venvActivateScript)) {
+        $venvActivateScript = Join-Path $ultraEvalPath ".venv" "bin" "Activate.ps1"
+        $venvPython = Join-Path $ultraEvalPath ".venv" "bin" "python"
+    }
 }
 
 # Activate virtual environment if it exists
@@ -232,7 +242,10 @@ $allDatasets = @(
     
     # BingChat Agent Test Sets
     @{Name="bingchat-agent-en-us"; Description="BingChat Agent Test Set - English (1583 utterances)"},
-    @{Name="bingchat-agent-fr-fr"; Description="BingChat Agent Test Set - French (784 utterances)"}
+    @{Name="bingchat-agent-fr-fr"; Description="BingChat Agent Test Set - French (784 utterances)"},
+    
+    # UNHCR Recordings
+    @{Name="unhcr-recordings"; Description="UNHCR Customer Recordings (10 audio files, multilingual)"}
 )
 
 # Create base results directory structure (cross-platform)
@@ -250,6 +263,14 @@ function Get-TestSuiteConfig {
     param([string]$SuiteName)
     
     switch ($SuiteName) {
+        "unhcr" {
+            return @{
+                ModelConfigs = @("VoiceLive-gpt-realtime")
+                Datasets = @("unhcr-recordings")
+                Evaluators = @("")
+                Description = "Simple test with one model, one dataset, multiple evaluators"
+            }
+        }        
         "firsteval" {
             return @{
                 ModelConfigs = @("VoiceLive-gpt-realtime")
@@ -375,28 +396,45 @@ Write-Host "DEBUG: Selected Model Configs: $($selectedModelConfigs -join ', ')" 
 Write-Host "DEBUG: Selected Datasets: $($selectedDatasets -join ', ')" -ForegroundColor Gray
 Write-Host "DEBUG: Selected Evaluators: $($selectedEvaluators -join ', ')" -ForegroundColor Gray
 Write-Host "DEBUG: All Model Configs Count: $($allModelConfigs.Count)" -ForegroundColor Gray
+Write-Host "DEBUG: First Model Config from allModelConfigs: $($allModelConfigs[0].Name)" -ForegroundColor Gray
 Write-Host "DEBUG: All Datasets Count: $($allDatasets.Count)" -ForegroundColor Gray
 Write-Host "DEBUG: All Evaluators Count: $($allEvaluators.Count)" -ForegroundColor Gray
 
 # Filter configurations based on selections
-$modelConfigs = @($allModelConfigs | Where-Object { $_.Name -in $selectedModelConfigs })
-$datasets = @($allDatasets | Where-Object { $_.Name -in $selectedDatasets })
-$evaluators = @($allEvaluators | Where-Object { $_.Name -in $selectedEvaluators })
-
-Write-Host "DEBUG: Filtered Model Configs: $($modelConfigs.Count)" -ForegroundColor Gray
-if ($modelConfigs.Count -gt 0) {
-    Write-Host "DEBUG: First Model Config Type: $($modelConfigs[0].GetType().Name)" -ForegroundColor Gray
-    Write-Host "DEBUG: First Model Config Name: $($modelConfigs[0].Name)" -ForegroundColor Gray
-    Write-Host "DEBUG: First Model Config Keys: $($modelConfigs[0].Keys -join ', ')" -ForegroundColor Gray
+$filteredModelConfigs = @()
+foreach ($config in $allModelConfigs) {
+    if ($selectedModelConfigs -contains $config.Name) {
+        $filteredModelConfigs += $config
+    }
 }
-Write-Host "DEBUG: Filtered Datasets: $($datasets.Count)" -ForegroundColor Gray
-Write-Host "DEBUG: Filtered Evaluators: $($evaluators.Count)" -ForegroundColor Gray
+
+$filteredDatasets = @()
+foreach ($ds in $allDatasets) {
+    if ($selectedDatasets -contains $ds.Name) {
+        $filteredDatasets += $ds
+    }
+}
+
+$filteredEvaluators = @()
+foreach ($ev in $allEvaluators) {
+    if ($selectedEvaluators -contains $ev.Name) {
+        $filteredEvaluators += $ev
+    }
+}
+
+Write-Host "DEBUG: Filtered Model Configs: $($filteredModelConfigs.Count)" -ForegroundColor Gray
+if ($filteredModelConfigs.Count -gt 0) {
+    Write-Host "DEBUG: First Model Config Type: $($filteredModelConfigs[0].GetType().Name)" -ForegroundColor Gray
+    Write-Host "DEBUG: First Model Config Name: $($filteredModelConfigs[0].Name)" -ForegroundColor Gray
+}
+Write-Host "DEBUG: Filtered Datasets: $($filteredDatasets.Count)" -ForegroundColor Gray
+Write-Host "DEBUG: Filtered Evaluators: $($filteredEvaluators.Count)" -ForegroundColor Gray
 
 # Display test configuration
 Write-Host "📋 Test Suite: $TestSuite - $($testConfig.Description)" -ForegroundColor Cyan
-Write-Host "🤖 Model Configs: $(($modelConfigs | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor Yellow
-Write-Host "📊 Datasets: $(($datasets | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor Yellow
-Write-Host "⚖️  Evaluators: $(($evaluators | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor Yellow
+Write-Host "🤖 Model Configs: $(($filteredModelConfigs | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor Yellow
+Write-Host "📊 Datasets: $(($filteredDatasets | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor Yellow
+Write-Host "⚖️  Evaluators: $(($filteredEvaluators | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor Yellow
 Write-Host "📁 Results will be saved to: $baseResultsDir\<model-config>\<dataset-name>\<evaluator-name>\" -ForegroundColor Cyan
 
 if ($DryRun) {
@@ -405,7 +443,7 @@ if ($DryRun) {
 Write-Host ""
 
 # Run tests for each model configuration, dataset, and evaluator combination
-foreach ($modelConfig in $modelConfigs) {
+foreach ($modelConfig in $filteredModelConfigs) {
     Write-Host "🤖 Testing model configuration: $($modelConfig.Name)" -ForegroundColor Green
     
     # Store original environment variables for restoration
@@ -428,7 +466,7 @@ foreach ($modelConfig in $modelConfigs) {
     # Store original evaluation name environment variable
     $evalNameEnvVar = "AZURE_AI_EVALUATION_NAME"
     $originalEvalName = [Environment]::GetEnvironmentVariable($evalNameEnvVar)
-    foreach ($dataset in $datasets) {
+    foreach ($dataset in $filteredDatasets) {
         Write-Host "  📊 Testing dataset: $($dataset.Name) - $($dataset.Description)" -ForegroundColor Magenta
         
         # Append dataset name to evaluation name environment variable
@@ -489,8 +527,8 @@ foreach ($modelConfig in $modelConfigs) {
         if (!$InferenceOnly) {
             Write-Host "    📊 Running evaluation phase with multiple evaluators..." -ForegroundColor Cyan
             
-            foreach ($eval in $evaluators) {
-                Write-Host "      �🔄 Testing evaluator: $($eval.Name) - $($eval.Description)" -ForegroundColor Yellow
+            foreach ($eval in $filteredEvaluators) {
+                Write-Host "      🔄 Testing evaluator: $($eval.Name) - $($eval.Description)" -ForegroundColor Yellow
             
                 # Create subfolder for this evaluator within the dataset (cross-platform)
                 $evalDir = Join-Path $datasetDir $eval.Name
