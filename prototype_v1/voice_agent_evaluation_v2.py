@@ -18,25 +18,57 @@ from openai.types.evals.create_eval_jsonl_run_data_source_param import (
     SourceFileID,
     SourceFileContentContent,
 )
+import warnings
+
+# Suppress Pydantic serialization warnings from Azure AI SDK
+# The SDK returns "not applicable" strings for float fields which causes warnings
+# Apply multiple filters to catch warnings from different Pydantic modules
+warnings.filterwarnings('ignore', category=UserWarning, module='pydantic')
+warnings.filterwarnings('ignore', message='.*Expected `float`.*')
+warnings.filterwarnings('ignore', message='.*serialized value may not be as expected.*')
 
 # Pretty print evaluation results
-def print_eval_results(output_items, transcriptFilePath, referencetranscriptFilePath, output_file_path):
+def print_eval_results(output_items, transcriptFilePath, referenceTranscriptFilePath, output_file_path):
     """Print the evaluation results in a formatted table"""
     
     if not output_items:
         print("No evaluation results found.")
         return
     
+    # output_items is already a list, no need to parse JSON
+    # If it's a string, parse it; otherwise use it directly
+    if isinstance(output_items, str):
+        json_data = json.loads(output_items)
+        output_items = json_data.get("items", [])
+    elif isinstance(output_items, dict):
+        output_items = output_items.get("items", [])
+    # else: output_items is already a list of Pydantic model objects
+
     # Aggregate metrics across all items
     metric_scores = {}
     metric_counts = {}
     
     for item in output_items:
-        results = item.get("results", [])
-        for result in results:
-            metric_name = result.get("name", "unknown")
-            score = result.get("score")
+        # Each item has a 'results' array containing metrics
+        # Handle both dict and Pydantic model objects
+        if hasattr(item, 'results'):
+            results = item.results
+        elif isinstance(item, dict):
+            results = item.get("results", [])
+        else:
+            results = []
             
+        for result in results:
+            # Handle both dict and Pydantic model objects
+            if hasattr(result, 'name'):
+                metric_name = result.name
+                score = result.score
+            elif isinstance(result, dict):
+                metric_name = result.get("name", "unknown")
+                score = result.get("score")
+            else:
+                continue
+
             # Only aggregate numeric scores
             if isinstance(score, (int, float)):
                 if metric_name not in metric_scores:
@@ -76,7 +108,7 @@ def print_eval_results(output_items, transcriptFilePath, referencetranscriptFile
 
     # Print additional information
     print(f"Generated Audio transcript: {transcriptFilePath}")
-    print(f"Reference transcript: {referencetranscriptFilePath}")
+    print(f"Reference transcript: {referenceTranscriptFilePath}")
     print(f"Evaluation output: {output_file_path}")
     print(f"For detailed per-item results, see the output file.")
 
@@ -259,7 +291,7 @@ def create_custom_evaluators(project_client: AIProjectClient):
         print(f"Error creating custom transcript evaluator: {e}")
         raise e
 
-def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_folder: str = "./output", eval_run_name: str = "", eval_run_scenario: str = "", eval_group_name: str = "", eval_object_id: str = "", dataset_id: str = "", dataset_appendix: str = "", setupCustomEvaluators: bool = True):
+def main(eval_input_path: str, referenceTranscriptFilePath: str = "", output_folder: str = "./output", eval_run_name: str = f"Run {datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}", eval_run_scenario: str = "", eval_group_name: str = "", eval_object_id: str = "", dataset_id: str = "", dataset_appendix: str = "", setupCustomEvaluators: bool = False):
     """ Main function to run the evaluation of voice agent sessions."""
     # Change to the directory where this script is located
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -285,43 +317,45 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
     )
     ## Set model deployment names and create OpenAI client
     model_deployment_name = aoai_deployment_name
+    reasoning_model_deployment_name = aoai_reasoning_deployment_name
     client = project_client.get_openai_client()
 
     ## Create custom evaluator in Foundry project
     if setupCustomEvaluators:
-        create_custom_evaluators(project_client)
-                ## Create testing criteria for eval group setup with customTranscriptEvaluatorSpeech
-        testing_criteria = [
-            {
-                "type": "azure_ai_evaluator",
-                "name": "customTranscriptEvaluatorSpeech",
-                "evaluator_name": "customTranscriptEvaluatorSpeech",
-                "data_mapping": {
-                    "transcript": "{{item.transcript}}",
-                    "ground_truth": "{{item.ground_truth}}",
+        if eval_object_id == "" or eval_object_id is None:
+            create_custom_evaluators(project_client)
+            ## Create testing criteria for eval group setup with customTranscriptEvaluatorSpeech
+            testing_criteria = [
+                {
+                    "type": "azure_ai_evaluator",
+                    "name": "customTranscriptEvaluatorSpeech",
+                    "evaluator_name": "customTranscriptEvaluatorSpeech",
+                    "data_mapping": {
+                        "transcript": "{{item.transcript}}",
+                        "ground_truth": "{{item.ground_truth}}",
+                    },
+                    "initialization_parameters": {"deployment_name": f"{model_deployment_name}", "is_reasoning_model": False, "threshold": 3},
+                }
+            ]      
+            ## Create data source config for eval group setup with customTranscriptEvaluatorSpeech
+            data_source_config = {
+                "type": "custom",
+                "item_schema": {
+                    "type": "object",
+                    "properties": {
+                        "transcript": {"type": "string"},
+                        "ground_truth": {"type": "string"},
+                    },
+                    "required": ["transcript", "ground_truth"],
                 },
-                "initialization_parameters": {"deployment_name": f"{model_deployment_name}", "is_reasoning_model": False, "threshold": 3},
+                "include_sample_schema": True,
             }
-        ]      
-        ## Create data source config for eval group setup with customTranscriptEvaluatorSpeech
-        data_source_config = {
-            "type": "custom",
-            "item_schema": {
-                "type": "object",
-                "properties": {
-                    "transcript": {"type": "string"},
-                    "ground_truth": {"type": "string"},
-                },
-                "required": ["transcript", "ground_truth"],
-            },
-            "include_sample_schema": True,
-        }
         if dataset_id == "" or dataset_id is None:
             ## Create dataset from transcripts
             print("Creating dataset from transcripts...")
             dataset_path = create_dataset_from_transcripts(
                 transcript_file_path=eval_input_path,
-                reference_transcript_file_path=referencetranscriptFilePath,
+                reference_transcript_file_path=referenceTranscriptFilePath,
                 output_folder=output_folder,
                 dataset_appendix=dataset_appendix
             )
@@ -346,14 +380,14 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
         }
         testing_criteria = [
             # System Evaluation
-            # 1. Task Completion
+            # 3. Intent Resolution
             {
                 "type": "azure_ai_evaluator",
-                "name": "task_completion",
-                "evaluator_name": "builtin.task_completion",
+                "name": "intent_resolution",
+                "evaluator_name": "builtin.intent_resolution",
                 "initialization_parameters": {
-                    "deployment_name": f"{model_deployment_name}",
-                    # "is_reasoning_model": True # if you use an AOAI reasoning model
+                    "deployment_name": f"{reasoning_model_deployment_name}",
+                    "is_reasoning_model": True # if you use an AOAI reasoning model
                 },
                 "data_mapping": {
                     "query": "{{item.query}}",
@@ -367,8 +401,23 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
                 "name": "task_adherence",
                 "evaluator_name": "builtin.task_adherence",
                 "initialization_parameters": {
-                    "deployment_name": f"{model_deployment_name}",
-                    # "is_reasoning_model": True # if you use an AOAI reasoning model
+                    "deployment_name": f"{reasoning_model_deployment_name}",
+                    "is_reasoning_model": True # if you use an AOAI reasoning model
+                },
+                "data_mapping": {
+                    "query": "{{item.query}}",
+                    "response": "{{item.response}}",
+                    "tool_definitions": "{{item.tool_definitions}}",
+                },
+            },               
+            # 1. Task Completion
+            {
+                "type": "azure_ai_evaluator",
+                "name": "task_completion",
+                "evaluator_name": "builtin.task_completion",
+                "initialization_parameters": {
+                    "deployment_name": f"{reasoning_model_deployment_name}",
+                    "is_reasoning_model": True # if you use an AOAI reasoning model
                 },
                 "data_mapping": {
                     "query": "{{item.query}}",
@@ -376,18 +425,19 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
                     "tool_definitions": "{{item.tool_definitions}}",
                 },
             },
-            # 3. Intent Resolution
+            # X. Response Completeness
             {
                 "type": "azure_ai_evaluator",
-                "name": "intent_resolution",
-                "evaluator_name": "builtin.intent_resolution",
+                "name": "response_completeness",
+                "evaluator_name": "builtin.response_completeness",
                 "initialization_parameters": {
-                    "deployment_name": f"{model_deployment_name}",
-                    # "is_reasoning_model": True # if you use an AOAI reasoning model
+                    "deployment_name": f"{reasoning_model_deployment_name}",
+                    "is_reasoning_model": True # if you use an AOAI reasoning model
                 },
                 "data_mapping": {
                     "query": "{{item.query}}",
                     "response": "{{item.response}}",
+                    "ground_truth": "{{item.ground_truth}}",
                     "tool_definitions": "{{item.tool_definitions}}",
                 },
             },
@@ -413,8 +463,8 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
                 "name": "relevance",
                 "evaluator_name": "builtin.relevance",
                 "initialization_parameters": {
-                    "deployment_name": f"{model_deployment_name}",
-                    # "is_reasoning_model": True # if you use an AOAI reasoning model
+                    "deployment_name": f"{reasoning_model_deployment_name}",
+                    "is_reasoning_model": True # if you use an AOAI reasoning model
                 },
                 "data_mapping": {
                     "query": "{{item.query}}",
@@ -428,8 +478,8 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
                 "name": "tool_call_accuracy",
                 "evaluator_name": "builtin.tool_call_accuracy",
                 "initialization_parameters": {
-                    "deployment_name": f"{model_deployment_name}",
-                    # "is_reasoning_model": True # if you use an AOAI reasoning model
+                    "deployment_name": f"{reasoning_model_deployment_name}",
+                    "is_reasoning_model": True # if you use an AOAI reasoning model
                 },
                 "data_mapping": {
                     "query": "{{item.query}}",
@@ -444,8 +494,8 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
                 "name": "tool_selection",
                 "evaluator_name": "builtin.tool_selection",
                 "initialization_parameters": {
-                    "deployment_name": f"{model_deployment_name}",
-                    # "is_reasoning_model": True # if you use an AOAI reasoning model
+                    "deployment_name": f"{reasoning_model_deployment_name}",
+                    "is_reasoning_model": True # if you use an AOAI reasoning model
                 },
                 "data_mapping": {
                     "query": "{{item.query}}",
@@ -460,8 +510,8 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
                 "name": "tool_input_accuracy",
                 "evaluator_name": "builtin.tool_input_accuracy",
                 "initialization_parameters": {
-                    "deployment_name": f"{model_deployment_name}",
-                    # "is_reasoning_model": True # if you use an AOAI reasoning model
+                    "deployment_name": f"{reasoning_model_deployment_name}",
+                    "is_reasoning_model": True # if you use an AOAI reasoning model
                 },
                 "data_mapping": {
                     "query": "{{item.query}}",
@@ -475,8 +525,8 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
                 "name": "tool_output_utilization",
                 "evaluator_name": "builtin.tool_output_utilization",
                 "initialization_parameters": {
-                    "deployment_name": f"{model_deployment_name}",
-                    # "is_reasoning_model": True # if you use an AOAI reasoning model
+                    "deployment_name": f"{reasoning_model_deployment_name}",
+                    "is_reasoning_model": True # if you use an AOAI reasoning model
                 },
                 "data_mapping": {
                     "query": "{{item.query}}",
@@ -490,8 +540,8 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
                 "name": "tool_call_success",
                 "evaluator_name": "builtin.tool_call_success",
                 "initialization_parameters": {
-                    "deployment_name": f"{model_deployment_name}",
-                    # "is_reasoning_model": True # if you use an AOAI reasoning model
+                    "deployment_name": f"{reasoning_model_deployment_name}",
+                    "is_reasoning_model": True # if you use an AOAI reasoning model
                 },
                 "data_mapping": {
                     "tool_definitions": "{{item.tool_definitions}}",
@@ -534,7 +584,6 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
 
     # Prepare data and upload to Foundry
     if dataset_id == "" or dataset_id is None:
-        print("\nUploading dataset to Foundry project...")
         ## Upload dataset to Foundry project
         print("Uploading dataset to Foundry project...")
         dataset = upload_dataset_from_transcripts(
@@ -584,7 +633,7 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
             try:
                 output_items = list(client.evals.runs.output_items.list(run_id=run.id, eval_id=eval_id))
                 # write the output items to a jsonl file
-                output_file_path = Path(output_folder) / f"{run.id}_eval_output.json"
+                output_file_path = Path(output_folder) / f"{run.id}_eval_output.jsonl"
                 with open(output_file_path, 'w', encoding='utf-8') as f:
                     for item in output_items:
                         f.write(json.dumps(item.model_dump(), indent=4) + '\n')
@@ -596,7 +645,7 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
 
             # Format and print the evaluation results
             print(f"{'-'*60}")
-            # print_eval_results(output_items, transcriptFilePath, referencetranscriptFilePath, output_file_path)
+            print_eval_results(output_items, eval_input_path, referenceTranscriptFilePath, output_file_path)
             print(f"{'-'*60}")
             print(f"Eval Run Status: {run.status}")
             print(f"Eval Run Report URL: {run.report_url}")
@@ -605,59 +654,71 @@ def main(eval_input_path: str, referencetranscriptFilePath: str = "", output_fol
         time.sleep(5)
         print("Waiting for eval run to complete...")
     
+    if setupCustomEvaluators:
+        # Clean up: delete evaluator versions before the latest one
+        project_client = AIProjectClient(
+            credential=DefaultAzureCredential(),
+            endpoint=os.getenv("PROJECT_ENDPOINT")
+        )
+        versions = list(project_client.evaluators.list_versions(
+            name="customTranscriptEvaluatorSpeech"
+        ))    
+        # Get the current (highest) version number
+        if versions:
+            current_version = max(int(v.version) for v in versions)
+            print(f"Current version: {current_version}")
+        else:
+            print("No versions found")
+            current_version = 0
+        print(f"Found {current_version} versions of the custom evaluator to delete.")
+        # loop through versions and try to delete the evaluator
+        for version in range(1, current_version):
+            print(f"Deleting version {version} of the created evaluator")
+            result = project_client.evaluators.delete_version(
+                name="customTranscriptEvaluatorSpeech",
+                version=version,
+            )
+            print(f"Delete evaluator version result: {result}")
+
 if __name__ == "__main__":
 
-    eval_input_path = f".\\sample_outputs\\2025-11-26_16-53-40_Eiffel_Tower_Visit_1\\2025-11-26_16-53-40_Eiffel_Tower_Visit_1.jsonl"
-    dataset_appendix = f"_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}" # Add timestamp to dataset name
-    eval_object_id = "" # replace with your eval id if needed
-    dataset_id="" # replace with your dataset id if needed
+    evaluation_scenario = 'Example2'
+    if evaluation_scenario == 'Example1':
+        # Example usage of the main function with custom transcript evaluator.
+        # This example will use the custom transcript evaluator for quality assessment.
+        # The dataset will be created from the transcript files and referenceTranscript files in the according folders and uploaded to the Foundry project.
+        # The dataset will only be generated if 'setupCustomEvaluators' is set to True otherwise a properly formatted jsonl dataset file is required!
+        eval_input_path = ".\\local_datasets\\unhcr\\transcripts\\" # Speech transcript files folder path
+        referenceTranscriptFilePath = ".\\local_datasets\\unhcr\\reference_transcripts\\" # Reference transcript files folder path
+        dataset_id="azureai://accounts/jagoerge-voicelive-sec-resource/projects/jagoerge-voicelive-sec/data/transcript_eval_dataset_transcriptsunhcr/versions/4"
+        # Leave empty to upload and create a new dataset. Replace with your dataset id to use an existing dataset
+        dataset_appendix = f"_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}" # Add a timestamp or other appendix to dataset name
+        dataset_appendix = "unhcr"
+        eval_object_id = "eval_0172615fe43c4cc59b9069b9eba44229" # Leave empty to create a new eval group. Replace with your eval group id to use an existing eval group
+        eval_group_name="Custom Transcript Evaluator Group" # Name of the eval group to create 
+        eval_run_scenario = "Test run for custom transcript evaluator" # Name of the eval run to create
+        setupCustomEvaluators = True # Set to True if you need to create a new custom evaluator version or the custom evaluator does not exist yet or you need to generate the dataset!
+    else:
+        # Example usage of the main function with agent builtin evaluators
+        eval_input_path = f".\\sample_outputs\\2025-11-26_16-53-40_Eiffel_Tower_Visit_1\\2025-11-26_16-53-40_Eiffel_Tower_Visit_1.jsonl" # Dataset jsonl file to evaluate unless an existing one is used.
+        referenceTranscriptFilePath = "" # Reference transcript files as .md files, if new dataset file needs to be generated. Not supported in this scenario.
+        dataset_id="azureai://accounts/jagoerge-voicelive-sec-resource/projects/jagoerge-voicelive-sec/data/2025-11-26_16-53-40_Eiffel_Tower_Visit_1/versions/2"
+        # Leave empty to upload and create a new dataset. Replace with your dataset id to use an existing dataset
+        dataset_appendix = f"_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}" # Add a timestamp or other appendix to dataset name
+        eval_object_id = "eval_4609a79f9f2f458fbc6f37248bfb2e9d" # Leave empty to create a new eval group. Replace with your eval group id to use an existing eval group
+        eval_group_name="Eiffel Tower Live Agent Evaluation" # Name of the eval group to create 
+        eval_run_scenario = "Evaluation Run for Eiffel Tower Live Agent" # Name of the eval run to create
+        setupCustomEvaluators = False # Set to False if you need to use the builtin agent evaluators.
 
     main(
-        eval_input_path = eval_input_path, # Use the path to your transcript file if creating a new dataset for customTranscriptEvaluatorSpeech
-        referencetranscriptFilePath = "",
+        eval_input_path = eval_input_path,
+        referenceTranscriptFilePath = referenceTranscriptFilePath,
         output_folder="./output",
-        eval_group_name="Eiffel Tower Live Agent Evaluation",
-        eval_object_id="eval_ef3f7869b67a42f8896e52da67de8563",
-        eval_run_name = f"Evaluation Run {datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
-        eval_run_scenario = "Evaluation Run for Eiffel Tower Live Agent",
-        dataset_id="azureai://accounts/jagoerge-voicelive-sec-resource/projects/jagoerge-voicelive-sec/data/2025-11-26_16-53-40_Eiffel_Tower_Visit_1/versions/1",
-        dataset_appendix="",
-        setupCustomEvaluators=False # Set to True if you need to create a new custom evaluator version
+        eval_group_name=eval_group_name,
+        eval_object_id=eval_object_id,
+        eval_run_name = f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')} {eval_run_scenario}",
+        eval_run_scenario = eval_run_scenario,
+        dataset_id=dataset_id,
+        dataset_appendix=dataset_appendix,
+        setupCustomEvaluators=setupCustomEvaluators
     )
-
-    ## TODO'S:
-    # 1. Add in code to create eval_input_path / alternate to dataset_id if reusing existing dataset from transcriptFilePath and referencetranscriptFilePath
-    # 2. Add in code to create eval_name and eval_description from eval_run_name and eval_run_scenario
-    
-    # main(
-    #     eval_input_path=eval_input_path,  # Add in code above and replace current transcriptFilePath and referencetranscriptFilePath
-    #     eval_name=eval_name, => eval_run_name
-    #     eval_description=eval_description, => eval_run_scenario
-    #     output_folder=output_folder
-    # )
-
-    exit(0)
-    # Clean up: delete evaluator versions before the latest one
-    project_client = AIProjectClient(
-        credential=DefaultAzureCredential(),
-        endpoint=os.getenv("PROJECT_ENDPOINT")
-    )
-    versions = list(project_client.evaluators.list_versions(
-        name="customTranscriptEvaluatorSpeech"
-    ))    
-    # Get the current (highest) version number
-    if versions:
-        current_version = max(int(v.version) for v in versions)
-        print(f"Current version: {current_version}")
-    else:
-        print("No versions found")
-        current_version = 0
-    print(f"Found {current_version} versions of the custom evaluator to delete.")
-    # loop through versions and try to delete the evaluator
-    for version in range(1, current_version):
-        print(f"Deleting version {version} of the created evaluator")
-        result = project_client.evaluators.delete_version(
-            name="customTranscriptEvaluatorSpeech",
-            version=version,
-        )
-        print(f"Delete evaluator version result: {result}")
