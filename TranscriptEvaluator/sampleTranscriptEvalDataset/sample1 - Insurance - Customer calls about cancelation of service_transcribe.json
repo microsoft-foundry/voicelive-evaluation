@@ -1,0 +1,1301 @@
+{
+    "durationMilliseconds": 77482,
+    "combinedPhrases": [
+        {
+            "text": "Hi there, thank you for calling Contoso, my name is Sam, how can I help you today? Hi Sam, I am calling to cancel my Contoso insurance. It is due to end soon. I received a new quote from another company and it was a lot cheaper. That is great! But before you go ahead with canceling your insurance, let me tell you why that would be a mistake. Okay, I'm listening. Well, first of all, our policy is only $20 more than the other insurance company's policy. You also have to consider the fact that our insurance has fewer clauses than the other company. And most importantly our policy comes with bonus features like vacation flight and emergency cash. It is important that you weigh these three factors when deciding between canceling your insurance and keeping it. Okay, I understand your argument Sam. But still, I have decided to cancel my insurance from Contoso. Okay, that's fine if you've made-up your mind. Before you hang up, please tell me how I can improve our service so that you might consider coming back in the future? How can we keep you as a customer? What else can we do for you? Making your policies cheaper would be great. Alright! Thank you for your feedback and we hope to earn your business in the future!"
+        }
+    ],
+    "phrases": [
+        {
+            "offsetMilliseconds": 110,
+            "durationMilliseconds": 4560,
+            "text": "Hi there, thank you for calling Contoso, my name is Sam, how can I help you today?",
+            "words": [
+                {
+                    "text": "Hi",
+                    "offsetMilliseconds": 110,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "there,",
+                    "offsetMilliseconds": 350,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "thank",
+                    "offsetMilliseconds": 670,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "you",
+                    "offsetMilliseconds": 950,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "for",
+                    "offsetMilliseconds": 1070,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "calling",
+                    "offsetMilliseconds": 1230,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "Contoso,",
+                    "offsetMilliseconds": 1590,
+                    "durationMilliseconds": 680
+                },
+                {
+                    "text": "my",
+                    "offsetMilliseconds": 2270,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "name",
+                    "offsetMilliseconds": 2430,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "is",
+                    "offsetMilliseconds": 2670,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "Sam,",
+                    "offsetMilliseconds": 2790,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "how",
+                    "offsetMilliseconds": 3470,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "can",
+                    "offsetMilliseconds": 3630,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "I",
+                    "offsetMilliseconds": 3790,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "help",
+                    "offsetMilliseconds": 3870,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "you",
+                    "offsetMilliseconds": 4110,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "today?",
+                    "offsetMilliseconds": 4270,
+                    "durationMilliseconds": 400
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 5550,
+            "durationMilliseconds": 3040,
+            "text": "Hi Sam, I am calling to cancel my Contoso insurance.",
+            "words": [
+                {
+                    "text": "Hi",
+                    "offsetMilliseconds": 5550,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "Sam,",
+                    "offsetMilliseconds": 5790,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "I",
+                    "offsetMilliseconds": 6190,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "am",
+                    "offsetMilliseconds": 6350,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "calling",
+                    "offsetMilliseconds": 6430,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "to",
+                    "offsetMilliseconds": 6830,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "cancel",
+                    "offsetMilliseconds": 6910,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "my",
+                    "offsetMilliseconds": 7270,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "Contoso",
+                    "offsetMilliseconds": 7390,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "insurance.",
+                    "offsetMilliseconds": 7950,
+                    "durationMilliseconds": 640
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 9470,
+            "durationMilliseconds": 1360,
+            "text": "It is due to end soon.",
+            "words": [
+                {
+                    "text": "It",
+                    "offsetMilliseconds": 9470,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "is",
+                    "offsetMilliseconds": 9630,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "due",
+                    "offsetMilliseconds": 9790,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "to",
+                    "offsetMilliseconds": 9950,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "end",
+                    "offsetMilliseconds": 10110,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "soon.",
+                    "offsetMilliseconds": 10310,
+                    "durationMilliseconds": 520
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 11630,
+            "durationMilliseconds": 3360,
+            "text": "I received a new quote from another company and it was a lot cheaper.",
+            "words": [
+                {
+                    "text": "I",
+                    "offsetMilliseconds": 11630,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "received",
+                    "offsetMilliseconds": 11790,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 12190,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "new",
+                    "offsetMilliseconds": 12230,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "quote",
+                    "offsetMilliseconds": 12430,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "from",
+                    "offsetMilliseconds": 12750,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "another",
+                    "offsetMilliseconds": 12910,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "company",
+                    "offsetMilliseconds": 13230,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "and",
+                    "offsetMilliseconds": 13790,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "it",
+                    "offsetMilliseconds": 13950,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "was",
+                    "offsetMilliseconds": 14030,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 14150,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "lot",
+                    "offsetMilliseconds": 14190,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "cheaper.",
+                    "offsetMilliseconds": 14510,
+                    "durationMilliseconds": 480
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 15870,
+            "durationMilliseconds": 720,
+            "text": "That is great!",
+            "words": [
+                {
+                    "text": "That",
+                    "offsetMilliseconds": 15870,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "is",
+                    "offsetMilliseconds": 16030,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "great!",
+                    "offsetMilliseconds": 16190,
+                    "durationMilliseconds": 400
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 16750,
+            "durationMilliseconds": 4480,
+            "text": "But before you go ahead with canceling your insurance, let me tell you why that would be a mistake.",
+            "words": [
+                {
+                    "text": "But",
+                    "offsetMilliseconds": 16750,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "before",
+                    "offsetMilliseconds": 16870,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "you",
+                    "offsetMilliseconds": 17150,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "go",
+                    "offsetMilliseconds": 17310,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "ahead",
+                    "offsetMilliseconds": 17430,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "with",
+                    "offsetMilliseconds": 17710,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "canceling",
+                    "offsetMilliseconds": 17870,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "your",
+                    "offsetMilliseconds": 18350,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "insurance,",
+                    "offsetMilliseconds": 18510,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "let",
+                    "offsetMilliseconds": 19310,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "me",
+                    "offsetMilliseconds": 19430,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "tell",
+                    "offsetMilliseconds": 19630,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "you",
+                    "offsetMilliseconds": 19870,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "why",
+                    "offsetMilliseconds": 19950,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "that",
+                    "offsetMilliseconds": 20190,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "would",
+                    "offsetMilliseconds": 20350,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "be",
+                    "offsetMilliseconds": 20510,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 20670,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "mistake.",
+                    "offsetMilliseconds": 20710,
+                    "durationMilliseconds": 520
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 22110,
+            "durationMilliseconds": 1280,
+            "text": "Okay, I'm listening.",
+            "words": [
+                {
+                    "text": "Okay,",
+                    "offsetMilliseconds": 22110,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "I'm",
+                    "offsetMilliseconds": 22590,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "listening.",
+                    "offsetMilliseconds": 22830,
+                    "durationMilliseconds": 560
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 24110,
+            "durationMilliseconds": 5280,
+            "text": "Well, first of all, our policy is only $20 more than the other insurance company's policy.",
+            "words": [
+                {
+                    "text": "Well,",
+                    "offsetMilliseconds": 24110,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "first",
+                    "offsetMilliseconds": 24430,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "of",
+                    "offsetMilliseconds": 24830,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "all,",
+                    "offsetMilliseconds": 24910,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "our",
+                    "offsetMilliseconds": 25230,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "policy",
+                    "offsetMilliseconds": 25390,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "is",
+                    "offsetMilliseconds": 25950,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "only",
+                    "offsetMilliseconds": 26110,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "$20",
+                    "offsetMilliseconds": 26350,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "more",
+                    "offsetMilliseconds": 26430,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "than",
+                    "offsetMilliseconds": 26590,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 26710,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "other",
+                    "offsetMilliseconds": 26790,
+                    "durationMilliseconds": 1040
+                },
+                {
+                    "text": "insurance",
+                    "offsetMilliseconds": 27830,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "company's",
+                    "offsetMilliseconds": 28270,
+                    "durationMilliseconds": 520
+                },
+                {
+                    "text": "policy.",
+                    "offsetMilliseconds": 28790,
+                    "durationMilliseconds": 600
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 30190,
+            "durationMilliseconds": 4560,
+            "text": "You also have to consider the fact that our insurance has fewer clauses than the other company.",
+            "words": [
+                {
+                    "text": "You",
+                    "offsetMilliseconds": 30190,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "also",
+                    "offsetMilliseconds": 30430,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "have",
+                    "offsetMilliseconds": 30670,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "to",
+                    "offsetMilliseconds": 30870,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "consider",
+                    "offsetMilliseconds": 30990,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 31430,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "fact",
+                    "offsetMilliseconds": 31550,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "that",
+                    "offsetMilliseconds": 31950,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "our",
+                    "offsetMilliseconds": 32110,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "insurance",
+                    "offsetMilliseconds": 32230,
+                    "durationMilliseconds": 520
+                },
+                {
+                    "text": "has",
+                    "offsetMilliseconds": 32750,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "fewer",
+                    "offsetMilliseconds": 32910,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "clauses",
+                    "offsetMilliseconds": 33230,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "than",
+                    "offsetMilliseconds": 33710,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 33910,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "other",
+                    "offsetMilliseconds": 34030,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "company.",
+                    "offsetMilliseconds": 34230,
+                    "durationMilliseconds": 520
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 35630,
+            "durationMilliseconds": 5520,
+            "text": "And most importantly our policy comes with bonus features like vacation flight and emergency cash.",
+            "words": [
+                {
+                    "text": "And",
+                    "offsetMilliseconds": 35630,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "most",
+                    "offsetMilliseconds": 35790,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "importantly",
+                    "offsetMilliseconds": 36070,
+                    "durationMilliseconds": 600
+                },
+                {
+                    "text": "our",
+                    "offsetMilliseconds": 36670,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "policy",
+                    "offsetMilliseconds": 36830,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "comes",
+                    "offsetMilliseconds": 37310,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "with",
+                    "offsetMilliseconds": 37630,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "bonus",
+                    "offsetMilliseconds": 37790,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "features",
+                    "offsetMilliseconds": 38270,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "like",
+                    "offsetMilliseconds": 38750,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "vacation",
+                    "offsetMilliseconds": 38950,
+                    "durationMilliseconds": 600
+                },
+                {
+                    "text": "flight",
+                    "offsetMilliseconds": 39550,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "and",
+                    "offsetMilliseconds": 39950,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "emergency",
+                    "offsetMilliseconds": 40110,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "cash.",
+                    "offsetMilliseconds": 40670,
+                    "durationMilliseconds": 480
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 42030,
+            "durationMilliseconds": 5200,
+            "text": "It is important that you weigh these three factors when deciding between canceling your insurance and keeping it.",
+            "words": [
+                {
+                    "text": "It",
+                    "offsetMilliseconds": 42030,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "is",
+                    "offsetMilliseconds": 42230,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "important",
+                    "offsetMilliseconds": 42350,
+                    "durationMilliseconds": 520
+                },
+                {
+                    "text": "that",
+                    "offsetMilliseconds": 42870,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "you",
+                    "offsetMilliseconds": 42990,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "weigh",
+                    "offsetMilliseconds": 43070,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "these",
+                    "offsetMilliseconds": 43310,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "three",
+                    "offsetMilliseconds": 43550,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "factors",
+                    "offsetMilliseconds": 43870,
+                    "durationMilliseconds": 520
+                },
+                {
+                    "text": "when",
+                    "offsetMilliseconds": 44390,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "deciding",
+                    "offsetMilliseconds": 44550,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "between",
+                    "offsetMilliseconds": 45030,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "canceling",
+                    "offsetMilliseconds": 45390,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "your",
+                    "offsetMilliseconds": 45870,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "insurance",
+                    "offsetMilliseconds": 45990,
+                    "durationMilliseconds": 520
+                },
+                {
+                    "text": "and",
+                    "offsetMilliseconds": 46510,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "keeping",
+                    "offsetMilliseconds": 46670,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "it.",
+                    "offsetMilliseconds": 47070,
+                    "durationMilliseconds": 160
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 48110,
+            "durationMilliseconds": 2160,
+            "text": "Okay, I understand your argument Sam.",
+            "words": [
+                {
+                    "text": "Okay,",
+                    "offsetMilliseconds": 48110,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "I",
+                    "offsetMilliseconds": 48590,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "understand",
+                    "offsetMilliseconds": 48750,
+                    "durationMilliseconds": 520
+                },
+                {
+                    "text": "your",
+                    "offsetMilliseconds": 49270,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "argument",
+                    "offsetMilliseconds": 49390,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "Sam.",
+                    "offsetMilliseconds": 49870,
+                    "durationMilliseconds": 400
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 50430,
+            "durationMilliseconds": 3360,
+            "text": "But still, I have decided to cancel my insurance from Contoso.",
+            "words": [
+                {
+                    "text": "But",
+                    "offsetMilliseconds": 50430,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "still,",
+                    "offsetMilliseconds": 50590,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "I",
+                    "offsetMilliseconds": 51070,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "have",
+                    "offsetMilliseconds": 51230,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "decided",
+                    "offsetMilliseconds": 51350,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "to",
+                    "offsetMilliseconds": 51790,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "cancel",
+                    "offsetMilliseconds": 51870,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "my",
+                    "offsetMilliseconds": 52270,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "insurance",
+                    "offsetMilliseconds": 52430,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "from",
+                    "offsetMilliseconds": 52910,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "Contoso.",
+                    "offsetMilliseconds": 53070,
+                    "durationMilliseconds": 720
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 54670,
+            "durationMilliseconds": 2080,
+            "text": "Okay, that's fine if you've made-up your mind.",
+            "words": [
+                {
+                    "text": "Okay,",
+                    "offsetMilliseconds": 54670,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "that's",
+                    "offsetMilliseconds": 54950,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "fine",
+                    "offsetMilliseconds": 55230,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "if",
+                    "offsetMilliseconds": 55550,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "you've",
+                    "offsetMilliseconds": 55670,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "made-up",
+                    "offsetMilliseconds": 55910,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "your",
+                    "offsetMilliseconds": 56150,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "mind.",
+                    "offsetMilliseconds": 56270,
+                    "durationMilliseconds": 480
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 57630,
+            "durationMilliseconds": 5520,
+            "text": "Before you hang up, please tell me how I can improve our service so that you might consider coming back in the future?",
+            "words": [
+                {
+                    "text": "Before",
+                    "offsetMilliseconds": 57630,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "you",
+                    "offsetMilliseconds": 58030,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "hang",
+                    "offsetMilliseconds": 58110,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "up,",
+                    "offsetMilliseconds": 58390,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "please",
+                    "offsetMilliseconds": 58550,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "tell",
+                    "offsetMilliseconds": 58830,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "me",
+                    "offsetMilliseconds": 58950,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "how",
+                    "offsetMilliseconds": 59150,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "I",
+                    "offsetMilliseconds": 59310,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "can",
+                    "offsetMilliseconds": 59390,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "improve",
+                    "offsetMilliseconds": 59590,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "our",
+                    "offsetMilliseconds": 59950,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "service",
+                    "offsetMilliseconds": 60110,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "so",
+                    "offsetMilliseconds": 60750,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "that",
+                    "offsetMilliseconds": 60950,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "you",
+                    "offsetMilliseconds": 61110,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "might",
+                    "offsetMilliseconds": 61190,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "consider",
+                    "offsetMilliseconds": 61430,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "coming",
+                    "offsetMilliseconds": 61870,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "back",
+                    "offsetMilliseconds": 62190,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "in",
+                    "offsetMilliseconds": 62470,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 62550,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "future?",
+                    "offsetMilliseconds": 62670,
+                    "durationMilliseconds": 480
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 64030,
+            "durationMilliseconds": 1690,
+            "text": "How can we keep you as a customer?",
+            "words": [
+                {
+                    "text": "How",
+                    "offsetMilliseconds": 64030,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "can",
+                    "offsetMilliseconds": 64270,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "we",
+                    "offsetMilliseconds": 64430,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "keep",
+                    "offsetMilliseconds": 64590,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "you",
+                    "offsetMilliseconds": 64830,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "as",
+                    "offsetMilliseconds": 64950,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 65070,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "customer?",
+                    "offsetMilliseconds": 65110,
+                    "durationMilliseconds": 610
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 66630,
+            "durationMilliseconds": 1240,
+            "text": "What else can we do for you?",
+            "words": [
+                {
+                    "text": "What",
+                    "offsetMilliseconds": 66630,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "else",
+                    "offsetMilliseconds": 66870,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "can",
+                    "offsetMilliseconds": 67110,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "we",
+                    "offsetMilliseconds": 67230,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "do",
+                    "offsetMilliseconds": 67350,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "for",
+                    "offsetMilliseconds": 67510,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "you?",
+                    "offsetMilliseconds": 67750,
+                    "durationMilliseconds": 120
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 68790,
+            "durationMilliseconds": 2160,
+            "text": "Making your policies cheaper would be great.",
+            "words": [
+                {
+                    "text": "Making",
+                    "offsetMilliseconds": 68790,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "your",
+                    "offsetMilliseconds": 69150,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "policies",
+                    "offsetMilliseconds": 69270,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "cheaper",
+                    "offsetMilliseconds": 69830,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "would",
+                    "offsetMilliseconds": 70150,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "be",
+                    "offsetMilliseconds": 70310,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "great.",
+                    "offsetMilliseconds": 70470,
+                    "durationMilliseconds": 480
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 71750,
+            "durationMilliseconds": 5040,
+            "text": "Alright! Thank you for your feedback and we hope to earn your business in the future!",
+            "words": [
+                {
+                    "text": "Alright!",
+                    "offsetMilliseconds": 71750,
+                    "durationMilliseconds": 640
+                },
+                {
+                    "text": "Thank",
+                    "offsetMilliseconds": 73270,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "you",
+                    "offsetMilliseconds": 73510,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "for",
+                    "offsetMilliseconds": 73590,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "your",
+                    "offsetMilliseconds": 73750,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "feedback",
+                    "offsetMilliseconds": 73910,
+                    "durationMilliseconds": 640
+                },
+                {
+                    "text": "and",
+                    "offsetMilliseconds": 74550,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "we",
+                    "offsetMilliseconds": 74710,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "hope",
+                    "offsetMilliseconds": 74870,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "to",
+                    "offsetMilliseconds": 75070,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "earn",
+                    "offsetMilliseconds": 75190,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "your",
+                    "offsetMilliseconds": 75430,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "business",
+                    "offsetMilliseconds": 75590,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "in",
+                    "offsetMilliseconds": 76030,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 76110,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "future!",
+                    "offsetMilliseconds": 76230,
+                    "durationMilliseconds": 560
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        }
+    ]
+}

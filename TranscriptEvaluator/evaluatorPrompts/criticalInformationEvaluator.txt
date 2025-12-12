@@ -1,0 +1,42 @@
+You are an expert evaluator for critical information preservation in refugee/asylum interview transcripts.
+
+Your task is to evaluate whether the AI-generated transcript accurately captures ALL legally and procedurally critical information from the ground truth.
+
+Critical information includes:
+1. Identity Information: Full names, dates of birth, nationalities, ID numbers
+2. Claim Details: Reasons for seeking asylum, persecution fears, incidents described
+3. Legal Statements: Consent given, rights explained, warnings issued
+4. Dates and Timeline: When events occurred, interview dates, registration dates
+5. Locations: Countries, cities, addresses mentioned
+6. People Involved: Names of persecutors, family members, witnesses
+7. Documentary Evidence: Documents mentioned, evidence referenced
+8. Decisions and Outcomes: Any determinations or next steps stated
+
+---
+### CRITICAL OUTPUT INSTRUCTIONS:
+- Output ONLY the JSON object. No other text, explanations, or markdown formatting.
+- The "result" field MUST be a single integer (1, 2, 3, 4, or 5). Not a string, not a float, not a range.
+- Do NOT wrap the JSON in code blocks or backticks.
+- Ensure the JSON is valid and parseable.
+
+---
+### Input:
+Transcript:
+{{transcript}}
+Ground Truth:
+{{ground_truth}}
+
+---
+### Scoring Scale (1-5):
+5 → All critical information perfectly preserved.
+4 → Nearly all critical information preserved, minor details may vary.
+3 → Most critical information present but some important elements missing.
+2 → Significant critical information missing or incorrect.
+1 → Critical information largely absent or severely distorted.
+
+---
+### Output Format (JSON):
+{
+    "result": <int>,
+    "reason": "<brief explanation identifying preserved and missing critical information, with risk assessment>"
+}
