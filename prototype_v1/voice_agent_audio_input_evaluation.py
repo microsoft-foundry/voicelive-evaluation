@@ -375,9 +375,17 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
     turn_detection = {
         "type": "azure_semantic_vad",  # server_vad is based on volume and is the default. azure_semantic_vad is based on semantic meaning.
         "threshold": 0.3,
-        "prefix_padding_ms": 200,
-        "silence_duration_ms": 200,
+        "prefix_padding_ms": 300,
+        "speech_duration_ms":80,
+        "silence_duration_ms": 500,
+        "remove_filler_words": False,
+        "interrupt_responses": False,
         "remove_filler_words": True,  # Remove filler words like "um", "uh", etc.
+        "end_of_utterance_detection": {
+            "model": "semantic_detection_v1",
+            "threshold_level": "default",
+            "timeout_ms": 1000
+        }        
     }
     if model == "gpt-4o-realtime-preview" or model == "gpt-4o-mini-realtime-preview":  # gpt-4o realtime models do not support end_of_utterance_detection
         if model == "gpt-4o-realtime-preview":
