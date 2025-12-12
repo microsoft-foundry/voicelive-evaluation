@@ -379,7 +379,7 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
         "speech_duration_ms":80,
         "silence_duration_ms": 500,
         "remove_filler_words": False,
-        "interrupt_responses": False,
+        "interrupt_responses": True,
         "remove_filler_words": True,  # Remove filler words like "um", "uh", etc.
         "end_of_utterance_detection": {
             "model": "semantic_detection_v1",
