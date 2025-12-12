@@ -761,6 +761,8 @@ The following items are planned or under consideration for future development:
 | Item | Description | Priority |
 |------|-------------|----------|
 | Migrate to Voice Live SDK | Replace custom WebSocket implementation with official Azure Voice Live SDK when available | High |
+| Retry Logic for Failed Files | Add `--retry-failed` flag to re-process files that failed in a previous run (read from operational summary to identify failures) | Medium |
+| Progress Reporting | Add progress bar (tqdm) for large datasets with estimated time remaining | Low |
 
 ---
 
