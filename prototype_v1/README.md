@@ -1,4 +1,4 @@
-# Voice Agent Audio Input Evaluation (v3)
+# Voice Agent Audio Input Evaluation
 
 This prototype provides automated evaluation capabilities for Azure Voice Live API agents, processing audio files and generating comprehensive evaluation data for use with Azure AI Evaluation SDK.
 
@@ -6,15 +6,14 @@ This prototype provides automated evaluation capabilities for Azure Voice Live A
 
 | Version | Script | Description |
 |---------|--------|-------------|
-| **v3 (Current)** | `voice_agent_audio_input_evaluation_v3.py` + `voice_agent_evaluation_v2.py` | Latest version using the new Azure Evaluations implementation leveraging the OpenAI Evals SDK |
-| v2 (Legacy) | `voice_agent_audio_input_evaluation_v2.py` + `voice_agent_evaluation_v1.py` | Old version using the legacy Azure Evaluations SDK implementation |
-| v1 (Legacy) | `voice_agent_audio_input_evaluation_v1.py` | Old version using the legacy Azure Evaluations SDK implementation |
+| **Current** | `voice_agent_audio_input_evaluation.py` + `voice_agent_evaluation.py` | Latest version using the new Azure Evaluations implementation leveraging the OpenAI Evals SDK |
+| Legacy | `old_prototypes/voice_agent_audio_input_evaluation_v*.py` + `old_prototypes/voice_agent_evaluation_v*.py` | Old versions kept for reference |
 
-> **Note:** The v1 and v2 scripts are kept for reference but are considered legacy. New projects should use the v3 implementation which leverages the updated Azure Evaluations code built on the OpenAI Evals SDK for improved evaluator support and reliability.
+> **Note:** Legacy scripts are kept in `old_prototypes/` for reference. New projects should use the current implementation.
 
 ## Overview
 
-The `voice_agent_audio_input_evaluation_v3.py` script enables you to:
+The `voice_agent_audio_input_evaluation.py` script enables you to:
 - Send pre-recorded audio files to Azure Voice Live API
 - Capture agent responses (text and audio)
 - Generate evaluation data in JSONL format compatible with Azure AI Evaluation SDK
@@ -50,17 +49,23 @@ Generates evaluation data compatible with Azure AI Evaluation SDK evaluators:
 ## Prerequisites
 
 ### Required Packages
+
+Install dependencies from the requirements file:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-Key dependencies:
+Key dependencies (see `requirements.txt` for versions):
 - `azure-identity`: Azure authentication
 - `azure-ai-projects`: Azure AI Projects SDK
-- `websocket-client`: WebSocket communication
+- `azure-core`: Azure core functionality
+- `openai`: OpenAI SDK for evaluation integration
+- `websocket-client`: WebSocket communication with Voice Live API
 - `numpy`: Audio processing
 - `sounddevice`: Audio I/O
 - `python-dotenv`: Environment variable management
+- `filelock`: Cross-process file locking for batch processing
 
 ### Azure Resources
 - Azure Voice Live API endpoint with appropriate model deployment
@@ -74,16 +79,16 @@ Key dependencies:
 Create a `.env` file in the `prototype_v1` directory based on `.sample_env`:
 
 ```bash
-# Voice Live API Configuration (used by voice_agent_audio_input_evaluation_v3.py)
-AZURE_VOICE_LIVE_API_VERSION="2025-05-01-preview"
-AZURE_VOICE_LIVE_MODEL="phi4-mini"  # or "gpt-4o-realtime-preview", "gpt-4o-mini-realtime-preview"
-AZURE_VOICE_LIVE_ENDPOINT="https://your-endpoint.azure.com/"
-AZURE_VOICE_LIVE_API_KEY="your-key-here"  # Only if not using DefaultAzureCredential
+# Voice Live API Configuration (used by voice_agent_audio_input_evaluation.py)
+AZURE_VOICE_LIVE_API_VERSION=2025-10-01
+AZURE_VOICE_LIVE_MODEL=gpt-4.1  # Options: "phi4-mini", "phi4-mm-realtime", "gpt-4o-realtime-preview", "gpt-4.1"
+AZURE_VOICE_LIVE_ENDPOINT=https://your-resource.services.ai.azure.com/
+AZURE_VOICE_LIVE_API_KEY=  # Only required if not using DefaultAzureCredential
 
-# Azure AI Foundry Configuration (used by voice_agent_evaluation_v2.py)
-PROJECT_ENDPOINT="https://your-project-endpoint.azure.com/"
-AOAI_DEPLOYMENT_NAME="gpt-4o"
-AOAI_REASONING_DEPLOYMENT_NAME="o4-mini"
+# Azure AI Foundry Configuration (used by voice_agent_evaluation.py)
+PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
+AOAI_DEPLOYMENT_NAME=gpt-4.1-mini
+AOAI_REASONING_DEPLOYMENT_NAME=o4-mini
 ```
 
 ### System Instructions
@@ -223,7 +228,7 @@ A creative writing conversation with 3 turns demonstrating context retention:
 **Use case:** Testing multi-turn creative tasks and conversation coherence.
 
 ```bash
-python voice_agent_audio_input_evaluation_v3.py \
+python voice_agent_audio_input_evaluation.py \
   --test-files ./sample_evaluation_input/DataOceanDemoComplexSession1/DataOceanDemoComplexSession1.jsonl \
   --output-dir ./output \
   --evaluation ./output \
@@ -240,7 +245,7 @@ A conversation with horoscope query split across separate audio files:
 **Use case:** Testing tool calling behavior, custom system prompts, and conversation context.
 
 ```bash
-python voice_agent_audio_input_evaluation_v3.py \
+python voice_agent_audio_input_evaluation.py \
   --test-files ./sample_evaluation_input/Eiffel_Tower_Visit_1/Eiffel_Tower_Visit_1.jsonl \
   --output-dir ./output \
   --evaluation ./output \
@@ -255,7 +260,7 @@ Combined dataset with multiple conversations for `per-conversation` mode:
 **Use case:** Testing multiple independent conversations with different system prompts.
 
 ```bash
-python voice_agent_audio_input_evaluation_v3.py \
+python voice_agent_audio_input_evaluation.py \
   --test-files ./sample_evaluation_input/MultiConversationSample/multiConversationSample.jsonl \
   --output-dir ./output \
   --evaluation ./output \
@@ -270,7 +275,7 @@ Specialized dataset for testing tool calling with contrasting system prompts:
 **Use case:** Testing agent behavior under different tool usage constraints.
 
 ```bash
-python voice_agent_audio_input_evaluation_v3.py \
+python voice_agent_audio_input_evaluation.py \
   --test-files ./sample_evaluation_input/Tool_Call_Test_Sample/Tool_Call_Test_Sample.jsonl \
   --output-dir ./output \
   --evaluation ./output \
@@ -284,7 +289,7 @@ English dataset from real Bing Chat conversations:
 **Use case:** Testing with real-world English query patterns using `per-file` mode.
 
 ```bash
-python voice_agent_audio_input_evaluation_v3.py \
+python voice_agent_audio_input_evaluation.py \
   --test-files ./sample_evaluation_input/BingChat_7days_en/BingChat_en_minimal_10.jsonl \
   --output-dir ./output \
   --evaluation ./output \
@@ -296,7 +301,7 @@ python voice_agent_audio_input_evaluation_v3.py \
 ### Basic Usage
 
 ```bash
-python voice_agent_audio_input_evaluation_v3.py \
+python voice_agent_audio_input_evaluation.py \
   --test-files ./sample_evaluation_input/dataset.jsonl \
   --output-dir ./output \
   --evaluation ./output
@@ -317,7 +322,7 @@ python voice_agent_audio_input_evaluation_v3.py \
 #### Single Session Mode (Default)
 All audio files processed in one continuous conversation:
 ```bash
-python voice_agent_audio_input_evaluation_v3.py \
+python voice_agent_audio_input_evaluation.py \
   --test-files dataset.jsonl \
   --session-mode single
 ```
@@ -335,7 +340,7 @@ python voice_agent_audio_input_evaluation_v3.py \
 #### Per-File Session Mode
 Each audio file processed in a fresh, isolated session:
 ```bash
-python voice_agent_audio_input_evaluation_v3.py \
+python voice_agent_audio_input_evaluation.py \
   --test-files dataset.jsonl \
   --session-mode per-file
 ```
@@ -354,7 +359,7 @@ python voice_agent_audio_input_evaluation_v3.py \
 #### Per-Conversation Session Mode
 New session created for each unique `conversationID`:
 ```bash
-python voice_agent_audio_input_evaluation_v3.py \
+python voice_agent_audio_input_evaluation.py \
   --test-files dataset.jsonl \
   --session-mode per-conversation
 ```
@@ -603,10 +608,10 @@ logging.basicConfig(level=logging.INFO)  # For verbose logging
 
 ## Integration with Evaluation
 
-After session completion, the script automatically runs evaluation using `voice_agent_evaluation_v2.py`:
+After session completion, the script automatically runs evaluation using `voice_agent_evaluation.py`:
 
 ```python
-voice_agent_evaluation_v2.main(
+voice_agent_evaluation.main(
     eval_input_path=evaluation_jsonl_file,
     output_folder=timestamp_root,
     eval_group_name=eval_description,
@@ -635,6 +640,129 @@ When modifying the script:
 3. Test with all three session modes
 4. Verify VAD splitting handled correctly
 5. Test tool calling flow end-to-end
+
+---
+
+## Batch Processor
+
+The `batch_processor.py` script provides multi-threaded/multi-process execution for `voice_agent_audio_input_evaluation.py`. It spawns separate subprocesses for each session to avoid global state conflicts.
+
+### Batch Processor Features
+
+- **Parallel session processing**: Run multiple sessions concurrently with `--max-workers`
+- **Multiple session modes**: Supports `single`, `per-file`, and `per-conversation` modes
+- **Aggregated evaluation**: All session results are aggregated into a single evaluation file
+- **Thread-safe file writing**: Uses file locking to safely write to shared evaluation files
+- **Folder processing**: Can process multiple dataset files from a folder
+
+### Batch Processor Usage
+
+#### Basic Usage
+
+Process a single dataset with parallel conversation sessions:
+```bash
+python batch_processor.py --test-files dataset.jsonl --session-mode per-conversation --max-workers 4
+```
+
+#### Session Modes (Batch)
+
+| Mode | Description | Parallelism |
+|------|-------------|-------------|
+| `single` | All files processed in one WebSocket session | No parallelism (forced to 1 worker) |
+| `per-file` | Each audio file gets its own session | Parallel (up to max-workers) |
+| `per-conversation` | Files grouped by conversationID, one session per conversation | Parallel (up to max-workers) |
+
+#### Processing Multiple Datasets
+
+Process all JSONL files in a folder:
+```bash
+python batch_processor.py --test-files-folder ./datasets --session-mode per-file --max-workers 2
+```
+
+#### All Batch Processor Options
+
+```
+--test-files, -f       Path to a single JSONL file containing audio file records
+--test-files-folder    Path to a folder containing multiple JSONL dataset files
+--session-mode         Session handling mode: single, per-file, or per-conversation (default: per-conversation)
+--max-workers          Maximum number of parallel session processes (default: 1)
+--output-dir, -o       Directory to store response audio files and evaluation results
+--evaluation, -e       Directory to store JSONL evaluation data
+--eval-object-id       Optional evaluation object ID for Azure AI Evaluation SDK
+--timeout              Timeout in seconds for each session subprocess (default: 600)
+--dry-run              Show sessions that would be processed without running them
+--verbose              Show detailed output from session subprocesses
+--skip-evaluation      Skip the final evaluation step
+```
+
+### Batch Processor Examples
+
+#### Dry Run (Preview)
+```bash
+python batch_processor.py --test-files dataset.jsonl --session-mode per-conversation --dry-run
+```
+
+#### Per-Conversation with 4 Workers
+```bash
+python batch_processor.py --test-files multi_conversation_dataset.jsonl \
+    --session-mode per-conversation \
+    --max-workers 4 \
+    --output-dir ./output \
+    --evaluation ./output
+```
+
+#### Per-File with Custom Timeout
+```bash
+python batch_processor.py --test-files dataset.jsonl \
+    --session-mode per-file \
+    --max-workers 2 \
+    --timeout 900 \
+    --verbose
+```
+
+### Batch Output Structure
+
+```
+output/
+└── 2024-12-11_10-30-00/           # Timestamp folder
+    ├── temp/                       # Temporary files (cleaned up after processing)
+    ├── 2024-12-11_10-30-00_aggregate_dataset.jsonl  # Aggregated evaluation data
+    ├── operational_summary_*.json  # Per-session operational summaries
+    └── evaluation_results/         # Final evaluation results
+```
+
+### How Batch Processing Works
+
+1. **Dataset Parsing**: The batch processor reads the input JSONL dataset file(s)
+2. **Session Preparation**: Based on the session mode, files are grouped into sessions
+3. **Subprocess Execution**: Each session runs as a separate subprocess of `voice_agent_audio_input_evaluation.py`
+4. **Aggregation**: All session evaluation outputs are written to a shared aggregated JSONL file
+5. **Final Evaluation**: After all sessions complete, the final evaluation is run on the aggregated data
+
+### Thread Safety
+
+When running with multiple workers, all subprocesses write to the same aggregated evaluation file. The system uses `filelock` to ensure safe concurrent writes without data corruption.
+
+### Comparison: Direct Script vs Batch Processor
+
+| Feature | Direct v3 Script | Batch Processor |
+|---------|-----------------|-----------------|
+| Parallelism | Sequential only | Configurable workers |
+| Session isolation | Shared global state | Isolated subprocesses |
+| Multi-dataset | Manual | Automatic folder processing |
+| Evaluation | Per-run | Aggregated across all sessions |
+
+---
+
+## Open Topics
+
+The following items are planned or under consideration for future development:
+
+| Item | Description | Priority |
+|------|-------------|----------|
+| Migrate to Voice Live SDK | Replace custom WebSocket implementation with official Azure Voice Live SDK when available | High |
+
+---
 
 ## License
 

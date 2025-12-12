@@ -13,6 +13,7 @@ import signal
 import sys
 import wave
 import argparse
+import filelock  # For cross-process file locking
 from datetime import datetime, timezone
 from collections import deque
 from dotenv import load_dotenv
@@ -90,6 +91,35 @@ def reset_session_state(system_prompt: Optional[str] = None):
     # Fresh metrics tracker - use custom system_prompt if provided, otherwise default
     effective_instruction = system_prompt if system_prompt else SYSTEM_INSTRUCTION
     current_metrics = ConversationMetrics(system_instruction=effective_instruction)
+
+
+def write_evaluation_data_safe(file_path: str, evaluation_data: dict) -> bool:
+    """
+    Write evaluation data to file with cross-process locking.
+    This ensures safe concurrent writes when running in batch mode with multiple subprocesses.
+    
+    Args:
+        file_path: Path to the evaluation JSONL file
+        evaluation_data: Dictionary containing the evaluation data
+    
+    Returns:
+        True if write was successful, False otherwise
+    """
+    lock_path = file_path + '.lock'
+    try:
+        lock = filelock.FileLock(lock_path, timeout=30)
+        with lock:
+            with open(file_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(evaluation_data) + '\n')
+        return True
+    except filelock.Timeout:
+        logger.error(f"Timeout acquiring lock for {file_path}")
+        print(f"ERROR: Timeout acquiring lock for evaluation file")
+        return False
+    except Exception as e:
+        logger.error(f"Error writing evaluation data: {e}")
+        print(f"ERROR: Failed to write evaluation data: {e}")
+        return False
 
 
 # Class for tracking conversation metrics for evaluation
@@ -285,6 +315,12 @@ TOOL_REGISTRY = {
 def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: str = None, session_timestamp: str = None, evaluation_output_file_override: str | None = None, session_suffix: str | None = None, file_metadata: Dict[str, str] = None) -> None: 
     # Create a single session timestamp for all outputs
     print(f"Session timestamp: {session_timestamp}")
+    
+    # Log batch mode parameters if provided
+    if evaluation_output_file_override:
+        print(f"Using aggregate evaluation file: {evaluation_output_file_override}")
+    if session_suffix:
+        print(f"Using session suffix: {session_suffix}")
     
     # Set up evaluation if requested
     global evaluation_enabled, evaluation_output_file, session_timestamp_global, session_suffix_global
@@ -927,9 +963,8 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
                                     logger.warning(f"Turn {evaluation_data['metrics'].get('logical_turn_number')}: Safety timeout - service may have failed")
                                 
                                 print(f"DEBUG - Safety timeout: Turn {evaluation_data['metrics'].get('logical_turn_number')} evaluation data: {json.dumps(evaluation_data)[:200]}...")
-                                with open(evaluation_output_file, 'a', encoding='utf-8') as f:
-                                    f.write(json.dumps(evaluation_data) + '\n')
-                                print(f"Safety timeout: Turn {evaluation_data['metrics'].get('logical_turn_number')} evaluation data written")
+                                if write_evaluation_data_safe(evaluation_output_file, evaluation_data):
+                                    print(f"Safety timeout: Turn {evaluation_data['metrics'].get('logical_turn_number')} evaluation data written")
                             else:
                                 print("DEBUG - Safety timeout: No valid turn data to write")
                         except Exception as e:
@@ -1583,9 +1618,8 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                                         logger.warning(f"Turn {evaluation_data['metrics'].get('logical_turn_number')}: Text-only response (no audio)")
                                     
                                     print(f"DEBUG - Turn {evaluation_data['metrics'].get('logical_turn_number')} evaluation data: {json.dumps(evaluation_data)[:200]}...")
-                                    with open(evaluation_output_file, 'a', encoding='utf-8') as f:
-                                        f.write(json.dumps(evaluation_data) + '\n')
-                                    print(f"Turn {evaluation_data['metrics'].get('logical_turn_number')} evaluation data written to {evaluation_output_file}")
+                                    if write_evaluation_data_safe(evaluation_output_file, evaluation_data):
+                                        print(f"Turn {evaluation_data['metrics'].get('logical_turn_number')} evaluation data written to {evaluation_output_file}")
                                 else:
                                     print("DEBUG - No valid turn data to write")
                             else:
@@ -1614,9 +1648,8 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                             try:
                                 evaluation_data = current_metrics.finalize_turn_and_get_evaluation_data()
                                 if evaluation_data:
-                                    with open(evaluation_output_file, 'a', encoding='utf-8') as f:
-                                        f.write(json.dumps(evaluation_data) + '\n')
-                                    print(f"DEBUG - Wrote pending turn {evaluation_data['metrics'].get('logical_turn_number')} on speech start")
+                                    if write_evaluation_data_safe(evaluation_output_file, evaluation_data):
+                                        print(f"DEBUG - Wrote pending turn {evaluation_data['metrics'].get('logical_turn_number')} on speech start")
                                 else:
                                     print("DEBUG - No valid pending turn data to write on speech start")
                             except Exception as e:
@@ -1743,6 +1776,18 @@ if __name__ == "__main__":
             default=None,
             help='Optional evaluation object ID to use in evaluation runs (for Azure AI Evaluation SDK)'
         )
+        parser.add_argument(
+            '--aggregate-eval-file',
+            dest='aggregate_eval_file',
+            default=None,
+            help='Path to aggregated evaluation file (used by batch processor for multi-session aggregation)'
+        )
+        parser.add_argument(
+            '--session-suffix',
+            dest='session_suffix',
+            default=None,
+            help='Session suffix for identifying sessions in batch mode (e.g., conv-1, session-2)'
+        )
         args = parser.parse_args()
         
         # Convert relative paths to absolute paths before changing directory
@@ -1789,7 +1834,7 @@ if __name__ == "__main__":
                 print("No evaluation file found to run evaluation.")
                 return
             try:
-                import voice_agent_evaluation_v2
+                import voice_agent_evaluation
             except ImportError as e:
                 print(f"Error importing evaluation module: {e}")
                 return
@@ -1801,7 +1846,7 @@ if __name__ == "__main__":
                 eval_description = f"Voice Live API: {datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
                 timestamp_root = os.path.join(output_dir_root, session_id)
                 os.makedirs(timestamp_root, exist_ok=True)
-                voice_agent_evaluation_v2.main(
+                voice_agent_evaluation.main(
                     eval_input_path,
                     referenceTranscriptFilePath = "",
                     output_folder = timestamp_root,
@@ -1829,7 +1874,11 @@ if __name__ == "__main__":
                 if first_file_system_prompt:
                     reset_session_state(system_prompt=first_file_system_prompt)
                     print(f"Using custom system_prompt from dataset: {first_file_system_prompt[:50]}...")
-            main(args.test_files_path, args.output_dir, args.evaluation_dir, timestamp, file_metadata=first_file_record)
+            # Pass aggregate_eval_file and session_suffix from CLI args if provided (batch mode)
+            main(args.test_files_path, args.output_dir, args.evaluation_dir, timestamp, 
+                 evaluation_output_file_override=args.aggregate_eval_file, 
+                 session_suffix=args.session_suffix, 
+                 file_metadata=first_file_record)
             run_evaluation_if_enabled(args.output_dir, timestamp, eval_object_id = args.eval_object_id if args.eval_object_id else None)
         elif args.session_mode == 'per-conversation':
             print("Running in PER-CONVERSATION session mode (new session per conversationID with AGGREGATED evaluation).")
