@@ -1,0 +1,131 @@
+# Azure AI Foundry evaluators using Azure AI evaluation SDK
+# These evaluators require Azure OpenAI configuration
+# Azure AI Foundry project upload is controlled by environment variables:
+# - AZURE_AI_PROJECT: Azure AI Foundry project endpoint URL  
+# - AZURE_AI_FOUNDRY_UPLOAD: Set to "true" to enable automatic project upload
+# - AZURE_AI_EVALUATION_NAME: Optional custom evaluation name
+
+# Single evaluators using unified AzureAIFoundryEvaluator class
+azure-ai-intent-resolution:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIFoundryEvaluator
+  args:
+    metric_type: intent_resolution
+    threshold: 3
+
+azure-ai-task-adherence:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIFoundryEvaluator
+  args:
+    metric_type: task_adherence
+    threshold: 3
+
+azure-ai-response-completeness:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIFoundryEvaluator
+  args:
+    metric_type: response_completeness
+    threshold: 3
+
+azure-ai-groundedness:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIFoundryEvaluator
+  args:
+    metric_type: groundedness
+    threshold: 3
+
+azure-ai-coherence:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIFoundryEvaluator
+  args:
+    metric_type: coherence
+    threshold: 3
+
+azure-ai-fluency:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIFoundryEvaluator
+  args:
+    metric_type: fluency
+    threshold: 3
+
+azure-ai-relevance:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIFoundryEvaluator
+  args:
+    metric_type: relevance
+    threshold: 3
+
+azure-ai-tool-call-accuracy:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIFoundryEvaluator
+  args:
+    metric_type: tool_call_accuracy
+    threshold: 3
+
+# Combined evaluator configurations
+# These run multiple Azure AI evaluators in a single evaluation call using the Azure AI evaluate() function
+
+azure-ai-combined-four:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIMultiEvaluator
+  args:
+    evaluators:
+      intent_resolution:
+        threshold: 3
+      task_adherence:
+        threshold: 3
+      response_completeness:
+        threshold: 3
+      groundedness:
+        threshold: 3
+
+azure-ai-combined-agent:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIMultiEvaluator
+  args:
+    evaluators:
+      intent_resolution:
+        threshold: 3
+      task_adherence:
+        threshold: 3
+      response_completeness:
+        threshold: 3
+      groundedness:
+        threshold: 3
+      tool_call_accuracy:
+        threshold: 3
+
+azure-ai-combined-quality:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIMultiEvaluator
+  args:
+    evaluators:
+      coherence:
+        threshold: 3
+      fluency:
+        threshold: 3
+      relevance:
+        threshold: 3
+      groundedness:
+        threshold: 3
+
+# Batch evaluators - collect samples and evaluate in batches for efficiency
+# batch_size: 0 means auto-adjust to dataset size (up to 1000 max)
+azure-ai-batch-qaevaluator:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
+  args:
+    evaluator_name: azure-ai-qaevaluator
+    batch_size: 0
+
+azure-ai-batch-agent-base:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
+  args:
+    evaluator_name: azure-ai-combined-agent-base
+    batch_size: 0
+
+azure-ai-batch-agent-base-no-groundtruth:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
+  args:
+    evaluator_name: azure-ai-combined-agent-base-no-groundtruth
+    batch_size: 0
+
+azure-ai-batch-agent-full+tool:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
+  args:
+    evaluator_name: azure-ai-combined-agent-full+tool
+    batch_size: 0
+
+azure-ai-batch-intent:
+  class: audio_evals.evaluator.azure_ai_foundry.AzureAIBatchEvaluator
+  args:
+    evaluator_name: azure-ai-intent-resolution
+    batch_size: 0

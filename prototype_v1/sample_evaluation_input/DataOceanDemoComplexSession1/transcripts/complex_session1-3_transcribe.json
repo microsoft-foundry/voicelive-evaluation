@@ -1,0 +1,24 @@
+{
+    "durationMilliseconds": 2728,
+    "combinedPhrases": [
+        {
+            "text": "Wow."
+        }
+    ],
+    "phrases": [
+        {
+            "offsetMilliseconds": 1230,
+            "durationMilliseconds": 560,
+            "text": "Wow.",
+            "words": [
+                {
+                    "text": "Wow.",
+                    "offsetMilliseconds": 1230,
+                    "durationMilliseconds": 560
+                }
+            ],
+            "locale": "de-DE",
+            "confidence": 0
+        }
+    ]
+}

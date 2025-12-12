@@ -1,27 +1,10 @@
-# Voice Live API Configuration
-AZURE_VOICE_LIVE_API_VERSION="2025-05-01-preview"
-AZURE_VOICE_LIVE_MODEL="phi4-mini" # "phi4-mini" # "phi4-mm-realtime" # "gpt-4o-realtime-preview"
-AZURE_VOICE_LIVE_ENDPOINT="https://..."
-AZURE_VOICE_LIVE_API_KEY="YOUR_ACTUAL_API_KEY_HERE" # Only if not using DefaultAzureCredential
+# Voice Live API Configuration (used by voice_agent_audio_input_evaluation.py)
+AZURE_VOICE_LIVE_API_VERSION=2025-10-01
+AZURE_VOICE_LIVE_MODEL=gpt-4.1  # Options: "phi4-mini", "phi4-mm-realtime", "gpt-4o-realtime-preview", "gpt-4.1"
+AZURE_VOICE_LIVE_ENDPOINT=https://your-resource.services.ai.azure.com/
+AZURE_VOICE_LIVE_API_KEY=  # Only required if not using DefaultAzureCredential
 
-# Azure OpenAI Service Settings
-AOAI_ENDPOINT=https://.../
-AOAI_API_KEY=
+# Azure AI Foundry Configuration (used by voice_agent_evaluation.py)
+PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
 AOAI_DEPLOYMENT_NAME=gpt-4.1-mini
-AOAI_API_VERSION=2025-01-01-preview
 AOAI_REASONING_DEPLOYMENT_NAME=o4-mini
-
-AZURE_SUBSCRIPTION_ID=
-# Foundry project settings FDP setup
-RESOURCE_GROUP_NAME=
-PROJECT_NAME=
-PROJECT_ENDPOINT=https://...
-
-# Foundry project settings HUB setup  
-HUB_RESOURCE_GROUP_NAME=
-HUB_PROJECT_NAME=
-HUB_PROJECT_CONNECTION_STRING=
-HUB_PROJECT_ENDPOINT=https://...
-
-# Script expects this variable name
-PROJECT_CONNECTION_STRING=...

@@ -437,3 +437,7 @@ envs/
 init_model/
 res/
 raw/
+
+# Ignore outputs and local datasets
+output/
+local_datasets/

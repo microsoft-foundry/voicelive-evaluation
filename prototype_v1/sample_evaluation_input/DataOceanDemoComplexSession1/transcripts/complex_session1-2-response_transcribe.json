@@ -1,0 +1,514 @@
+{
+    "durationMilliseconds": 35352,
+    "combinedPhrases": [
+        {
+            "text": "\"The rain tapped on the window like a dame with a secret, each drop a whisper of the city's mysteries. Inside the pub, the dim light painted shadows on faces, and the clink of glasses mingled with murmured conversations. Outside, the fog swallowed the bustling streets, but within those walls, The pub was a refuge, a place where stories and secrets blended. Four-line poem with rhyming scheme: In London's rain, the pub's alight, Where whispers blend with amber bright. Outside the fog, the city hides, Inside, warmth and secrets bide."
+        }
+    ],
+    "phrases": [
+        {
+            "offsetMilliseconds": 2750,
+            "durationMilliseconds": 4880,
+            "text": "\"The rain tapped on the window like a dame with a secret, each drop a whisper of the city's mysteries.",
+            "words": [
+                {
+                    "text": "\"The",
+                    "offsetMilliseconds": 2750,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "rain",
+                    "offsetMilliseconds": 2910,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "tapped",
+                    "offsetMilliseconds": 3150,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "on",
+                    "offsetMilliseconds": 3430,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 3510,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "window",
+                    "offsetMilliseconds": 3590,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "like",
+                    "offsetMilliseconds": 3870,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 4070,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "dame",
+                    "offsetMilliseconds": 4110,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "with",
+                    "offsetMilliseconds": 4390,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 4590,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "secret,",
+                    "offsetMilliseconds": 4630,
+                    "durationMilliseconds": 520
+                },
+                {
+                    "text": "each",
+                    "offsetMilliseconds": 5470,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "drop",
+                    "offsetMilliseconds": 5750,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 5950,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "whisper",
+                    "offsetMilliseconds": 5990,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "of",
+                    "offsetMilliseconds": 6470,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 6550,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "city's",
+                    "offsetMilliseconds": 6630,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "mysteries.",
+                    "offsetMilliseconds": 6990,
+                    "durationMilliseconds": 640
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 7950,
+            "durationMilliseconds": 6560,
+            "text": "Inside the pub, the dim light painted shadows on faces, and the clink of glasses mingled with murmured conversations.",
+            "words": [
+                {
+                    "text": "Inside",
+                    "offsetMilliseconds": 7950,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 8390,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "pub,",
+                    "offsetMilliseconds": 8510,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 8830,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "dim",
+                    "offsetMilliseconds": 9030,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "light",
+                    "offsetMilliseconds": 9310,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "painted",
+                    "offsetMilliseconds": 9630,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "shadows",
+                    "offsetMilliseconds": 9950,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "on",
+                    "offsetMilliseconds": 10430,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "faces,",
+                    "offsetMilliseconds": 10590,
+                    "durationMilliseconds": 640
+                },
+                {
+                    "text": "and",
+                    "offsetMilliseconds": 11390,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 11630,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "clink",
+                    "offsetMilliseconds": 11710,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "of",
+                    "offsetMilliseconds": 12070,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "glasses",
+                    "offsetMilliseconds": 12150,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "mingled",
+                    "offsetMilliseconds": 12590,
+                    "durationMilliseconds": 440
+                },
+                {
+                    "text": "with",
+                    "offsetMilliseconds": 13030,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "murmured",
+                    "offsetMilliseconds": 13230,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "conversations.",
+                    "offsetMilliseconds": 13550,
+                    "durationMilliseconds": 960
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 14910,
+            "durationMilliseconds": 4240,
+            "text": "Outside, the fog swallowed the bustling streets, but within those walls,",
+            "words": [
+                {
+                    "text": "Outside,",
+                    "offsetMilliseconds": 14910,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 15390,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "fog",
+                    "offsetMilliseconds": 15470,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "swallowed",
+                    "offsetMilliseconds": 15790,
+                    "durationMilliseconds": 520
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 16310,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "bustling",
+                    "offsetMilliseconds": 16430,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "streets,",
+                    "offsetMilliseconds": 16830,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "but",
+                    "offsetMilliseconds": 17630,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "within",
+                    "offsetMilliseconds": 17790,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "those",
+                    "offsetMilliseconds": 18350,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "walls,",
+                    "offsetMilliseconds": 18670,
+                    "durationMilliseconds": 480
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 19390,
+            "durationMilliseconds": 3520,
+            "text": "The pub was a refuge, a place where stories and secrets blended.",
+            "words": [
+                {
+                    "text": "The",
+                    "offsetMilliseconds": 19390,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "pub",
+                    "offsetMilliseconds": 19510,
+                    "durationMilliseconds": 200
+                },
+                {
+                    "text": "was",
+                    "offsetMilliseconds": 19710,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 19870,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "refuge,",
+                    "offsetMilliseconds": 19950,
+                    "durationMilliseconds": 640
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 20830,
+                    "durationMilliseconds": 80
+                },
+                {
+                    "text": "place",
+                    "offsetMilliseconds": 20910,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "where",
+                    "offsetMilliseconds": 21150,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "stories",
+                    "offsetMilliseconds": 21310,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "and",
+                    "offsetMilliseconds": 21870,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "secrets",
+                    "offsetMilliseconds": 21990,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "blended.",
+                    "offsetMilliseconds": 22350,
+                    "durationMilliseconds": 560
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 23390,
+            "durationMilliseconds": 6320,
+            "text": "Four-line poem with rhyming scheme: In London's rain, the pub's alight, Where whispers blend with amber bright.",
+            "words": [
+                {
+                    "text": "Four-line",
+                    "offsetMilliseconds": 23390,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "poem",
+                    "offsetMilliseconds": 23950,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "with",
+                    "offsetMilliseconds": 24270,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "rhyming",
+                    "offsetMilliseconds": 24430,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "scheme:",
+                    "offsetMilliseconds": 24750,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "In",
+                    "offsetMilliseconds": 25470,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "London's",
+                    "offsetMilliseconds": 25630,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "rain,",
+                    "offsetMilliseconds": 26110,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 26590,
+                    "durationMilliseconds": 160
+                },
+                {
+                    "text": "pub's",
+                    "offsetMilliseconds": 26750,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "alight,",
+                    "offsetMilliseconds": 27070,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "Where",
+                    "offsetMilliseconds": 27710,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "whispers",
+                    "offsetMilliseconds": 27950,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "blend",
+                    "offsetMilliseconds": 28430,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "with",
+                    "offsetMilliseconds": 28790,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "amber",
+                    "offsetMilliseconds": 28910,
+                    "durationMilliseconds": 320
+                },
+                {
+                    "text": "bright.",
+                    "offsetMilliseconds": 29230,
+                    "durationMilliseconds": 480
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        },
+        {
+            "offsetMilliseconds": 30190,
+            "durationMilliseconds": 4160,
+            "text": "Outside the fog, the city hides, Inside, warmth and secrets bide.",
+            "words": [
+                {
+                    "text": "Outside",
+                    "offsetMilliseconds": 30190,
+                    "durationMilliseconds": 360
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 30550,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "fog,",
+                    "offsetMilliseconds": 30670,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 31070,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "city",
+                    "offsetMilliseconds": 31190,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "hides,",
+                    "offsetMilliseconds": 31470,
+                    "durationMilliseconds": 640
+                },
+                {
+                    "text": "Inside,",
+                    "offsetMilliseconds": 32350,
+                    "durationMilliseconds": 560
+                },
+                {
+                    "text": "warmth",
+                    "offsetMilliseconds": 32910,
+                    "durationMilliseconds": 480
+                },
+                {
+                    "text": "and",
+                    "offsetMilliseconds": 33390,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "secrets",
+                    "offsetMilliseconds": 33630,
+                    "durationMilliseconds": 400
+                },
+                {
+                    "text": "bide.",
+                    "offsetMilliseconds": 34030,
+                    "durationMilliseconds": 320
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        }
+    ]
+}

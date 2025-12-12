@@ -1,0 +1,34 @@
+extract_audio:
+  class: audio_evals.process.base.JsonExtract
+  args:
+    extract_key: audio
+
+extract_text:
+  class: audio_evals.process.base.JsonExtract
+  args:
+    extract_key: text
+
+extract_transcription:
+  class: audio_evals.process.base.JsonExtract
+  args:
+    extract_key: transcript
+
+extract_response:
+  class: audio_evals.process.base.JsonExtract
+  args:
+    extract_key: response
+
+passthrough:
+  class: audio_evals.process.passthrough.PassThrough
+  args: {}
+
+speech2text:
+  class: audio_evals.process.speech.Speech2text
+  args:
+    model_name: whisper
+
+speech2text-zh:
+  class: audio_evals.process.speech.Speech2text
+  args:
+    model_name: paraformer-zh
+    prompt_name: simple-asr

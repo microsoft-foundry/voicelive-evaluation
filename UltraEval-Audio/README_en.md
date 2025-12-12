@@ -1,0 +1,308 @@
+
+![assets/logo.png](assets/logo.png)
+ <h4 align="center">
+    <p>
+        <a href="https://github.com/OpenBMB/UltraEval-Audio/blob/main/README.md">中文</a> |
+    <b>English</b> |
+<a href="https://discord.gg/jKYuDc2M" target="_blank">💬discord</a>
+ </h4>
+
+
+# Changelog🔥
+- [2025/05/12]
+  - Faster resumption from checkpoints: The -r/--resume parameter allows automatic search for the most recent checkpoint result without specifying a file.
+
+  - Support evaluation starting from inference files: The --infer-file parameter enables direct evaluation from inference files, eliminating the need to regenerate them.
+
+- [2025/03/23]
+  - support for evaluating and ranking the step-audio model:
+    - Ranking details can be found here: [leaderboard.md](assets/leaderboard.md)
+    - Evaluation support: [Step-Audio-Chat](https://github.com/UltraEval/Step-Audio)
+- [2025/03/04]
+  - support [resume evaluation](docs/Procedures for Restarting an Incomplete Evaluation.md) with `--resume $checkpoint_res_file`
+  - release glm-4-voice server for UltraEval-Audio: [GLM-4-Voice](https://github.com/UltraEval/GLM-4-Voice)
+  - support parallel evaluation with `--workers $num_workers`
+- [2025/01/13] release v1.0.0
+
+
+# Overview
+
+
+### 🚀 Exceptional Experience with UltraEval-Audio 🚀
+
+UltraEval-Audio -- the world's first open-source framework that simultaneously supports both **speech understanding and speech generation** evaluation, specifically designed for assessing large audio models. It integrates 34 authoritative benchmarks, covering four major fields: speech, sound, healthcare, and music, supporting ten languages and twelve types of tasks. With UltraEval-Audio, you will experience unprecedented convenience and efficiency:
+
+- **One-Click Benchmark Management 📥**: Say goodbye to tedious manual downloads and data processing. UltraEval-Audio automates all of this, allowing you to easily access the benchmark test data you need.
+- **Built-In Evaluation Tools ⚙️**: No need to search for evaluation tools elsewhere. UltraEval-Audio comes equipped with eight commonly used evaluation methods (e.g., WER, WER-ZH, BLEU, G-Eval), meeting your needs whether they are rule-based or model-driven.
+- **Powerful and User-Friendly 🛠️**: Supports preview testing, random sampling, error retries, and checkpoint resuming, ensuring a flexible and controllable evaluation process while improving efficiency and accuracy.
+- **Seamless Custom Dataset Integration 💼**: Not only does it support public benchmarks, but it also provides robust custom dataset functionality, enabling quick application in various engineering scenarios.
+- **Easy Integration with Existing Systems 🔗**: With excellent scalability and standardized design, UltraEval-Audio can seamlessly integrate even if you already have a well-established evaluation system, simplifying project management and delivering unified, standardized results.
+
+# Leaderboard
+
+> **Audio Understanding LLM**: Speech + Text → Text
+>
+> **Audio Generation LLM**: Speech → Speech
+
+<div style="display: flex;">
+  <div style="flex: 1; margin-right: 10px;">
+
+## Audio Understanding LLM Leaderboard
+
+
+| Rank | Model                   | ASR | AST | EMO |
+|-----:|:------------------------|----:|----:|----:|
+|   🏅 | MiniCPM-o 2.6           |  95 |  38 |  52 |
+|   🥈 | Kimi-Audio-Instruct     |  97 |  27 |  59 |
+|   🥉 | Gemini-1.5-Pro          |  94 |  35 |  48 |
+|    4 | Qwen2.5-Omni            |  96 |  27 |  54 |
+|    5 | Qwen2-Audio            |  95 |  35 |  43 |
+|    6 | GPT-4o-Realtime         |  87 |  26 |  33 |
+|    7 | Qwen2-Audio-Instruction |  94 |  31 |  17 |
+|    8 | Step-Audio-Chat         |  94 |  20 |  26 |
+|    9 | Gemini-1.5-Flash        |  27 |  21 |  45 |
+
+
+  </div>
+  <div style="flex: 1;">
+
+## Audio Generation LLM Leaderboard
+
+
+| Rank | Model                  | Semantic | Acoustic |
+|------|------------------------|----------|----------|
+| 🏅   | GPT-4o-Realtime        | 73       | 80       |
+| 🥈   | Qwen2.5-Omni           | 60       | 80       |
+| 🥉   | MiniCPM-o 2.6          | 53       | 78       |
+| 4    | GLM-4-Voice            | 42       | 82       |
+| 5    | Kimi-Audio-7B-Instruct | 55       | 65       |
+
+</div>
+</div>
+
+> For detailed performance metrics of audio LLMs, please refer to [leaderboard.md](assets/leaderboard.md)
+
+<table>
+<tr>
+<td><img src="assets/audio_understanding_leaderboard.png" alt="图片 1 描述"></td>
+<td><img src="assets/s2s_leaderboard.png" alt="图片 2 描述"></td>
+</tr>
+</table>
+
+# Support datasets
+
+![assets/dataset_distribute.png](assets/dataset_distribute.png)
+
+
+# Quick Start
+
+## ready env
+```shell
+git clone https://github.com/OpenBMB/UltraEval-Audio.git
+cd UltraEval-Audio
+conda create -n aduioeval python=3.10 -y
+conda activate aduioeval
+pip install -r requirments.txt
+```
+
+## run
+```bash
+export PYTHONPATH=$PWD:$PYTHONPATH
+
+CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset sample --prompt mini-cpm-omni-asr-zh --model MiniCPMo2_6-audio
+
+CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset llama-questions-s2t --model MiniCPMo2_6-speech
+
+# eval gpt-4o-realtime text modal model
+export OPENAI_API_KEY=$your-key
+python audio_evals/main.py --dataset catdog --model gpt4o_audio
+
+# eval gpt-4o-realtime audio modal model
+export OPENAI_API_KEY=$your-key
+python audio_evals/main.py --dataset llama-questions-s2t --model gpt4o_speech
+
+# you can use gpt-4o-realtime in AZURE
+export AZURE_OPENAI_URL=$your-key
+export AZURE_OPENAI_API_KEY=$your-key
+python audio_evals/main.py --dataset catdog --model gpt4o_speech_ms
+
+
+# eval gemini-1.5-pro model
+export GOOGLE_API_KEY=$your-key
+python audio_evals/main.py --dataset catdog --model gemini-pro
+
+
+# eval qwen2-audio  offline model in local
+pip install -r requirments-offline-model.txt
+CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset sample --model qwen2-audio-chat
+```
+If you encounter any errors or are unable to reproduce the results of Mini-CPM-o 2.6, you can first check [FAQ](FAQ.md)
+
+## res
+
+After program executed, you will get the performance in console and detail result as below:
+
+```txt
+- res
+    |-- $time-$name-$dataset.jsonl
+```
+
+
+## Usage
+
+![assets/img_1.png](assets/img_1.png)
+
+To run the evaluation script, use the following command:
+
+```bash
+python audio_evals/main.py --dataset <dataset_name> --model <model_name>
+```
+
+## Dataset Options
+
+The `--dataset` parameter allows you to specify which dataset to use for evaluation. The following options are available:
+
+- `speech-chatbot-alpaca-eval`
+- `llama-questions`
+- `speech-web-questions`
+- `speech-triviaqa`
+- `tedlium-release1`
+- `tedlium-release2`
+- `tedlium-release3`
+- `catdog`
+- `audiocaps`
+- `covost2-en-ar`
+- `covost2-en-ca`
+- `covost2-en-cy`
+- `covost2-en-de`
+- `covost2-en-et`
+- `covost2-en-fa`
+- `covost2-en-id`
+- `covost2-en-ja`
+- `covost2-en-lv`
+- `covost2-en-mn`
+- `covost2-en-sl`
+- `covost2-en-sv`
+- `covost2-en-ta`
+- `covost2-en-tr`
+- `covost2-en-zh`
+- `covost2-zh-en`
+- `covost2-it-en`
+- `covost2-fr-en`
+- `covost2-es-en`
+- `covost2-de-en`
+- `GTZAN`
+- `TESS`
+- `nsynth`
+- `meld-emo`
+- `meld-sentiment`
+- `clotho-aqa`
+- `ravdess-emo`
+- `ravdess-gender`
+- `COVID-recognizer`
+- `respiratory-crackles`
+- `respiratory-wheezes`
+- `KeSpeech`
+- `audio-MNIST`
+- `librispeech-test-clean`
+- `librispeech-dev-clean`
+- `librispeech-test-other`
+- `librispeech-dev-other`
+- `mls_dutch`
+- `mls_french`
+- `mls_german`
+- `mls_italian`
+- `mls_polish`
+- `mls_portuguese`
+- `mls_spanish`
+- `heartbeat_sound`
+- `vocalsound`
+- `fleurs-zh`
+- `voxceleb1`
+- `voxceleb2`
+- `chord-recognition`
+- `wavcaps-audioset`
+- `wavcaps-freesound`
+- `wavcaps-soundbible`
+- `air-foundation`
+- `air-chat`
+- `desed`
+- `peoples-speech`
+- `WenetSpeech-test-meeting`
+- `WenetSpeech-test-net`
+- `gigaspeech`
+- `aishell-1`
+- `cv-15-en`
+- `cv-15-zh`
+- `cv-15-fr`
+- `cv-15-yue`
+
+
+### support dataset detail
+| <dataset_name>    | name                     | task                              | domain             | metric     |
+|-------------------|--------------------------|-----------------------------------|--------------------|------------|
+| tedlium-*         | tedlium                  | ASR(Automatic Speech Recognition) | speech             | wer        |
+| clotho-aqa        | ClothoAQA                | AQA(AudioQA)                      | sound              | acc        |
+| catdog            | catdog                   | AQA                               | sound              | acc        |
+| mls-*             | multilingual_librispeech | ASR                               | speech             | wer        |
+| KeSpeech          | KeSpeech                 | ASR                               | speech             | cer        |
+| librispeech-*     | librispeech              | ASR                               | speech             | wer        |
+| fleurs-*          | FLEURS                   | ASR                               | speech             | wer        |
+| aishell-1          | AISHELL-1                | ASR                               | speech             | wer        |
+| WenetSpeech-*     | WenetSpeech              | ASR                               | speech             | wer        |
+| covost2-*         | covost2                  | STT(Speech Text Translation)      | speech             | BLEU       |
+| GTZAN             | GTZAN                    | MQA(MusicQA)                      | music              | acc        |
+| TESS              | TESS                     | EMO(emotional recognition)        | speech             | acc        |
+| nsynth            | nsynth                   | MQA                               | music              | acc        |
+| meld-emo          | meld                     | EMO                               | speech             | acc        |
+| meld-sentiment    | meld                     | SEN(sentiment recognition)        | speech             | acc        |
+| ravdess-emo       | ravdess                  | EMO                               | speech             | acc        |
+| ravdess-gender    | ravdess                  | GEND(gender recognition)          | speech             | acc        |
+| COVID-recognizer  | COVID                    | MedicineCls                       | medicine           | acc        |
+| respiratory-*     | respiratory              | MedicineCls                       | medicine           | acc        |
+| audio-MNIST       | audio-MNIST              | AQA                               | speech             | acc        |
+| heartbeat_sound   | heartbeat                | MedicineCls                       | medicine           | acc        |
+| vocalsound        | vocalsound               | MedicineCls                       | medicine           | acc        |
+| voxceleb*         | voxceleb                 | GEND                              | speech             | acc        |
+| chord-recognition | chord                    | MQA                               | music              | acc        |
+| wavcaps-*         | wavcaps                  | AC(AudioCaption)                  | sound              | acc        |
+| air-foundation    | AIR-BENCH                | AC,GEND,MQA,EMO                   | sound,music,speech | acc        |
+| air-chat          | AIR-BENCH                | AC,GEND,MQA,EMO                   | sound,music,speech | GPT4-score |
+| desed             | desed                    | AQA                               | sound              | acc        |
+| peoples-speech    | peoples-speech           | ASR                               | speech             | wer        |
+| gigaspeech        | gigaspeech               | ASR                               | speech             | wer        |
+| cv-15-*           | common voice 15          | ASR                               | speech             | wer        |
+
+eval your dataset: [docs/how add a dataset.md](docs%2Fhow%20add%20a%20dataset.md)
+
+
+### Model Options
+
+The `--model` parameter allows you to specify which model to use for evaluation. The following options are available:
+
+- `gpt4o_audio`: Use the gpt-4o-realtime-preview-2024-10-01 audio to text modal model.
+- `gpt4o_speech`: Use the gpt-4o-realtime-preview-2024-10-01 audio to speech modal model.
+- `gpt4o_audio_ms`: Use the gpt-4o-realtime-preview-2024-10-01(in AZURE)  audio to text modal model.
+- `gpt4o_speech_ms`: Use the gpt-4o-realtime-preview-2024-10-01(in AZURE)  audio to speech modal model.
+- `gpt4o_speech`: Use the Ggpt-4o-realtime-preview-2024-10-01 audio to speech modal model.
+- `gemini-pro`: Use the Gemini Pro model.
+- `gemini-1.5-pro`: Use the Gemini 1.5 Pro model.
+- `gemini-1.5-flash`: Use the Gemini 1.5 Flash model.
+- `gemini-2.0-flash-exp`: Use the Gemini 2.0 Flash model.
+- `qwen-audio`: Use the qwen-audio-chat API model.
+- `qwen2-audio-offline`: Use the Qwen2-Audio-7B offline model.
+- `qwen2-audio-chat`: Use the Qwen2-Audio-7B-Instruct offline model.
+- `qwen-audio-chat-offline`: Use the Qwen-Audio-Chat offline model.
+- `qwen-audio-pretrain-offline`: Use the Qwen-Audio offline model.
+- `ultravox`: Use the ultravox-v0_4 offline model.
+
+> offline speech2speech models(e.g. glm4voice,mini-omni...) coming soon...
+
+eval your model: [docs/how eval your model.md](docs%2Fhow%20eval%20your%20model.md)
+
+# Acknowledgement
+
+We refer to `registry` code in [evals](https://github.com/openai/evals)
+
+# Contact us
+If you have any questions, suggestions, or feature requests related to AudioEvals, we encourage you to submit GitHub Issues to help us collaboratively build an open and transparent UltraEval evaluation community. Alternatively, you can join our Discord group: https://discord.gg/PHGy66QP.

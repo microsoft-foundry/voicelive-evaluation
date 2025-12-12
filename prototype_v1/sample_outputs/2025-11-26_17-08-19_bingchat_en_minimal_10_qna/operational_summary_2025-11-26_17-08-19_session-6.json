@@ -1,0 +1,18 @@
+{
+  "operational_metrics": {
+    "turns_processed": "3/1",
+    "expected_turns": 1,
+    "actual_turns": 3,
+    "vad_splitting_detected": true,
+    "turn_expansion_factor": 3.0,
+    "turns_with_audio_response": 0,
+    "turns_with_text_only_response": 2,
+    "audio_response_rate": 0.0
+  },
+  "session_info": {
+    "timestamp": "2025-11-26 17:12:52",
+    "evaluation_mode": "enabled",
+    "session_id": "2025-11-26_17-08-19",
+    "session_suffix": "session-6"
+  }
+}

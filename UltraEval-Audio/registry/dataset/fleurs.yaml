@@ -1,0 +1,80 @@
+fleurs-zh:
+  class: audio_evals.dataset.huggingface.Huggingface
+  args:
+    subset: cmn_hans_cn
+    default_task: asr-zh
+    name: google/fleurs
+    ref_col: raw_transcription
+    split: test
+fleurs-hi_in:
+  class: audio_evals.dataset.huggingface.Huggingface
+  args:
+    subset: hi_in
+    default_task: asr
+    name: google/fleurs
+    ref_col: raw_transcription
+    split: test
+fleurs-de_de:
+  class: audio_evals.dataset.huggingface.Huggingface
+  args:
+    subset: de_de
+    default_task: asr
+    name: google/fleurs
+    ref_col: raw_transcription
+    split: test
+fleurs-ja_jp:
+  class: audio_evals.dataset.huggingface.Huggingface
+  args:
+    subset: ja_jp
+    default_task: asr-jp
+    name: google/fleurs
+    ref_col: raw_transcription
+    split: test
+fleurs-ru_ru:
+  class: audio_evals.dataset.huggingface.Huggingface
+  args:
+    subset: ru_ru
+    default_task: asr
+    name: google/fleurs
+    ref_col: raw_transcription
+    split: test
+fleurs-en_us:
+  class: audio_evals.dataset.huggingface.Huggingface
+  args:
+    subset: en_us
+    default_task: asr
+    name: google/fleurs
+    ref_col: raw_transcription
+    split: test
+fleurs-fa_ir:
+  class: audio_evals.dataset.huggingface.Huggingface
+  args:
+    subset: fa_ir
+    default_task: asr
+    name: google/fleurs
+    ref_col: raw_transcription
+    split: test
+fleurs-ar_eg:
+  class: audio_evals.dataset.huggingface.Huggingface
+  args:
+    subset: ar_eg
+    default_task: asr
+    name: google/fleurs
+    ref_col: raw_transcription
+    split: test
+fleurs-fr_fr:
+  class: audio_evals.dataset.huggingface.Huggingface
+  args:
+    subset: fr_fr
+    default_task: asr
+    name: google/fleurs
+    ref_col: raw_transcription
+    split: test
+fleurs-ko_kr:
+  class: audio_evals.dataset.huggingface.Huggingface
+  args:
+    subset: ko_kr
+    default_task: asr
+    name: google/fleurs
+    ref_col: raw_transcription
+    split: test

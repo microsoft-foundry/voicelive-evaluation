@@ -1,0 +1,89 @@
+{
+    "durationMilliseconds": 10634,
+    "combinedPhrases": [
+        {
+            "text": "A short, evocative paragraph describing the atmosphere of a rainy evening in London pub."
+        }
+    ],
+    "phrases": [
+        {
+            "offsetMilliseconds": 190,
+            "durationMilliseconds": 8960,
+            "text": "A short, evocative paragraph describing the atmosphere of a rainy evening in London pub.",
+            "words": [
+                {
+                    "text": "A",
+                    "offsetMilliseconds": 190,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "short,",
+                    "offsetMilliseconds": 310,
+                    "durationMilliseconds": 600
+                },
+                {
+                    "text": "evocative",
+                    "offsetMilliseconds": 1710,
+                    "durationMilliseconds": 1120
+                },
+                {
+                    "text": "paragraph",
+                    "offsetMilliseconds": 2830,
+                    "durationMilliseconds": 720
+                },
+                {
+                    "text": "describing",
+                    "offsetMilliseconds": 3550,
+                    "durationMilliseconds": 800
+                },
+                {
+                    "text": "the",
+                    "offsetMilliseconds": 4350,
+                    "durationMilliseconds": 120
+                },
+                {
+                    "text": "atmosphere",
+                    "offsetMilliseconds": 4470,
+                    "durationMilliseconds": 1080
+                },
+                {
+                    "text": "of",
+                    "offsetMilliseconds": 5870,
+                    "durationMilliseconds": 280
+                },
+                {
+                    "text": "a",
+                    "offsetMilliseconds": 6150,
+                    "durationMilliseconds": 40
+                },
+                {
+                    "text": "rainy",
+                    "offsetMilliseconds": 6190,
+                    "durationMilliseconds": 920
+                },
+                {
+                    "text": "evening",
+                    "offsetMilliseconds": 7110,
+                    "durationMilliseconds": 520
+                },
+                {
+                    "text": "in",
+                    "offsetMilliseconds": 7630,
+                    "durationMilliseconds": 240
+                },
+                {
+                    "text": "London",
+                    "offsetMilliseconds": 7870,
+                    "durationMilliseconds": 800
+                },
+                {
+                    "text": "pub.",
+                    "offsetMilliseconds": 8670,
+                    "durationMilliseconds": 480
+                }
+            ],
+            "locale": "en-US",
+            "confidence": 0
+        }
+    ]
+}
