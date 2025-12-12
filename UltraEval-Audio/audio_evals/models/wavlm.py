@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from typing import Dict
+from urllib.parse import urlparse
 from audio_evals.base import PromptStruct
 from audio_evals.models.model import OfflineModel
 from audio_evals.isolate import isolated
@@ -20,7 +21,7 @@ class WavLM(OfflineModel):
         path: str = "https://drive.google.com/file/d/1-aE1NfzpRCLxA4GUxX9ITI3F9LlbtEGP/view",
         sample_params: Dict = None,
     ):
-        if path.startswith("https://drive.google.com"):
+        if urlparse(path).hostname == "drive.google.com":
             path = self._download_model(path)
 
         self.command_args = {
