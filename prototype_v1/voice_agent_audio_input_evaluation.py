@@ -13,14 +13,29 @@ import signal
 import sys
 import wave
 import argparse
+import asyncio
 import filelock  # For cross-process file locking
 from datetime import datetime, timezone
 from collections import deque
 from dotenv import load_dotenv
-from azure.core.credentials import TokenCredential
+from azure.core.credentials import TokenCredential, AzureKeyCredential
 from azure.identity import DefaultAzureCredential
 from typing import Dict, Union, Literal, Set, List, Optional, Any
 from typing_extensions import Iterator, TypedDict, Required
+
+# Azure VoiceLive SDK imports
+from azure.ai.voicelive.aio import connect as voicelive_connect
+from azure.ai.voicelive.models import (
+    ServerEventType,
+    RequestSession,
+    ServerVad,
+    AzureStandardVoice,
+    Modality,
+    AudioFormat,
+    AudioInputTranscriptionSettings,
+)
+
+# Legacy websocket imports - kept for backward compatibility if needed
 import websocket
 from websocket import WebSocketApp
 
@@ -663,7 +678,411 @@ def resample_audio(audio_data: np.ndarray, orig_sample_rate: int, target_sample_
 logger = logging.getLogger(__name__)
 AUDIO_SAMPLE_RATE = 24000
 
-class VoiceLiveConnection:
+# ============================================================================
+# SDK-based VoiceLive Connection Classes
+# These replace the legacy websocket-client based implementation with the 
+# official Azure VoiceLive SDK for better stability and performance.
+# ============================================================================
+
+class SDKVoiceLiveConnection:
+    """
+    SDK-based VoiceLive connection wrapper.
+    
+    Uses azure.ai.voicelive.aio.connect internally but provides a backward-compatible
+    interface (recv(), send(), close()) for existing code. Events from the SDK are
+    converted to JSON strings and queued for the receive thread.
+    
+    Threading Architecture:
+    - Main thread: Owns the asyncio event loop
+    - Event loop thread: Runs async event iteration from SDK
+    - Send operations: Use asyncio.run_coroutine_threadsafe() for thread safety
+    """
+    
+    # Map SDK event types to legacy JSON event type strings
+    EVENT_TYPE_MAP = {
+        ServerEventType.SESSION_CREATED: "session.created",
+        ServerEventType.SESSION_UPDATED: "session.updated",
+        ServerEventType.CONVERSATION_ITEM_CREATED: "conversation.item.created",
+        ServerEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED: "conversation.item.input_audio_transcription.completed",
+        ServerEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_DELTA: "conversation.item.input_audio_transcription.delta",
+        ServerEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_FAILED: "conversation.item.input_audio_transcription.failed",
+        ServerEventType.CONVERSATION_ITEM_DELETED: "conversation.item.deleted",
+        ServerEventType.CONVERSATION_ITEM_RETRIEVED: "conversation.item.retrieved",
+        ServerEventType.CONVERSATION_ITEM_TRUNCATED: "conversation.item.truncated",
+        ServerEventType.RESPONSE_CREATED: "response.created",
+        ServerEventType.RESPONSE_DONE: "response.done",
+        ServerEventType.RESPONSE_AUDIO_DELTA: "response.audio.delta",
+        ServerEventType.RESPONSE_AUDIO_DONE: "response.audio.done",
+        ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA: "response.audio_transcript.delta",
+        ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DONE: "response.audio_transcript.done",
+        ServerEventType.RESPONSE_TEXT_DELTA: "response.text.delta",
+        ServerEventType.RESPONSE_TEXT_DONE: "response.text.done",
+        ServerEventType.RESPONSE_OUTPUT_ITEM_ADDED: "response.output_item.added",
+        ServerEventType.RESPONSE_OUTPUT_ITEM_DONE: "response.output_item.done",
+        ServerEventType.RESPONSE_CONTENT_PART_ADDED: "response.content_part.added",
+        ServerEventType.RESPONSE_CONTENT_PART_DONE: "response.content_part.done",
+        ServerEventType.RESPONSE_FUNCTION_CALL_ARGUMENTS_DELTA: "response.function_call.arguments.delta",
+        ServerEventType.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE: "response.function_call.arguments.done",
+        ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED: "input_audio_buffer.speech_started",
+        ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STOPPED: "input_audio_buffer.speech_stopped",
+        ServerEventType.INPUT_AUDIO_BUFFER_COMMITTED: "input_audio_buffer.committed",
+        ServerEventType.INPUT_AUDIO_BUFFER_CLEARED: "input_audio_buffer.cleared",
+        ServerEventType.ERROR: "error",
+    }
+    
+    def __init__(self, endpoint: str, credential: Union[AzureKeyCredential, TokenCredential], model: str) -> None:
+        self._endpoint = endpoint
+        self._credential = credential
+        self._model = model
+        self._connection = None
+        self._message_queue = queue.Queue()
+        self._connected = False
+        self._loop = None
+        self._loop_thread = None
+        self._event_task = None
+        self._closing = False
+        
+    def connect(self) -> None:
+        """Establish connection using the SDK."""
+        # Create a new event loop for the SDK connection
+        self._loop = asyncio.new_event_loop()
+        self._closing = False
+        
+        # Start the event loop in a background thread
+        self._loop_thread = threading.Thread(target=self._run_event_loop, daemon=True)
+        self._loop_thread.start()
+        
+        # Connect using the SDK (run in the event loop thread)
+        connect_future = asyncio.run_coroutine_threadsafe(self._async_connect(), self._loop)
+        try:
+            connect_future.result(timeout=30)  # Wait up to 30 seconds for connection
+        except Exception as e:
+            logger.error(f"Failed to connect: {e}")
+            self._connected = False
+            raise ConnectionError(f"Failed to establish SDK connection: {e}")
+            
+    def _run_event_loop(self):
+        """Run the event loop in a background thread."""
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+        
+    async def _async_connect(self):
+        """Async connection establishment."""
+        try:
+            logger.info(f"Connecting to VoiceLive API with model {self._model}")
+            self._connection = await voicelive_connect(
+                endpoint=self._endpoint,
+                credential=self._credential,
+                model=self._model,
+            ).__aenter__()
+            self._connected = True
+            logger.info("SDK WebSocket connection established")
+            
+            # Start event iteration task
+            self._event_task = asyncio.create_task(self._iterate_events())
+            
+        except Exception as e:
+            logger.error(f"SDK connection error: {e}")
+            self._connected = False
+            raise
+            
+    async def _iterate_events(self):
+        """Iterate over SDK events and convert to JSON for the message queue."""
+        try:
+            async for event in self._connection:
+                if self._closing:
+                    break
+                    
+                # Convert SDK event to JSON string for backward compatibility
+                json_event = self._sdk_event_to_json(event)
+                if json_event:
+                    self._message_queue.put(json_event)
+                    
+        except Exception as e:
+            if not self._closing:
+                logger.error(f"Error in event iteration: {e}")
+                # Put error event in queue
+                error_event = json.dumps({
+                    "type": "error",
+                    "error": {"type": "sdk_error", "code": "event_iteration_error", "message": str(e)}
+                })
+                self._message_queue.put(error_event)
+        finally:
+            self._connected = False
+            
+    def _sdk_event_to_json(self, event) -> Optional[str]:
+        """Convert SDK event to JSON string matching legacy format."""
+        try:
+            # Get the event type string
+            event_type = self.EVENT_TYPE_MAP.get(event.type)
+            if event_type is None:
+                # Try to get the type name directly
+                event_type = event.type.name.lower().replace("_", ".") if hasattr(event.type, 'name') else str(event.type)
+            
+            # Build JSON event dict
+            json_dict = {"type": event_type}
+            
+            # Extract common fields based on event type
+            if hasattr(event, 'session') and event.session:
+                json_dict["session"] = {
+                    "id": getattr(event.session, 'id', None),
+                }
+                
+            if hasattr(event, 'delta') and event.delta is not None:
+                # Handle audio delta - could be bytes or base64 string
+                if isinstance(event.delta, bytes):
+                    json_dict["delta"] = base64.b64encode(event.delta).decode('utf-8')
+                else:
+                    json_dict["delta"] = event.delta
+                    
+            if hasattr(event, 'transcript') and event.transcript is not None:
+                json_dict["transcript"] = event.transcript
+                
+            if hasattr(event, 'text') and event.text is not None:
+                json_dict["text"] = event.text
+                
+            if hasattr(event, 'item_id') and event.item_id is not None:
+                json_dict["item_id"] = event.item_id
+                
+            if hasattr(event, 'response_id') and event.response_id is not None:
+                json_dict["response_id"] = event.response_id
+                
+            if hasattr(event, 'output_index') and event.output_index is not None:
+                json_dict["output_index"] = event.output_index
+                
+            if hasattr(event, 'content_index') and event.content_index is not None:
+                json_dict["content_index"] = event.content_index
+                
+            # Handle function call events
+            if hasattr(event, 'call_id') and event.call_id is not None:
+                json_dict["call_id"] = event.call_id
+                
+            if hasattr(event, 'name') and event.name is not None:
+                json_dict["name"] = event.name
+                
+            if hasattr(event, 'arguments') and event.arguments is not None:
+                json_dict["arguments"] = event.arguments
+                
+            # Handle error events
+            if hasattr(event, 'error') and event.error is not None:
+                json_dict["error"] = {
+                    "type": getattr(event.error, 'type', 'unknown'),
+                    "code": getattr(event.error, 'code', 'unknown'),
+                    "message": getattr(event.error, 'message', str(event.error)),
+                }
+                
+            # Handle response events
+            if hasattr(event, 'response') and event.response is not None:
+                response_dict = {}
+                if hasattr(event.response, 'id'):
+                    response_dict['id'] = event.response.id
+                if hasattr(event.response, 'status'):
+                    response_dict['status'] = event.response.status
+                if hasattr(event.response, 'output') and event.response.output:
+                    response_dict['output'] = []
+                    for item in event.response.output:
+                        item_dict = {'id': getattr(item, 'id', None), 'type': getattr(item, 'type', None)}
+                        response_dict['output'].append(item_dict)
+                json_dict["response"] = response_dict
+                
+            # Handle audio level for speech_started/speech_stopped
+            if hasattr(event, 'audio_start_ms') and event.audio_start_ms is not None:
+                json_dict["audio_start_ms"] = event.audio_start_ms
+                
+            if hasattr(event, 'audio_end_ms') and event.audio_end_ms is not None:
+                json_dict["audio_end_ms"] = event.audio_end_ms
+                
+            return json.dumps(json_dict)
+            
+        except Exception as e:
+            logger.error(f"Error converting SDK event to JSON: {e}, event type: {event.type}")
+            return None
+            
+    def recv(self) -> Optional[str]:
+        """Receive a message from the queue (backward compatible interface)."""
+        try:
+            return self._message_queue.get(timeout=1)
+        except queue.Empty:
+            return None
+            
+    def send(self, message: str) -> None:
+        """Send a message via the SDK connection (backward compatible interface)."""
+        if not self._connected or not self._connection:
+            logger.warning("Cannot send message - not connected")
+            return
+            
+        try:
+            msg_dict = json.loads(message)
+            msg_type = msg_dict.get("type", "")
+            
+            # Route different message types to appropriate SDK methods
+            if msg_type == "input_audio_buffer.append":
+                audio_data = msg_dict.get("audio", "")
+                future = asyncio.run_coroutine_threadsafe(
+                    self._connection.input_audio_buffer.append(audio=audio_data),
+                    self._loop
+                )
+                # Don't wait for result to avoid blocking
+                
+            elif msg_type == "input_audio_buffer.commit":
+                future = asyncio.run_coroutine_threadsafe(
+                    self._connection.input_audio_buffer.commit(),
+                    self._loop
+                )
+                
+            elif msg_type == "input_audio_buffer.clear":
+                future = asyncio.run_coroutine_threadsafe(
+                    self._connection.input_audio_buffer.clear(),
+                    self._loop
+                )
+                
+            elif msg_type == "session.update":
+                # Session update is handled differently - we'll queue a raw send
+                # The SDK doesn't have a direct session.update method for arbitrary configs
+                # We need to use the lower-level send_raw if available, or configure at connect time
+                logger.info("Session update requested via send() - using SDK session configuration")
+                session_config = msg_dict.get("session", {})
+                future = asyncio.run_coroutine_threadsafe(
+                    self._send_session_update(session_config),
+                    self._loop
+                )
+                
+            elif msg_type == "response.create":
+                # Request the model to generate a response
+                response_config = msg_dict.get("response", {})
+                future = asyncio.run_coroutine_threadsafe(
+                    self._connection.response.create(),
+                    self._loop
+                )
+                
+            elif msg_type == "conversation.item.create":
+                # Create a conversation item (e.g., function_call_output)
+                item = msg_dict.get("item", {})
+                future = asyncio.run_coroutine_threadsafe(
+                    self._send_conversation_item(item),
+                    self._loop
+                )
+                
+            else:
+                logger.warning(f"Unknown message type for SDK send: {msg_type}")
+                
+        except Exception as e:
+            logger.error(f"Error sending message via SDK: {e}")
+            
+    async def _send_session_update(self, session_config: dict):
+        """Send session update using SDK session configuration."""
+        try:
+            # Build SDK session configuration from dict
+            # Extract turn detection config
+            turn_detection_dict = session_config.get("turn_detection", {})
+            turn_detection = None
+            if turn_detection_dict:
+                turn_detection = ServerVad(
+                    threshold=turn_detection_dict.get("threshold", 0.5),
+                    prefix_padding_ms=turn_detection_dict.get("prefix_padding_ms", 300),
+                    silence_duration_ms=turn_detection_dict.get("silence_duration_ms", 500),
+                )
+            
+            # Extract voice config
+            voice_dict = session_config.get("voice", {})
+            voice = None
+            if voice_dict:
+                voice_name = voice_dict.get("name", "en-US-Ava:DragonHDLatestNeural")
+                voice_type = voice_dict.get("type", "azure-standard")
+                if voice_type == "azure-standard":
+                    voice = AzureStandardVoice(name=voice_name, type="azure-standard")
+                else:
+                    voice = voice_name
+            
+            # Extract modalities
+            modalities_list = session_config.get("modalities", ["audio"])
+            modalities = []
+            for m in modalities_list:
+                if m == "audio":
+                    modalities.append(Modality.AUDIO)
+                elif m == "text":
+                    modalities.append(Modality.TEXT)
+            
+            # Extract transcription config
+            transcription_dict = session_config.get("input_audio_transcription", {})
+            transcription = None
+            if transcription_dict:
+                transcription = AudioInputTranscriptionSettings(
+                    model=transcription_dict.get("model", "whisper-1")
+                )
+            
+            # Build and send session configuration
+            sdk_session = RequestSession(
+                modalities=modalities if modalities else None,
+                instructions=session_config.get("instructions"),
+                voice=voice,
+                turn_detection=turn_detection,
+                input_audio_transcription=transcription,
+                tools=session_config.get("tools"),
+            )
+            
+            await self._connection.session.update(session=sdk_session)
+            logger.info("SDK session configuration updated")
+            
+        except Exception as e:
+            logger.error(f"Error sending session update via SDK: {e}")
+            
+    async def _send_conversation_item(self, item: dict):
+        """Send conversation item (e.g., function call output) via SDK."""
+        try:
+            item_type = item.get("type", "")
+            
+            if item_type == "function_call_output":
+                call_id = item.get("call_id", "")
+                output = item.get("output", "")
+                # Use SDK method to send function call output
+                await self._connection.conversation.item.create(
+                    item={
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": output
+                    }
+                )
+                logger.debug(f"Sent function_call_output via SDK: call_id={call_id}")
+            else:
+                logger.warning(f"Unknown conversation item type: {item_type}")
+                
+        except Exception as e:
+            logger.error(f"Error sending conversation item via SDK: {e}")
+            
+    def close(self) -> None:
+        """Close the SDK connection."""
+        self._closing = True
+        self._connected = False
+        
+        if self._loop and self._connection:
+            try:
+                # Cancel event task
+                if self._event_task:
+                    self._event_task.cancel()
+                    
+                # Close connection
+                close_future = asyncio.run_coroutine_threadsafe(
+                    self._connection.__aexit__(None, None, None),
+                    self._loop
+                )
+                close_future.result(timeout=5)
+            except Exception as e:
+                logger.error(f"Error closing SDK connection: {e}")
+                
+        # Stop the event loop
+        if self._loop:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            
+        if self._loop_thread:
+            self._loop_thread.join(timeout=2)
+            
+        logger.info("SDK connection closed")
+
+
+# Legacy VoiceLiveConnection class - kept for reference but not used
+class LegacyVoiceLiveConnection:
+    """Legacy WebSocket-based connection (kept for reference)."""
     def __init__(self, url: str, headers: dict) -> None:
         self._url = url
         self._headers = headers
@@ -724,7 +1143,17 @@ class VoiceLiveConnection:
             self._ws.close()
             self._connected = False
 
+
+# Alias for backward compatibility
+VoiceLiveConnection = SDKVoiceLiveConnection
+
+
 class AzureVoiceLive:
+    """
+    Azure VoiceLive client that creates SDK-based connections.
+    
+    Updated to use the official Azure VoiceLive SDK instead of raw WebSocket connections.
+    """
     def __init__(
         self,
         *,
@@ -740,22 +1169,26 @@ class AzureVoiceLive:
         self._api_key = api_key
         self._connection = None
 
-    def connect(self, model: str) -> VoiceLiveConnection:
+    def connect(self, model: str) -> SDKVoiceLiveConnection:
+        """Create and return an SDK-based VoiceLive connection."""
         if self._connection is not None:
             raise ValueError("Already connected to the Voice Live API.")
         if not model:
             raise ValueError("Model name is required.")
 
-        url = f"{self._azure_endpoint.rstrip('/')}/voice-live/realtime?api-version={self._api_version}&model={model}"
-        url = url.replace("https://", "wss://")
-
-        request_id = str(uuid.uuid4())
-        headers = [
-            f"x-ms-client-request-id: {request_id}",
-            f"Authorization: Bearer {self._token}" if self._token else f"api-key: {self._api_key}"
-        ]
-
-        self._connection = VoiceLiveConnection(url, headers)
+        # Create credential for SDK
+        if self._api_key:
+            credential = AzureKeyCredential(self._api_key)
+        else:
+            # Use token-based auth - DefaultAzureCredential works with the SDK
+            credential = DefaultAzureCredential()
+            
+        # Create SDK-based connection
+        self._connection = SDKVoiceLiveConnection(
+            endpoint=self._azure_endpoint,
+            credential=credential,
+            model=model
+        )
         self._connection.connect()
         return self._connection
 
