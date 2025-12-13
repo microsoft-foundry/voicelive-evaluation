@@ -210,6 +210,10 @@ def run_session_subprocess(
         log_message(f"Starting session subprocess: {suffix or session_id}", level="debug")
         log_message(f"Command: {' '.join(cmd)}", level="debug", file_only=True)
         
+        # Set UTF-8 encoding for subprocess to handle international characters
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+        
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -217,7 +221,8 @@ def run_session_subprocess(
             timeout=timeout,
             cwd=str(script_dir),
             encoding='utf-8',
-            errors='replace'
+            errors='replace',
+            env=env
         )
         
         if result.stdout and verbose:

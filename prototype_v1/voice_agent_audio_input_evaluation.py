@@ -23,6 +23,12 @@ from azure.identity import DefaultAzureCredential
 from typing import Dict, Union, Literal, Set, List, Optional, Any
 from typing_extensions import Iterator, TypedDict, Required
 
+# Force UTF-8 encoding for stdout/stderr to handle international characters in subprocess mode
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 # Azure VoiceLive SDK imports
 from azure.ai.voicelive.aio import connect as voicelive_connect
 from azure.ai.voicelive.models import (
