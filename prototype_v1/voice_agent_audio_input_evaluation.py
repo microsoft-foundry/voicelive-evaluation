@@ -31,8 +31,9 @@ from azure.ai.voicelive.models import (
     ServerVad,
     AzureStandardVoice,
     Modality,
-    AudioFormat,
-    AudioInputTranscriptionSettings,
+    InputAudioFormat,
+    OutputAudioFormat,
+    AudioInputTranscriptionOptions,
 )
 
 # Legacy websocket imports - kept for backward compatibility if needed
@@ -1007,7 +1008,7 @@ class SDKVoiceLiveConnection:
             transcription_dict = session_config.get("input_audio_transcription", {})
             transcription = None
             if transcription_dict:
-                transcription = AudioInputTranscriptionSettings(
+                transcription = AudioInputTranscriptionOptions(
                     model=transcription_dict.get("model", "whisper-1")
                 )
             
@@ -1061,9 +1062,9 @@ class SDKVoiceLiveConnection:
                 if self._event_task:
                     self._event_task.cancel()
                     
-                # Close connection
+                # Close connection using close() method
                 close_future = asyncio.run_coroutine_threadsafe(
-                    self._connection.__aexit__(None, None, None),
+                    self._connection.close(),
                     self._loop
                 )
                 close_future.result(timeout=5)
