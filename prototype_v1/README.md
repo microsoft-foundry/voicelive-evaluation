@@ -14,12 +14,14 @@ This prototype provides automated evaluation capabilities for Azure Voice Live A
 ## Overview
 
 The `voice_agent_audio_input_evaluation.py` script enables you to:
-- Send pre-recorded audio files to Azure Voice Live API
+- Send pre-recorded audio files to Azure Voice Live API using the **Azure VoiceLive SDK** (`azure-ai-voicelive`)
 - Capture agent responses (text and audio)
 - Generate evaluation data in JSONL format compatible with Azure AI Evaluation SDK
 - Track operational metrics including latency, tool usage, and VAD behavior
 - Support single, per-file, and per-conversation session modes
 - Automatically run evaluations after session completion
+
+> **Note:** As of December 2025, this script uses the official Azure VoiceLive SDK (`azure-ai-voicelive>=1.1.0`) for improved stability and Windows compatibility.
 
 ## Features
 
@@ -46,6 +48,192 @@ Generates evaluation data compatible with Azure AI Evaluation SDK evaluators:
 - `GroundednessEvaluator`: Measures if responses are grounded in provided context
 - `RelevanceEvaluator`: Measures response relevance to the query
 
+## Azure VoiceLive SDK
+
+As of December 2025, this prototype uses the official **Azure VoiceLive SDK** (`azure-ai-voicelive`) instead of a custom WebSocket implementation. This provides:
+
+- **Improved stability**: Official SDK handles connection management, reconnection, and error handling
+- **Windows compatibility**: Better support for Windows environments (no websocket-client threading issues)
+- **Type safety**: Strongly-typed models for audio formats, transcription options, and events
+- **Future-proof**: SDK updates automatically bring new features and fixes
+
+### SDK Imports
+
+The script uses these key imports from the SDK:
+
+```python
+from azure.ai.voicelive.aio import connect as voicelive_connect
+from azure.ai.voicelive.models import (
+    ServerEventType,
+    RequestSession,
+    ServerVad,
+    AzureStandardVoice,
+    Modality,
+    InputAudioFormat,
+    OutputAudioFormat,
+    AudioInputTranscriptionOptions,
+)
+```
+
+### Connection Pattern
+
+```python
+# SDK-based connection (current implementation)
+async with voicelive_connect(
+    endpoint=endpoint,
+    credential=credential,
+    model=model
+) as connection:
+    # Send session configuration
+    await connection.send(session_update)
+    # Send audio and receive events
+    ...
+```
+
+> **Note:** The legacy `websocket-client` package is kept in requirements for backward compatibility but is no longer the primary connection method.
+
+## Session Parameters
+
+The VoiceLive session is configured with several parameters that control audio processing, turn detection, voice output, and transcription. These are set in the `session_config` dictionary.
+
+### Turn Detection
+
+Turn detection determines when the user has finished speaking and the agent should respond. The framework supports two modes:
+
+```python
+turn_detection = {
+    "type": "azure_semantic_vad",  # or "server_vad"
+    "threshold": 0.3,              # Voice activity detection threshold (0.0-1.0)
+    "prefix_padding_ms": 300,      # Audio to include before detected speech start
+    "speech_duration_ms": 80,      # Minimum speech duration to trigger detection
+    "silence_duration_ms": 500,    # Silence duration to end turn
+    "remove_filler_words": True,   # Remove "um", "uh", etc.
+    "interrupt_responses": True,   # Allow user to interrupt agent responses
+}
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `type` | string | `azure_semantic_vad` | VAD type: `server_vad` (volume-based) or `azure_semantic_vad` (semantic-based) |
+| `threshold` | float | 0.3 | Sensitivity threshold (0.0-1.0). Lower = more sensitive |
+| `prefix_padding_ms` | int | 300 | Milliseconds of audio to include before speech detection |
+| `speech_duration_ms` | int | 80 | Minimum speech duration (ms) to trigger detection |
+| `silence_duration_ms` | int | 500 | Silence duration (ms) to consider turn complete |
+| `remove_filler_words` | bool | True | Remove filler words ("um", "uh", etc.) from transcription |
+| `interrupt_responses` | bool | True | Allow user speech to interrupt agent responses |
+
+### End-of-Utterance Detection
+
+For non-GPT models (e.g., phi4, gpt-4.1), semantic end-of-utterance detection provides more accurate turn boundaries:
+
+```python
+"end_of_utterance_detection": {
+    "model": "semantic_detection_v1",
+    "threshold": 0.1,    # Semantic detection threshold (default: 0.1)
+    "timeout": 4,        # Timeout in seconds (default: 4)
+}
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `model` | string | `semantic_detection_v1` | Semantic detection model to use |
+| `threshold` | float | 0.1 | Detection sensitivity (lower = more likely to detect end) |
+| `timeout` | int | 4 | Maximum wait time (seconds) for utterance end |
+
+> **Note:** End-of-utterance detection is **not supported** for `gpt-4o-realtime-preview` and `gpt-4o-mini-realtime-preview` models.
+
+### Audio Processing
+
+```python
+"input_audio_noise_reduction": {
+    "type": "azure_deep_noise_suppression"
+},
+"input_audio_echo_cancellation": {
+    "type": "server_echo_cancellation"
+}
+```
+
+| Feature | Type | Description |
+|---------|------|-------------|
+| Noise Reduction | `azure_deep_noise_suppression` | AI-powered noise suppression for cleaner input |
+| Echo Cancellation | `server_echo_cancellation` | Server-side echo cancellation for full-duplex audio |
+
+### Input Audio Transcription
+
+```python
+"input_audio_transcription": {
+    "model": "azure-fast-transcription",  # Transcription model
+    # "prompt": "<optional-prompt>",       # For gpt-transcribe or whisper models
+    # "phrase_list": ["term1", "term2"],   # Custom vocabulary (not for gpt-4o-realtime)
+}
+```
+
+| Model | Supported Models | Notes |
+|-------|------------------|-------|
+| `azure-fast-transcription` | phi4, gpt-4.1, phi4-mm-realtime | Default for non-GPT models |
+| `gpt-4o-transcribe` | gpt-4o-realtime-preview | Automatically selected |
+| `gpt-4o-mini-transcribe` | gpt-4o-mini-realtime-preview | Automatically selected |
+| `whisper-1` | All | Fallback option |
+
+### Voice Output
+
+```python
+"voice": {
+    "name": "en-US-Steffan:DragonHDLatestNeural",
+    "type": "azure-standard",  # or "azure-custom"
+    # "endpoint_id": "...",    # Required for azure-custom
+    "temperature": 0.8,
+}
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | string | `en-US-Steffan:DragonHDLatestNeural` | Voice name (Azure Neural Voice) |
+| `type` | string | `azure-standard` | Voice type: `azure-standard` or `azure-custom` |
+| `endpoint_id` | string | - | Custom Voice endpoint ID (required for `azure-custom`) |
+| `temperature` | float | 0.8 | Voice variability (0.0-1.0) |
+
+### Session Modalities
+
+```python
+"modalities": ["audio"]  # Options: ["audio"], ["text"], ["text", "audio"]
+```
+
+> **Important:** When using tool calling, only `["audio"]` modality is supported.
+
+### Complete Session Configuration Example
+
+```python
+session_config = {
+    "turn_detection": {
+        "type": "azure_semantic_vad",
+        "threshold": 0.3,
+        "prefix_padding_ms": 300,
+        "speech_duration_ms": 80,
+        "silence_duration_ms": 500,
+        "remove_filler_words": True,
+        "interrupt_responses": True,
+        "end_of_utterance_detection": {
+            "model": "semantic_detection_v1",
+            "threshold": 0.1,
+            "timeout": 4,
+        }
+    },
+    "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
+    "input_audio_echo_cancellation": {"type": "server_echo_cancellation"},
+    "input_audio_transcription": {"model": "azure-fast-transcription"},
+    "voice": {
+        "name": "en-US-Steffan:DragonHDLatestNeural",
+        "type": "azure-standard",
+        "temperature": 0.8,
+    },
+    "output_audio_timestamp_types": ["word"],
+    "modalities": ["audio"],
+    "instructions": "You are a helpful agent assisting users with their questions.",
+    "tools": [...]  # Optional: tool definitions from dataset
+}
+```
+
 ## Prerequisites
 
 ### Required Packages
@@ -57,11 +245,12 @@ pip install -r requirements.txt
 ```
 
 Key dependencies (see `requirements.txt` for versions):
+- `azure-ai-voicelive>=1.1.0`: **Azure VoiceLive SDK** for Voice Live API communication
 - `azure-identity`: Azure authentication
 - `azure-ai-projects`: Azure AI Projects SDK
 - `azure-core`: Azure core functionality
 - `openai`: OpenAI SDK for evaluation integration
-- `websocket-client`: WebSocket communication with Voice Live API
+- `websocket-client`: WebSocket communication (kept for backward compatibility)
 - `numpy`: Audio processing
 - `sounddevice`: Audio I/O
 - `python-dotenv`: Environment variable management
@@ -754,15 +943,49 @@ When running with multiple workers, all subprocesses write to the same aggregate
 
 ---
 
+## Utility Scripts
+
+### deleteEvaluationGroups.py
+
+Cleanup utility for removing Azure AI Foundry Evaluation Groups created during evaluation runs.
+
+**Usage:**
+
+```bash
+# List all evaluation groups (dry run - no deletion)
+python deleteEvaluationGroups.py
+
+# Delete evaluation groups matching a search string
+python deleteEvaluationGroups.py --delete-search-string "Voice Live API: 20251212_"
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `--delete-search-string` | Search string to match evaluation group names. Only groups containing this string will be deleted. If omitted, lists groups without deleting. |
+
+**Example:** After running batch evaluations with timestamp prefixes, clean up old runs:
+
+```bash
+# Delete all evaluation groups from December 10th runs
+python deleteEvaluationGroups.py --delete-search-string "20251210_"
+```
+
+> **Note:** This script uses `DefaultAzureCredential` and requires the `PROJECT_ENDPOINT` environment variable to be set in your `.env` file.
+
+---
+
 ## Open Topics
 
 The following items are planned or under consideration for future development:
 
-| Item | Description | Priority |
-|------|-------------|----------|
-| Migrate to Voice Live SDK | Replace custom WebSocket implementation with official Azure Voice Live SDK when available | High |
-| Retry Logic for Failed Files | Add `--retry-failed` flag to re-process files that failed in a previous run (read from operational summary to identify failures) | Medium |
-| Progress Reporting | Add progress bar (tqdm) for large datasets with estimated time remaining | Low |
+| Item | Description | Priority | Status |
+|------|-------------|----------|--------|
+| ~~Migrate to Voice Live SDK~~ | ~~Replace custom WebSocket implementation with official Azure Voice Live SDK~~ | ~~High~~ | ✅ **Completed** (Dec 2025) - Now using `azure-ai-voivelive>=1.1.0` |
+| SDK Phase 2: Remove Compatibility Layer | Remove backward-compatibility wrapper and refactor to native SDK patterns: (1) Remove `LegacyVoiceLiveConnection` class, (2) Remove legacy `create_session()` function, (3) Refactor `SDKVoiceLiveConnection` to use native async patterns instead of `recv()`/`send()`/`close()` wrapper, (4) Use SDK enums (`ServerEventType.*`) directly instead of string-based event type matching via `EVENT_TYPE_MAP`, (5) Remove `websocket-client` from requirements.txt | Medium | Planned |
+| Retry Logic for Failed Files | Add `--retry-failed` flag to re-process files that failed in a previous run (read from operational summary to identify failures) | Medium | Planned |
+| Progress Reporting | Add progress bar (tqdm) for large datasets with estimated time remaining | Low | Planned |
 
 ---
 
