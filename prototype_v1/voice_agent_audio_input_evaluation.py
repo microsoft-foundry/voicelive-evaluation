@@ -1602,7 +1602,7 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                             "role": "assistant",
                             "content": [{
                                 "type": "text",
-                                "text": event.get("text", "")
+                                "text": sanitize_text_for_utf8(event.get("text", ""))
                             }]
                         })
 
@@ -1618,7 +1618,7 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
 
                 elif event_type == "response.output_text.done":
                     item_id = event.get("item_id") or event.get("id") or "default"
-                    full_text = text_output_buffers.pop(item_id, event.get("text", ""))
+                    full_text = sanitize_text_for_utf8(text_output_buffers.pop(item_id, event.get("text", "")))
                     agent_text_response = f'Agent Text Response:\t{full_text}'
                     logger.info(agent_text_response)
                     print(f'\n\t{agent_text_response}\n')
@@ -2303,12 +2303,17 @@ if __name__ == "__main__":
             os.makedirs('logs')
         # Add timestamp for logfiles
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        # Set up logging
+        # Set up logging with UTF-8 encoding to handle international characters
+        log_file_path = f'logs/{timestamp}_voicelive_file_input.log'
+        os.makedirs('logs', exist_ok=True)
+        file_handler = logging.FileHandler(log_file_path, mode='w', encoding='utf-8')
+        file_handler.setLevel(logging.WARN)
+        file_handler.setFormatter(logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s'))
+        
         logging.basicConfig(
-            filename=f'logs/{timestamp}_voicelive_file_input.log',
-            filemode="w",
             level=logging.WARN,
-            format='%(asctime)s:%(name)s:%(levelname)s:%(message)s'
+            format='%(asctime)s:%(name)s:%(levelname)s:%(message)s',
+            handlers=[file_handler]
         )
         # Load environment variables from .env file
         load_dotenv("./.env", override=True)
@@ -2377,7 +2382,11 @@ if __name__ == "__main__":
                  evaluation_output_file_override=args.aggregate_eval_file, 
                  session_suffix=args.session_suffix, 
                  file_metadata=first_file_record)
-            run_evaluation_if_enabled(args.output_dir, timestamp, eval_object_id = args.eval_object_id if args.eval_object_id else None)
+            # Only run evaluation if NOT in batch aggregation mode (batch processor handles final evaluation)
+            if not args.aggregate_eval_file:
+                run_evaluation_if_enabled(args.output_dir, timestamp, eval_object_id = args.eval_object_id if args.eval_object_id else None)
+            else:
+                print("Skipping per-session evaluation (batch processor will run aggregated evaluation)")
         elif args.session_mode == 'per-conversation':
             print("Running in PER-CONVERSATION session mode (new session per conversationID with AGGREGATED evaluation).")
             # Read list of files first
