@@ -215,7 +215,9 @@ def run_session_subprocess(
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=str(script_dir)
+            cwd=str(script_dir),
+            encoding='utf-8',
+            errors='replace'
         )
         
         if result.stdout and verbose:

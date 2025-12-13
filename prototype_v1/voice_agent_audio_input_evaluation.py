@@ -43,6 +43,62 @@ from websocket import WebSocketApp
 # System instruction constant - single source of truth
 SYSTEM_INSTRUCTION = "You are a helpful agent assisting users with their questions."
 
+
+def sanitize_text_for_utf8(text: str) -> str:
+    """
+    Sanitize text to ensure valid UTF-8 encoding and remove problematic characters.
+    This prevents encoding issues when writing to JSON files or printing to console.
+    """
+    if not isinstance(text, str) or not text:
+        return text or ""
+
+    try:
+        import re
+        # Replace smart quotes and other problematic Unicode characters with ASCII equivalents
+        replacements = {
+            # Smart quotes -> ASCII quotes
+            '\u2018': "'",  # Left single quotation mark
+            '\u2019': "'",  # Right single quotation mark  
+            '\u201A': "'",  # Single low-9 quotation mark
+            '\u201B': "'",  # Single high-reversed-9 quotation mark
+            '\u201C': '"',  # Left double quotation mark
+            '\u201D': '"',  # Right double quotation mark
+            '\u201E': '"',  # Double low-9 quotation mark
+            '\u201F': '"',  # Double high-reversed-9 quotation mark
+            # Dashes -> ASCII dash/hyphen
+            '\u2013': '-',  # En dash
+            '\u2014': '-',  # Em dash
+            '\u2015': '-',  # Horizontal bar
+            # Other common problematic characters
+            '\u2026': '...',  # Horizontal ellipsis
+            '\u00A0': ' ',   # Non-breaking space
+        }
+        
+        for unicode_char, ascii_replacement in replacements.items():
+            text = text.replace(unicode_char, ascii_replacement)
+        
+        # Remove control characters and non-printable characters
+        text = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', text)
+
+        # Replace common problematic characters that might cause encoding issues
+        text = text.replace('\ufffd', '')  # Remove replacement character
+        text = text.replace('\u0000', '')  # Remove null character
+
+        # Ensure the text can be properly encoded as UTF-8
+        text = text.encode('utf-8', errors='replace').decode('utf-8')
+
+        # Normalize whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        return text
+    except (UnicodeEncodeError, UnicodeDecodeError, AttributeError):
+        # Fallback: convert to ASCII only
+        try:
+            return text.encode('ascii', errors='ignore').decode('ascii').strip()
+        except:
+            return ""
+
+
 # Global variables for thread coordination
 stop_event = threading.Event()
 connection_queue = queue.Queue()
@@ -1494,7 +1550,7 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
                 ### Added events for conversation logging and evaluation input ###
                 # Added transcription events
                 elif event_type == "conversation.item.input_audio_transcription.completed":
-                    transcript = event.get("transcript", "")
+                    transcript = sanitize_text_for_utf8(event.get("transcript", ""))
                     user_transcript = f'User Input:\t{transcript}'
                     logger.info(user_transcript)
                     print(f'\n\t{user_transcript}\n')
@@ -1532,7 +1588,7 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
 
                 # Added response text logging and output. Only returned by the API if audio output is disabled for the session.
                 elif event_type == "response.text.done":
-                    agent_text_response = f'Agent Text Response:\t{event.get("text", "")}'
+                    agent_text_response = f'Agent Text Response:\t{sanitize_text_for_utf8(event.get("text", ""))}'
                     logger.info(agent_text_response)
                     print(f'\n\t{agent_text_response}\n')
                     
@@ -1582,14 +1638,14 @@ def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
 
                 # Added response audio transcript logging and output. Only returned by the API if audio transcription and audio output is enabled for the session.
                 elif event_type == "response.audio_transcript.done":
-                    agent_audio_response = f'Agent Audio Response:\t{event.get("transcript", "")}'
+                    transcript = sanitize_text_for_utf8(event.get("transcript", ""))
+                    agent_audio_response = f'Agent Audio Response:\t{transcript}'
                     logger.info(agent_audio_response)
                     print(f'\n\t{agent_audio_response}\n')
                     
                     # Add audio transcript to assistant content for metrics
                     if evaluation_enabled:
                         current_time = datetime.now()
-                        transcript = event.get("transcript", "")
                         
                         # For multi-part responses, we need to track if this is a new response
                         # or a continuation of a previous one
