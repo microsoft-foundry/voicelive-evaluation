@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def main(delete_search_string: str = ""):
-    # Clean up: delete evaluator versions before the latest one
+    # Clean up: delete evaluator groups
     project_client = AIProjectClient(
         credential=DefaultAzureCredential(),
         endpoint=os.getenv("PROJECT_ENDPOINT")
@@ -16,22 +16,22 @@ def main(delete_search_string: str = ""):
     evaluation_groups = list(client.evals.list())
 
     for evaluation_group in evaluation_groups:
-        print(f"Found evaluation group: {evaluation_group.name} with id: {evaluation_group.id}")
-        if evaluation_group.name == "UNHCR Transcript Evaluator Group gpt-4.1":
-            eval_group_id = evaluation_group.id
-            print(f"Found matching evaluation group id: {eval_group_id}")
+        print(f"\nFound evaluation group: {evaluation_group.name} with id: {evaluation_group.id}")
 
-    if delete_search_string:
-        for evaluation_group in evaluation_groups:
+        if delete_search_string:
             if delete_search_string in evaluation_group.name:
                 print(f"Deleting evaluation group: {evaluation_group.name} with id: {evaluation_group.id}")
                 client.evals.delete(
                     eval_id=evaluation_group.id
                 )
                 print(f"Deleted evaluation group: {evaluation_group.name} with id: {evaluation_group.id}")
-        print("Finished deleting evaluation groups.")
+            else:
+                print(f"Evaluation group: {evaluation_group.name} does not match delete search string. Skipping deletion.")        
+
+    if delete_search_string:
+        print("\nFinished deleting evaluation groups.")
     else:
-        print("No delete search string provided. No evaluation groups deleted.")
+        print("\nNo delete search string provided. No evaluation groups deleted.")
 
 if __name__ == "__main__":
 
