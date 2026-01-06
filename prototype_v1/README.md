@@ -974,6 +974,35 @@ python deleteEvaluationGroups.py --delete-search-string "20251210_"
 
 > **Note:** This script uses `DefaultAzureCredential` and requires the `PROJECT_ENDPOINT` environment variable to be set in your `.env` file.
 
+### deleteDatasets.py
+
+Cleanup utility for removing Azure AI Foundry Datasets created during evaluation runs.
+
+**Usage:**
+
+```bash
+# List all datasets (dry run - no deletion)
+python deleteDatasets.py
+
+# Delete datasets matching a search string
+python deleteDatasets.py --delete-search-string "Voice_Live_API_20251212_"
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `--delete-search-string` | Search string to match dataset names. Only datasets containing this string will be deleted (all versions). If omitted, lists datasets without deleting. |
+
+**Example:** After running batch evaluations with timestamp prefixes, clean up old dataset versions:
+
+```bash
+# Delete all datasets from December 10th runs
+python deleteDatasets.py --delete-search-string "20251210_"
+```
+
+> **Note:** This script uses `DefaultAzureCredential` and requires the `PROJECT_ENDPOINT` environment variable to be set in your `.env` file. When a dataset is deleted, all its versions are removed.
+
 ---
 
 ## Open Topics
