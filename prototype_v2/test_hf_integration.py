@@ -18,7 +18,7 @@ try:
 except ImportError:
     print("Note: python-dotenv not installed. Using existing environment variables.")
 
-from hf_audio_loader import HuggingFaceAudioLoader
+from prototype_v1.hf_audio_loader import HuggingFaceAudioLoader
 
 def test_hf_loader():
     """Test the HuggingFace audio loader functionality."""

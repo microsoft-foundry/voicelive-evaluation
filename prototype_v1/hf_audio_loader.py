@@ -27,7 +27,7 @@ class HuggingFaceAudioLoader:
     Handles authentication, dataset loading, and audio data extraction.
     """
     
-    def __init__(self, cache_dir: str = "./data_cache"):
+    def __init__(self, cache_dir: str = "./hf_data_cache"):
         self.cache_dir = cache_dir
         self.token: Optional[str] = None
         self.hf_api: Optional[HfApi] = None
@@ -252,7 +252,7 @@ if __name__ == "__main__":
     dataset_name = "TwinkStart/llama-questions"
     # dataset_name = "TwinkStart/speech-web-questions"
     # dataset_name = "TwinkStart/speech-triavia-qa"
-    audio_data_folder = "audio_data"
+    audio_data_folder = "local_datasets"
 
 try:
     # Load dataset
@@ -263,6 +263,9 @@ try:
     # Show dataset info
     info = loader.get_dataset_info()
     print(f"📊 Dataset Info: {info}")
+    
+    # Collect all items for combined JSONL file
+    all_jsonl_records = []
     
     # Test getting a few audio items
     for i, item in enumerate(loader.iterate_audio_items(start=0, end=None)):
@@ -280,35 +283,73 @@ try:
                 # Alternatively, save to file
                 if not os.path.exists(f"./{audio_data_folder}/{dataset_name}/wav"):
                     os.makedirs(f"./{audio_data_folder}/{dataset_name}/wav")
-                if not os.path.exists(f"./{audio_data_folder}/{dataset_name}/json"):
-                    os.makedirs(f"./{audio_data_folder}/{dataset_name}/json")
+                # if not os.path.exists(f"./{audio_data_folder}/{dataset_name}/json"):
+                #     os.makedirs(f"./{audio_data_folder}/{dataset_name}/json")
                 with open(f"./{audio_data_folder}/{dataset_name}/wav/{i}.wav", "wb") as f:
                     f.write(item['audio_data'])
                 print(f"  Audio saved to ./audio_data/{dataset_name}/wav/{i}.wav")
                 # Save QuestionText and AnswerText to a json file named with the same basename as the audio file and include a key with the audio filename if available
                 import json
+                
+                # Define paths for JSONL record
+                wav_filename = f"{i}.wav"
+                wav_path = os.path.abspath(f"./{audio_data_folder}/{dataset_name}/wav/{wav_filename}")
+                
                 if dataset_name == "TwinkStart/llama-questions":
-                    json_data = {
-                        "QuestionText": item['metadata'].get('Questions', ''),
-                        "AnswerText": item['metadata'].get('Answer', ''),
-                        "AudioFilename": f"{i}.wav"
+                    # json_data = {
+                    #     "QuestionText": item['metadata'].get('Questions', ''),
+                    #     "AnswerText": item['metadata'].get('Answer', ''),
+                    #     "AudioFilename": wav_filename
+                    # }
+                    # Create JSONL record with combined structure
+                    jsonl_record = {
+                        "WavPath": wav_path,
+                        "Question": item['metadata'].get('Questions', ''),
+                        "Answer": item['metadata'].get('Answer', ''),
+                        "Wav Filename": wav_filename
                     }
                 elif dataset_name == "TwinkStart/speech-web-questions":
-                    json_data = {
-                        "QuestionText": item['metadata'].get('question', ''),
-                        "AnswerText": item['metadata'].get('answers', ''),
-                        "AudioFilename": f"{i}.wav"
+                    # json_data = {
+                    #     "QuestionText": item['metadata'].get('question', ''),
+                    #     "AnswerText": item['metadata'].get('answers', ''),
+                    #     "AudioFilename": wav_filename
+                    # }
+                    # Create JSONL record with combined structure
+                    jsonl_record = {
+                        "WavPath": wav_path,
+                        "Question": item['metadata'].get('question', ''),
+                        "Answer": item['metadata'].get('answers', ''),
+                        "Wav Filename": wav_filename
                     }
                 elif dataset_name == "TwinkStart/speech-triavia-qa":
-                     json_data = {
-                        "QuestionText": item['metadata'].get('question', ''),
-                        "AnswerText": item['metadata'].get('answer', ''),
-                        "AudioFilename": f"{i}.wav"
+                    #  json_data = {
+                    #     "QuestionText": item['metadata'].get('question', ''),
+                    #     "AnswerText": item['metadata'].get('answer', ''),
+                    #     "AudioFilename": wav_filename
+                    # }
+                     # Create JSONL record with combined structure
+                     jsonl_record = {
+                        "WavPath": wav_path,
+                        "Question": item['metadata'].get('question', ''),
+                        "Answer": item['metadata'].get('answer', ''),
+                        "Wav Filename": wav_filename
                     }
-                with open(f"./{audio_data_folder}/{dataset_name}/json/{i}.json", "w") as jf:
-                    json.dump(json_data, jf, indent=4)
-                print(f"  Metadata saved to ./audio_data/{dataset_name}/json/{i}.json")
-        
+                
+                # Add record to list for combined JSONL
+                all_jsonl_records.append(jsonl_record)
+                
+                # with open(f"./{audio_data_folder}/{dataset_name}/json/{i}.json", "w") as jf:
+                #     json.dump(json_data, jf, indent=4)
+                # print(f"  Metadata saved to ./audio_data/{dataset_name}/json/{i}.json")
+    
+    # Write combined JSONL file with all dataset elements
+    if all_jsonl_records:
+        jsonl_filename = f"{dataset_name.replace('/', '-')}.jsonl"
+        jsonl_output_path = f"./{audio_data_folder}/{dataset_name}/{jsonl_filename}"
+        with open(jsonl_output_path, "w", encoding="utf-8") as jsonl_file:
+            for record in all_jsonl_records:
+                jsonl_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+        print(f"\n✅ Combined JSONL file saved to {jsonl_output_path} ({len(all_jsonl_records)} records)")
     
 except Exception as e:
     print(f"❌ Test failed: {e}")

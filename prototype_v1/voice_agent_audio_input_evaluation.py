@@ -2292,6 +2292,11 @@ if __name__ == "__main__":
             default=None,
             help='Session suffix for identifying sessions in batch mode (e.g., conv-1, session-2)'
         )
+        parser.add_argument(
+            '--verbose', '-v',
+            action='store_true',
+            help='Enable verbose logging (DEBUG level instead of INFO)'
+        )
         args = parser.parse_args()
         
         # Convert relative paths to absolute paths before changing directory
@@ -2312,12 +2317,13 @@ if __name__ == "__main__":
         # Set up logging with UTF-8 encoding to handle international characters
         log_file_path = f'logs/{timestamp}_voicelive_file_input.log'
         os.makedirs('logs', exist_ok=True)
+        log_level = logging.DEBUG if args.verbose else logging.INFO
         file_handler = logging.FileHandler(log_file_path, mode='w', encoding='utf-8')
-        file_handler.setLevel(logging.WARN)
+        file_handler.setLevel(log_level)
         file_handler.setFormatter(logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s'))
         
         logging.basicConfig(
-            level=logging.WARN,
+            level=log_level,
             format='%(asctime)s:%(name)s:%(levelname)s:%(message)s',
             handlers=[file_handler]
         )
