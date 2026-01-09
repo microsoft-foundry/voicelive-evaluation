@@ -25,7 +25,7 @@ except ImportError:
     print("Note: python-dotenv not installed. Using existing environment variables.")
 
 # Import our custom classes
-from hf_audio_loader import HuggingFaceAudioLoader
+from prototype_v1.hf_audio_loader import HuggingFaceAudioLoader
 
 # Import VoiceLive classes
 try:

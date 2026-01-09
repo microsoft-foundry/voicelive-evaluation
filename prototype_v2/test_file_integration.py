@@ -18,7 +18,7 @@ try:
 except ImportError:
     print("Note: python-dotenv not installed. Using existing environment variables.")
 
-from hf_audio_loader import HuggingFaceAudioLoader
+from prototype_v1.hf_audio_loader import HuggingFaceAudioLoader
 from voicelive_processing import FileVoiceAssistant
 from azure.core.credentials import AzureKeyCredential
 

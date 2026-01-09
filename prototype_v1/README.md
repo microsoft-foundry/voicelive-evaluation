@@ -1003,6 +1003,58 @@ python deleteDatasets.py --delete-search-string "20251210_"
 
 > **Note:** This script uses `DefaultAzureCredential` and requires the `PROJECT_ENDPOINT` environment variable to be set in your `.env` file. When a dataset is deleted, all its versions are removed.
 
+### hf_audio_loader.py
+
+HuggingFace Dataset Loader utility for downloading and processing audio datasets from HuggingFace Hub. Extracts audio files and metadata into a format compatible with the Voice Live evaluation pipeline.
+
+**Location:** `hf_audio_loader.py`
+
+**Features:**
+- Downloads audio datasets from HuggingFace Hub
+- Extracts WAV files to local storage
+- Creates individual JSON metadata files per audio item
+- Generates combined JSONL file with all dataset elements for batch processing
+- Supports multiple dataset formats (llama-questions, speech-web-questions, speech-triavia-qa)
+
+**Usage:**
+
+```bash
+# Run from prototype_v1 directory
+python hf_audio_loader.py
+```
+
+**Configuration:** Edit the `dataset_name` variable in the script to select different datasets:
+
+```python
+dataset_name = "TwinkStart/llama-questions"
+# dataset_name = "TwinkStart/speech-web-questions"
+# dataset_name = "TwinkStart/speech-triavia-qa"
+```
+
+**Output Structure:**
+
+```
+local_datasets/
+└── TwinkStart/
+    └── llama-questions/
+        ├── wav/
+        │   ├── 0.wav
+        │   ├── 1.wav
+        │   └── ...
+        └── TwinkStart-llama-questions.jsonl
+```
+
+**Combined JSONL Format:** Each line contains:
+
+| Field | Description |
+|-------|-------------|
+| `WavPath` | Absolute path to the WAV file |
+| `Question` | Question text from original metadata |
+| `Answer` | Answer text from original metadata |
+| `Wav Filename` | Filename of the WAV file (e.g., `0.wav`) |
+
+**Authentication:** The script will prompt for a HuggingFace token when run. You can leave it empty, but this will apply rate limiting and restrict the amount of data that can be downloaded. For full access, set `HF_TOKEN` environment variable or run `huggingface-cli login`.
+
 ---
 
 ## Open Topics

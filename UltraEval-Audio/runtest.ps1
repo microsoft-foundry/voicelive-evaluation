@@ -9,7 +9,7 @@ param(
     [switch]$InferenceOnly = $true,          # Only run inference, skip evaluation
     [bool]$EvaluationOnly = $false,         # Only run evaluation, skip inference
     [string]$InferenceFile = "",     # Path to existing inference results
-    [string]$TestSuite = "unhcr",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
+    [string]$TestSuite = "firsteval",  # Predefined test configuration: default, quick, comprehensive, azure-ai-only, qa-only
     [string[]]$ModelConfigs = @(),   # Override model configs: e.g., @("GPT4o", "GPT4o-Mini")
     [string[]]$Datasets = @(),       # Override datasets: e.g., @("llama-questions", "speech-triviaqa")
     [string[]]$Evaluators = @(),     # Override evaluators: e.g., @("azure-ai-batch-qaevaluator", "em")
