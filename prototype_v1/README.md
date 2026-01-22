@@ -67,11 +67,15 @@ from azure.ai.voicelive.models import (
     ServerEventType,
     RequestSession,
     ServerVad,
+    AzureSemanticVadMultilingual,
     AzureStandardVoice,
     Modality,
     InputAudioFormat,
     OutputAudioFormat,
     AudioInputTranscriptionOptions,
+    AudioNoiseReduction,
+    AudioEchoCancellation,
+    EouDetection,
 )
 ```
 
@@ -102,7 +106,7 @@ Turn detection determines when the user has finished speaking and the agent shou
 
 ```python
 turn_detection = {
-    "type": "azure_semantic_vad",  # or "server_vad"
+    "type": "azure_semantic_vad_multilingual",  # or "server_vad"
     "threshold": 0.3,              # Voice activity detection threshold (0.0-1.0)
     "prefix_padding_ms": 300,      # Audio to include before detected speech start
     "speech_duration_ms": 80,      # Minimum speech duration to trigger detection
@@ -114,7 +118,7 @@ turn_detection = {
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `type` | string | `azure_semantic_vad` | VAD type: `server_vad` (volume-based) or `azure_semantic_vad` (semantic-based) |
+| `type` | string | `azure_semantic_vad_multilingual` | VAD type: `server_vad` (volume-based) or `azure_semantic_vad_multilingual` (semantic-based, multilingual) |
 | `threshold` | float | 0.3 | Sensitivity threshold (0.0-1.0). Lower = more sensitive |
 | `prefix_padding_ms` | int | 300 | Milliseconds of audio to include before speech detection |
 | `speech_duration_ms` | int | 80 | Minimum speech duration (ms) to trigger detection |
@@ -128,7 +132,7 @@ For non-GPT models (e.g., phi4, gpt-4.1), semantic end-of-utterance detection pr
 
 ```python
 "end_of_utterance_detection": {
-    "model": "semantic_detection_v1",
+    "model": "semantic_detection_v1_multilingual",
     "threshold": 0.1,    # Semantic detection threshold (default: 0.1)
     "timeout": 4,        # Timeout in seconds (default: 4)
 }
@@ -136,11 +140,11 @@ For non-GPT models (e.g., phi4, gpt-4.1), semantic end-of-utterance detection pr
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `model` | string | `semantic_detection_v1` | Semantic detection model to use |
+| `model` | string | `semantic_detection_v1_multilingual` | Semantic detection model to use (multilingual) |
 | `threshold` | float | 0.1 | Detection sensitivity (lower = more likely to detect end) |
 | `timeout` | int | 4 | Maximum wait time (seconds) for utterance end |
 
-> **Note:** End-of-utterance detection is **not supported** for `gpt-4o-realtime-preview` and `gpt-4o-mini-realtime-preview` models.
+> **Note:** End-of-utterance detection is **not supported** for `gpt-realtime` and `gpt-realtime-mini` models.
 
 ### Audio Processing
 
@@ -170,9 +174,9 @@ For non-GPT models (e.g., phi4, gpt-4.1), semantic end-of-utterance detection pr
 
 | Model | Supported Models | Notes |
 |-------|------------------|-------|
-| `azure-fast-transcription` | phi4, gpt-4.1, phi4-mm-realtime | Default for non-GPT models |
-| `gpt-4o-transcribe` | gpt-4o-realtime-preview | Automatically selected |
-| `gpt-4o-mini-transcribe` | gpt-4o-mini-realtime-preview | Automatically selected |
+| `azure-speech` | phi4, gpt-4.1, phi4-mm-realtime | Default for non-GPT models |
+| `gpt-4o-transcribe` | gpt-realtime | Automatically selected |
+| `gpt-4o-mini-transcribe` | gpt-realtime-mini | Automatically selected |
 | `whisper-1` | All | Fallback option |
 
 ### Voice Output
@@ -203,36 +207,50 @@ For non-GPT models (e.g., phi4, gpt-4.1), semantic end-of-utterance detection pr
 
 ### Complete Session Configuration Example
 
+The script now uses SDK-native objects for session configuration (as of Jan 2026):
+
 ```python
-session_config = {
-    "turn_detection": {
-        "type": "azure_semantic_vad",
-        "threshold": 0.3,
-        "prefix_padding_ms": 300,
-        "speech_duration_ms": 80,
-        "silence_duration_ms": 500,
-        "remove_filler_words": True,
-        "interrupt_responses": True,
-        "end_of_utterance_detection": {
-            "model": "semantic_detection_v1",
-            "threshold": 0.1,
-            "timeout": 4,
-        }
-    },
-    "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
-    "input_audio_echo_cancellation": {"type": "server_echo_cancellation"},
-    "input_audio_transcription": {"model": "azure-fast-transcription"},
-    "voice": {
-        "name": "en-US-Steffan:DragonHDLatestNeural",
-        "type": "azure-standard",
-        "temperature": 0.8,
-    },
-    "output_audio_timestamp_types": ["word"],
-    "modalities": ["audio"],
-    "instructions": "You are a helpful agent assisting users with their questions.",
-    "tools": [...]  # Optional: tool definitions from dataset
-}
+from azure.ai.voicelive.models import (
+    RequestSession, AzureSemanticVadMultilingual, AzureStandardVoice,
+    AudioInputTranscriptionOptions, AudioNoiseReduction, AudioEchoCancellation,
+    EouDetection, Modality, InputAudioFormat, OutputAudioFormat
+)
+
+# Configure turn detection with EOU for non-GPT models
+sdk_turn_detection = AzureSemanticVadMultilingual(
+    end_of_utterance_detection=EouDetection(model="semantic_detection_v1_multilingual"),
+)
+
+# Configure audio processing
+sdk_noise_reduction = AudioNoiseReduction(type="azure_deep_noise_suppression")
+sdk_echo_cancellation = AudioEchoCancellation(type="server_echo_cancellation")
+sdk_transcription = AudioInputTranscriptionOptions(model="azure-speech")
+
+# Configure voice output
+sdk_voice = AzureStandardVoice(
+    name="en-US-Steffan:DragonHDLatestNeural",
+    type="azure-standard",
+)
+
+# Build the SDK RequestSession object
+sdk_session = RequestSession(
+    modalities=[Modality.TEXT, Modality.AUDIO],
+    instructions="You are a helpful agent assisting users with their questions.",
+    voice=sdk_voice,
+    turn_detection=sdk_turn_detection,
+    input_audio_transcription=sdk_transcription,
+    input_audio_noise_reduction=sdk_noise_reduction,
+    input_audio_echo_cancellation=sdk_echo_cancellation,
+    tools=tools if tools else None,
+    input_audio_format=InputAudioFormat.PCM16,
+    output_audio_format=OutputAudioFormat.PCM16,
+)
+
+# Send session update using SDK-native method
+connection.update_session(sdk_session)
 ```
+
+> **Note:** For `gpt-realtime` and `gpt-realtime-mini` models, omit the `end_of_utterance_detection` parameter as it's not supported.
 
 ## Prerequisites
 
@@ -270,7 +288,7 @@ Create a `.env` file in the `prototype_v1` directory based on `.sample_env`:
 ```bash
 # Voice Live API Configuration (used by voice_agent_audio_input_evaluation.py)
 AZURE_VOICE_LIVE_API_VERSION=2025-10-01
-AZURE_VOICE_LIVE_MODEL=gpt-4.1  # Options: "phi4-mini", "phi4-mm-realtime", "gpt-4o-realtime-preview", "gpt-4.1"
+AZURE_VOICE_LIVE_MODEL=gpt-4.1  # Options: "phi4-mini", "phi4-mm-realtime", "gpt-realtime", "gpt-realtime-mini", "gpt-4.1"
 AZURE_VOICE_LIVE_ENDPOINT=https://your-resource.services.ai.azure.com/
 AZURE_VOICE_LIVE_API_KEY=  # Only required if not using DefaultAzureCredential
 
@@ -707,19 +725,18 @@ The script handles tool calls with the following flow:
 
 ### Turn Detection Settings
 
+Using SDK-native objects:
+
 ```python
-turn_detection = {
-    "type": "azure_semantic_vad",  # or "server_vad"
-    "threshold": 0.3,              # VAD sensitivity (0.0-1.0)
-    "prefix_padding_ms": 200,      # Audio kept before speech
-    "silence_duration_ms": 200,    # Silence duration to trigger end
-    "remove_filler_words": True,   # Remove "um", "uh", etc.
-    "end_of_utterance_detection": {  # Only for non-gpt models
-        "model": "semantic_detection_v1",
-        "threshold": 0.1,
-        "timeout": 4
-    }
-}
+from azure.ai.voicelive.models import AzureSemanticVadMultilingual, EouDetection
+
+# For non-GPT models (phi4, gpt-4.1, etc.) - with EOU detection
+sdk_turn_detection = AzureSemanticVadMultilingual(
+    end_of_utterance_detection=EouDetection(model="semantic_detection_v1_multilingual"),
+)
+
+# For GPT-realtime models - without EOU detection
+sdk_turn_detection = AzureSemanticVadMultilingual()
 ```
 
 ### Voice Settings
@@ -736,9 +753,9 @@ turn_detection = {
 
 | Model | Transcription Model |
 |-------|---------------------|
-| `gpt-4o-realtime-preview` | `gpt-4o-transcribe` |
-| `gpt-4o-mini-realtime-preview` | `gpt-4o-mini-transcribe` |
-| Other models (phi4-mini, etc.) | `azure-fast-transcription` |
+| `gpt-realtime` | `gpt-4o-transcribe` |
+| `gpt-realtime-mini` | `gpt-4o-mini-transcribe` |
+| Other models (phi4-mini, gpt-4.1, etc.) | `azure-speech` |
 
 ## Troubleshooting
 
@@ -789,7 +806,7 @@ logging.basicConfig(level=logging.INFO)  # For verbose logging
 
 ## Known Limitations
 
-1. **Audio Format**: Only WAV files supported (resampled to 24kHz mono)
+1. **Audio Format**: Only WAV files supported (resampled to 16kHz mono)
 2. **Modalities**: Tool calling requires audio-only modality (`["audio"]`)
 3. **Safety Timeout**: 60-second timeout per file if service fails to respond
 4. **Tool Execution**: Tools execute locally via `TOOL_REGISTRY`, not on Azure service
@@ -1064,9 +1081,21 @@ The following items are planned or under consideration for future development:
 | Item | Description | Priority | Status |
 |------|-------------|----------|--------|
 | ~~Migrate to Voice Live SDK~~ | ~~Replace custom WebSocket implementation with official Azure Voice Live SDK~~ | ~~High~~ | ✅ **Completed** (Dec 2025) - Now using `azure-ai-voivelive>=1.1.0` |
-| SDK Phase 2: Remove Compatibility Layer | Remove backward-compatibility wrapper and refactor to native SDK patterns: (1) Remove `LegacyVoiceLiveConnection` class, (2) Remove legacy `create_session()` function, (3) Refactor `SDKVoiceLiveConnection` to use native async patterns instead of `recv()`/`send()`/`close()` wrapper, (4) Use SDK enums (`ServerEventType.*`) directly instead of string-based event type matching via `EVENT_TYPE_MAP`, (5) Remove `websocket-client` from requirements.txt | Medium | Planned |
+| ~~SDK-native session configuration~~ | ~~Refactor session configuration to use SDK model objects (`RequestSession`, `AzureSemanticVadMultilingual`, `AudioNoiseReduction`, `AudioEchoCancellation`, `EouDetection`) instead of dict-based config. Added `update_session()` method for type-safe session updates.~~ | ~~High~~ | ✅ **Completed** (Jan 2026) |
+| SDK Phase 2: Remove Compatibility Layer | Remove backward-compatibility wrapper and refactor to native SDK patterns. See breakdown below. | Medium | In Progress |
 | Retry Logic for Failed Files | Add `--retry-failed` flag to re-process files that failed in a previous run (read from operational summary to identify failures) | Medium | Planned |
 | Progress Reporting | Add progress bar (tqdm) for large datasets with estimated time remaining | Low | Planned |
+
+### SDK Phase 2 Breakdown
+
+| Sub-item | Description | Status |
+|----------|-------------|--------|
+| ~~SDK-native session updates~~ | ~~Use `RequestSession` objects directly via `update_session()` method instead of dict-based `_send_session_update()`~~ | ✅ **Completed** (Jan 2026) |
+| Remove `LegacyVoiceLiveConnection` | Remove the legacy WebSocket-based connection class | Planned |
+| Remove legacy `create_session()` | Remove the legacy session creation function that uses dict-based config | Planned |
+| Native async patterns | Refactor `SDKVoiceLiveConnection` to use native async patterns instead of `recv()`/`send()`/`close()` wrapper methods | Planned |
+| Use SDK enums directly | Replace string-based event type matching via `EVENT_TYPE_MAP` with SDK enums (`ServerEventType.*`) | Planned |
+| Remove `websocket-client` | Remove `websocket-client` from requirements.txt once legacy code is removed | Planned |
 
 ---
 
