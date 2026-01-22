@@ -127,6 +127,7 @@ turns_with_audio_response = 0  # Track how many turns received audio responses
 turns_with_text_only_response = 0  # Track how many turns had text but no audio
 session_timestamp_global = None  # Base timestamp for all outputs (no per-file uniqueness when aggregating)
 session_suffix_global = None  # Holds current session suffix like session-1, session-2
+session_modalities_global = ["text", "audio"]  # Session modalities as strings for JSON (set in main())
 pending_tool_followup_event = threading.Event()  # Track when a tool call follow-up response is expected
 followup_created_event = threading.Event()  # Track when a follow-up response has actually started
 tool_output_sent = False  # Track when we've sent a function_call_output and are awaiting the incorporating response
@@ -520,6 +521,10 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
     
     # Configure modalities - "audio" only when using tool calling
     sdk_modalities = [Modality.TEXT, Modality.AUDIO]  # Can also include Modality.TEXT for text+audio
+    
+    # Store modalities as strings in global for use in response.create events (in receive_audio_and_save)
+    global session_modalities_global
+    session_modalities_global = ["text" if m == Modality.TEXT else "audio" for m in sdk_modalities]
     
     # Build final instructions
     final_instructions = instructions if not tools else f"{instructions} Use available tools when appropriate."
@@ -1566,15 +1571,15 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
     all_files_processed_event.set()  # Signal that all files have been processed
 
 def receive_audio_and_save(connection: VoiceLiveConnection) -> None:
-    global current_metrics, tool_output_sent
+    global current_metrics, tool_output_sent, session_modalities_global
     last_audio_item_id = None
     current_recorder = None
     # Buffers for function-call arguments streaming
     function_call_buffers = {}
     # Buffers for assistant text output (realtime output_text.* events)
     text_output_buffers = {}
-    # Modalities for response.create events (string format for JSON)
-    modalities = ["text", "audio"]
+    # Modalities for response.create events (from SDK-native session configuration)
+    modalities = session_modalities_global
 
     logger.info("Starting audio response recorder...")
     try:
