@@ -523,6 +523,8 @@ python voice_agent_audio_input_evaluation.py \
 | `--evaluation` | `-e` | `./output` | Directory for evaluation JSONL output |
 | `--session-mode` | - | `single` | Session handling mode: `single`, `per-file`, or `per-conversation` |
 | `--eval-object-id` | - | `None` | Optional evaluation object ID to reuse an existing eval group in Azure AI Evaluation SDK |
+| `--sample-rate` | - | `16000` | Audio sample rate in Hz for resampling input audio files |
+| `--verbose` | `-v` | `False` | Enable verbose logging (DEBUG level instead of INFO) |
 
 ### Session Modes
 

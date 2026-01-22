@@ -536,13 +536,16 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
         tools=tools if tools else None,
         input_audio_format=InputAudioFormat.PCM16,
         output_audio_format=OutputAudioFormat.PCM16,
+        input_audio_sampling_rate=AUDIO_SAMPLE_RATE,
         # Optional: output_audio_timestamp_types=["word"]
     )
     
     # Log the session configuration for debugging
-    logger.info(f"SDK Session configuration:\n\tmodalities={sdk_modalities}\n\tinstructions={final_instructions}\n\tvoice={sdk_voice}"
-                f"\n\tturn_detection={sdk_turn_detection}, transcription={sdk_transcription}, "
-                f"\n\tnoise_reduction={sdk_noise_reduction}, echo_cancellation={sdk_echo_cancellation}, "
+    logger.info(f"SDK Session configuration:\n\tmodalities={sdk_modalities}\n\tinstructions={final_instructions}"
+                f"\n\tvoice={sdk_voice}"
+                f"\n\tturn_detection={sdk_turn_detection}\n\ttranscription={sdk_transcription}"
+                f"\n\tnoise_reduction={sdk_noise_reduction}\n\techo_cancellation={sdk_echo_cancellation}"
+                f"\n\tinput_audio_sampling_rate={AUDIO_SAMPLE_RATE}"
                 f"\n\ttools={len(tools)} tool(s)")
     
     # Send session update using SDK-native method
@@ -750,7 +753,7 @@ def resample_audio(audio_data: np.ndarray, orig_sample_rate: int, target_sample_
     return resampled
 
 logger = logging.getLogger(__name__)
-AUDIO_SAMPLE_RATE = 16000 # 24000
+AUDIO_SAMPLE_RATE = 24000  # Default sample rate, can be overridden via --sample-rate CLI argument
 
 # ============================================================================
 # SDK-based VoiceLive Connection Classes
@@ -1570,6 +1573,8 @@ def receive_audio_and_save(connection: VoiceLiveConnection) -> None:
     function_call_buffers = {}
     # Buffers for assistant text output (realtime output_text.* events)
     text_output_buffers = {}
+    # Modalities for response.create events (string format for JSON)
+    modalities = ["text", "audio"]
 
     logger.info("Starting audio response recorder...")
     try:
@@ -2356,6 +2361,13 @@ if __name__ == "__main__":
             action='store_true',
             help='Enable verbose logging (DEBUG level instead of INFO)'
         )
+        parser.add_argument(
+            '--sample-rate',
+            dest='sample_rate',
+            type=int,
+            default=16000,
+            help='Audio sample rate in Hz for resampling (default: 16000)'
+        )
         args = parser.parse_args()
         
         # Convert relative paths to absolute paths before changing directory
@@ -2365,6 +2377,11 @@ if __name__ == "__main__":
             args.output_dir = os.path.abspath(args.output_dir)
         if args.evaluation_dir and not os.path.isabs(args.evaluation_dir):
             args.evaluation_dir = os.path.abspath(args.evaluation_dir)
+        
+        # Set global audio sample rate from command-line argument
+        # Use globals() to modify the module-level variable from within the try block
+        globals()['AUDIO_SAMPLE_RATE'] = args.sample_rate
+        print(f"Using audio sample rate: {args.sample_rate} Hz")
         
         # Change to the directory where this script is located
         os.chdir(os.path.dirname(os.path.abspath(__file__)))
