@@ -1,0 +1,107 @@
+name: validate-dataset-consistency
+version: 1.0.0
+language: python
+description: |
+  Validates JSONL voice agent datasets for structural integrity and completeness.
+  This is a MANDATORY pre-evaluation check that ensures datasets are properly 
+  formatted before running quality validation or voice agent evaluations.
+  
+  Validates:
+  - JSONL syntax correctness (valid JSON per line)
+  - Required field completeness (WavPath, Question, Answer, conversationID, system_prompt)
+  - Audio file presence (all referenced WAV files exist)
+  - Conversation structure consistency (turn counts, system_prompt consistency)
+  - Detects unreferenced audio files (warning)
+
+when_to_use:
+  - BEFORE running voice agent evaluations (MANDATORY)
+  - After creating or modifying a dataset
+  - When dataset integrity is uncertain
+  - As a gate check in CI/CD pipelines
+  - Before quality validation
+
+entry_point: ../validate_dataset_consistency.py
+
+parameters:
+  - name: dataset_path
+    type: string
+    required: true
+    description: Path to JSONL file or dataset folder
+    
+  - name: ignore_comments
+    type: boolean
+    required: false
+    default: false
+    description: Skip lines starting with // or # (non-standard JSONL extension)
+    
+  - name: expected_turns
+    type: integer
+    required: false
+    default: null
+    description: |
+      Validate that all conversations have exactly N turns.
+      If not specified, analyzes and reports turn count distribution.
+
+returns:
+  exit_code:
+    type: integer
+    values:
+      0: All validation checks passed
+      1: Validation failed or error occurred
+  
+  attributes:
+    errors: List of critical issues that prevent evaluation
+    warnings: List of non-blocking concerns to review
+
+examples:
+  - description: Basic validation with turn distribution analysis
+    command: python validate_dataset_consistency.py dataset.jsonl
+    
+  - description: Validate specific turn count (e.g., enforce 3-turn conversations)
+    command: python validate_dataset_consistency.py dataset.jsonl --expected-turns 3
+    
+  - description: Handle datasets with comment lines
+    command: python validate_dataset_consistency.py dataset.jsonl --ignore-comments
+    
+  - description: Pass folder path (auto-detects JSONL file)
+    command: python validate_dataset_consistency.py ./datasets/wave1/
+
+validation_checks:
+  - name: JSONL Syntax
+    critical: true
+    description: Each line must be valid JSON
+    
+  - name: Required Fields
+    critical: true
+    description: All entries must have WavPath, Question, Answer, conversationID, system_prompt
+    
+  - name: Audio Files
+    critical: true
+    description: All referenced WAV files must exist in folder
+    
+  - name: Unreferenced Files
+    critical: false
+    description: Warns about audio files in folder not in JSONL
+    
+  - name: Conversation Structure
+    critical: true
+    description: system_prompt must be consistent within each conversation
+
+integration_modes:
+  dynamic_discovery:
+    description: Agent discovers skill and decides when to use it
+    agent_reads: when_to_use, description, parameters
+    agent_decides: Whether to validate before proceeding
+    best_for: Autonomous agents, flexible workflows
+    
+  programmatic:
+    description: Developer hard-codes validation in workflow
+    import: from dataset_validator.validate_dataset_consistency import DatasetConsistencyValidator
+    best_for: Fixed pipelines, guaranteed validation
+
+tags:
+  - validation
+  - dataset
+  - voice-agent
+  - pre-evaluation
+  - data-quality

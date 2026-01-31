@@ -35,11 +35,15 @@ from azure.ai.voicelive.models import (
     ServerEventType,
     RequestSession,
     ServerVad,
+    AzureSemanticVadMultilingual,
     AzureStandardVoice,
     Modality,
     InputAudioFormat,
     OutputAudioFormat,
     AudioInputTranscriptionOptions,
+    AudioNoiseReduction,
+    AudioEchoCancellation,
+    EouDetection,
 )
 
 # Legacy websocket imports - kept for backward compatibility if needed
@@ -123,6 +127,7 @@ turns_with_audio_response = 0  # Track how many turns received audio responses
 turns_with_text_only_response = 0  # Track how many turns had text but no audio
 session_timestamp_global = None  # Base timestamp for all outputs (no per-file uniqueness when aggregating)
 session_suffix_global = None  # Holds current session suffix like session-1, session-2
+session_modalities_global = ["text", "audio"]  # Session modalities as strings for JSON (set in main())
 pending_tool_followup_event = threading.Event()  # Track when a tool call follow-up response is expected
 followup_created_event = threading.Event()  # Track when a follow-up response has actually started
 tool_output_sent = False  # Track when we've sent a function_call_output and are awaiting the incorporating response
@@ -449,38 +454,6 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
     else:
         instructions = SYSTEM_INSTRUCTION
         print(f"Using default SYSTEM_INSTRUCTION: {instructions}")
-    
-    turn_detection = {
-        "type": "azure_semantic_vad",  # server_vad is based on volume and is the default. azure_semantic_vad is based on semantic meaning.
-        "threshold": 0.3,
-        "prefix_padding_ms": 300,
-        "speech_duration_ms":80,
-        "silence_duration_ms": 500,
-        "remove_filler_words": False,
-        "interrupt_responses": True,
-        "remove_filler_words": True,  # Remove filler words like "um", "uh", etc.
-        "end_of_utterance_detection": {
-            "model": "semantic_detection_v1",
-            "threshold_level": "default",
-            "timeout_ms": 1000
-        }        
-    }
-    if model == "gpt-4o-realtime-preview" or model == "gpt-4o-mini-realtime-preview":  # gpt-4o realtime models do not support end_of_utterance_detection
-        if model == "gpt-4o-realtime-preview":
-            transcription_model = "gpt-4o-transcribe" # Use gpt-4o-transcribe for gpt-4o-realtime-preview
-        elif model == "gpt-4o-mini-realtime-preview":
-            transcription_model = "gpt-4o-mini-transcribe" # Use gpt-4o-mini-transcribe for gpt-4o-mini-realtime-preview
-        else:
-            transcription_model = "whisper-1"  # Default to whisper-1 for other models.
-        print(f'Using model: {model} (no end_of_utterance_detection supported) and transcription model: {transcription_model}')
-    else:
-        transcription_model = "azure-fast-transcription"  # Currently "azure-fast-transcription" is supported for for non gpt models. Custom Speech will be supported in the future.
-        print(f'Using model: {model} (end_of_utterance_detection supported) and transcription model: {transcription_model}')
-        turn_detection["end_of_utterance_detection"] = {
-            "model": "semantic_detection_v1",
-            "threshold": 0.1,  # Default threshold for semantic detection is 0.1
-            "timeout": 4,      # Default timeout for semantic detection is 4 seconds
-        }
 
     # Get tool definitions from dataset (file_metadata) or use empty list
     # In per-conversation mode: uses first file's tool_definitions for entire conversation
@@ -499,44 +472,90 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
     global SESSION_TOOL_DEFINITIONS
     SESSION_TOOL_DEFINITIONS = tools
 
-    modalities = ["audio"] # You can only set "audio" in combination with tool calling! Specify modalities for the session, e.g., ["text", "audio"] for text and audio input/output.
+    # Build SDK-native session configuration using SDK model classes directly
+    # This avoids dict-to-SDK conversion and ensures type safety
     
-    # Build session configuration
-    session_config = {
-        "turn_detection": turn_detection,
-        "input_audio_noise_reduction": {
-            "type": "azure_deep_noise_suppression"
-        },
-        "input_audio_echo_cancellation": {
-            "type": "server_echo_cancellation"
-        },
-        "input_audio_transcription": {
-            "model": f"{transcription_model}",
-            # "prompt": "<your-prompt-for-gpt-transcribe-or-whisper-model>", # Optional prompt for gpt-4o-transcribe or whisper models.
-            # "phrase_list": ["Jan", "Goergen", "Jan Goergen", "Neo QLED TV", "TUF Gaming", "AutoQuote Explorer"] # Does not support gpt-4o-realtime-preview, gpt-4o-mini-realtime-preview, and phi4-mm-realtime
-        },
-        "voice": {
-            "name": "en-US-Steffan:DragonHDLatestNeural", #en-US-Aria:DragonHDLatestNeural
-            "type": "azure-standard", # azure-standard or azure-custom
-            # "endpoint_id": "your-endpoint-id", # Custom Voice endpoint id
-            "temperature": 0.8,
-        },
-        "output_audio_timestamp_types": ["word"], 
-        "modalities": modalities,
-        "instructions": instructions if not tools else f"{instructions} Use available tools when appropriate.",
-    }
+    # Configure turn detection and transcription model based on model type
+    # Transcription models supported with gpt-realtime and gpt-realtime-mini:
+    # whisper-1, gpt-4o-transcribe, gpt-4o-mini-transcribe, gpt-4o-transcribe-diarize.
+    # Supported with all other models and agents: azure-speech
+    # gpt-realtime models do not support end_of_utterance_detection
+    # "server_vad" is volume-based (default), "azure_semantic_vad_multilingual" is semantic meaning-based
+    if model == "gpt-realtime":
+        transcription_model = "gpt-4o-transcribe"
+        # GPT-realtime models do not support end_of_utterance_detection
+        sdk_turn_detection = AzureSemanticVadMultilingual()
+        print(f'Using model: {model} (no end_of_utterance_detection supported) and transcription model: {transcription_model}')
+    elif model == "gpt-realtime-mini":
+        transcription_model = "gpt-4o-mini-transcribe"
+        # GPT-realtime models do not support end_of_utterance_detection
+        sdk_turn_detection = AzureSemanticVadMultilingual()
+        print(f'Using model: {model} (no end_of_utterance_detection supported) and transcription model: {transcription_model}')
+    else:
+        transcription_model = "azure-speech"  # Currently "azure-fast-transcription" is supported for non gpt models. Custom Speech will be supported in the future.
+        # Non-GPT models support end_of_utterance_detection for better turn detection
+        sdk_turn_detection = AzureSemanticVadMultilingual(
+            end_of_utterance_detection=EouDetection(model="semantic_detection_v1_multilingual"),
+        )
+        print(f'Using model: {model} (end_of_utterance_detection supported) and transcription model: {transcription_model}')
     
-    # Only add tools to session if tool_definitions are provided
-    if tools:
-        session_config["tools"] = tools
+    # Configure audio noise reduction - "azure_deep_noise_suppression" for enhanced noise cancellation
+    sdk_noise_reduction = AudioNoiseReduction(type="azure_deep_noise_suppression")
     
-    session_update = {
-        "type": "session.update",
-        "session": session_config,
-        "event_id": ""
-    }
-    connection.send(json.dumps(session_update))
-    print("Session created: ", json.dumps(session_update))
+    # Configure echo cancellation - "server_echo_cancellation" for server-side echo removal
+    sdk_echo_cancellation = AudioEchoCancellation(type="server_echo_cancellation")
+    
+    # Configure input audio transcription
+    sdk_transcription = AudioInputTranscriptionOptions(
+        model=transcription_model,
+        # Optional: prompt="<your-prompt-for-gpt-transcribe-or-whisper-model>"
+        # Optional: phrase_list=["Jan", "Goergen"] - does not support gpt-4o-realtime models
+    )
+    
+    # Configure voice output - using Azure Standard HD voice
+    sdk_voice = AzureStandardVoice(
+        name="en-US-Steffan:DragonHDLatestNeural",  # Alternative: "en-US-Aria:DragonHDLatestNeural"
+        type="azure-standard",  # "azure-standard" or "azure-custom"
+        # Optional for custom voice: endpoint_id="your-endpoint-id"
+    )
+    
+    # Configure modalities - "audio" only when using tool calling
+    sdk_modalities = [Modality.TEXT, Modality.AUDIO]  # Can also include Modality.TEXT for text+audio
+    
+    # Store modalities as strings in global for use in response.create events (in receive_audio_and_save)
+    global session_modalities_global
+    session_modalities_global = ["text" if m == Modality.TEXT else "audio" for m in sdk_modalities]
+    
+    # Build final instructions
+    final_instructions = instructions if not tools else f"{instructions} Use available tools when appropriate."
+    
+    # Create the SDK RequestSession object
+    sdk_session = RequestSession(
+        modalities=sdk_modalities,
+        instructions=final_instructions,
+        voice=sdk_voice,
+        turn_detection=sdk_turn_detection,
+        input_audio_transcription=sdk_transcription,
+        input_audio_noise_reduction=sdk_noise_reduction,
+        input_audio_echo_cancellation=sdk_echo_cancellation,
+        tools=tools if tools else None,
+        input_audio_format=InputAudioFormat.PCM16,
+        output_audio_format=OutputAudioFormat.PCM16,
+        input_audio_sampling_rate=AUDIO_SAMPLE_RATE,
+        # Optional: output_audio_timestamp_types=["word"]
+    )
+    
+    # Log the session configuration for debugging
+    logger.info(f"SDK Session configuration:\n\tmodalities={sdk_modalities}\n\tinstructions={final_instructions}"
+                f"\n\tvoice={sdk_voice}"
+                f"\n\tturn_detection={sdk_turn_detection}\n\ttranscription={sdk_transcription}"
+                f"\n\tnoise_reduction={sdk_noise_reduction}\n\techo_cancellation={sdk_echo_cancellation}"
+                f"\n\tinput_audio_sampling_rate={AUDIO_SAMPLE_RATE}"
+                f"\n\ttools={len(tools)} tool(s)")
+    
+    # Send session update using SDK-native method
+    connection.update_session(sdk_session)
+    print(f"Session configured with SDK-native objects")
 
     # Ensure output directory exists with timestamp subdirectory for this run
     # Build root directory at --output-dir/<timestamp> and put per-session subfolders inside
@@ -579,7 +598,7 @@ def main(test_files_path: str = None, output_dir: str = None, evaluation_dir: st
 
     # Create and start threads
     send_thread = threading.Thread(target=send_audio_from_files, args=(connection, audio_files, audio_metadata))
-    receive_thread = threading.Thread(target=receive_audio_and_save, args=(connection, modalities))
+    receive_thread = threading.Thread(target=receive_audio_and_save, args=(connection,))
     keyboard_thread = threading.Thread(target=read_keyboard_and_quit)
 
     print("Starting the conversation with audio files...")
@@ -739,7 +758,7 @@ def resample_audio(audio_data: np.ndarray, orig_sample_rate: int, target_sample_
     return resampled
 
 logger = logging.getLogger(__name__)
-AUDIO_SAMPLE_RATE = 24000
+AUDIO_SAMPLE_RATE = 24000  # Default sample rate, can be overridden via --sample-rate CLI argument
 
 # ============================================================================
 # SDK-based VoiceLive Connection Classes
@@ -860,6 +879,13 @@ class SDKVoiceLiveConnection:
                 json_event = self._sdk_event_to_json(event)
                 if json_event:
                     self._message_queue.put(json_event)
+                    # Parse the JSON string to check event type for logging
+                    try:
+                        parsed_event = json.loads(json_event)
+                        if parsed_event.get("type") == "session.updated":
+                            logger.info(f"Session updated event received with the following details:\n{json_event}")
+                    except json.JSONDecodeError:
+                        pass
                     
         except Exception as e:
             if not self._closing:
@@ -968,6 +994,30 @@ class SDKVoiceLiveConnection:
         except queue.Empty:
             return None
             
+    def update_session(self, sdk_session: RequestSession) -> None:
+        """Update session configuration using SDK-native RequestSession object.
+        
+        This is the preferred method for session configuration as it uses SDK objects directly
+        without dict-to-SDK conversion overhead.
+        
+        Args:
+            sdk_session: A RequestSession object with the desired configuration
+        """
+        if not self._connected or not self._connection:
+            logger.warning("Cannot update session - not connected")
+            return
+            
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self._connection.session.update(session=sdk_session),
+                self._loop
+            )
+            # Wait for the update to complete
+            future.result(timeout=10)
+            logger.info("SDK session configuration updated via update_session()")
+        except Exception as e:
+            logger.error(f"Error updating session via SDK: {e}")
+            
     def send(self, message: str) -> None:
         """Send a message via the SDK connection (backward compatible interface)."""
         if not self._connected or not self._connection:
@@ -1033,59 +1083,76 @@ class SDKVoiceLiveConnection:
             logger.error(f"Error sending message via SDK: {e}")
             
     async def _send_session_update(self, session_config: dict):
-        """Send session update using SDK session configuration."""
+        """Send session update from dict config (legacy compatibility).
+        
+        Note: Prefer using update_session() with SDK-native RequestSession objects directly.
+        This method is kept for backward compatibility with dict-based configurations.
+        """
         try:
-            # Build SDK session configuration from dict
-            # Extract turn detection config
+            # Convert dict to SDK objects - this is the legacy path
+            # For new code, use update_session() with SDK objects directly
+            
+            # Turn detection
             turn_detection_dict = session_config.get("turn_detection", {})
             turn_detection = None
             if turn_detection_dict:
-                turn_detection = ServerVad(
-                    threshold=turn_detection_dict.get("threshold", 0.5),
-                    prefix_padding_ms=turn_detection_dict.get("prefix_padding_ms", 300),
-                    silence_duration_ms=turn_detection_dict.get("silence_duration_ms", 500),
-                )
+                td_type = turn_detection_dict.get("type", "server_vad")
+                if td_type == "azure_semantic_vad_multilingual":
+                    turn_detection = AzureSemanticVadMultilingual(
+                        threshold=turn_detection_dict.get("threshold"),
+                        prefix_padding_ms=turn_detection_dict.get("prefix_padding_ms"),
+                        silence_duration_ms=turn_detection_dict.get("silence_duration_ms"),
+                    )
+                else:
+                    turn_detection = ServerVad(
+                        threshold=turn_detection_dict.get("threshold", 0.5),
+                        prefix_padding_ms=turn_detection_dict.get("prefix_padding_ms", 300),
+                        silence_duration_ms=turn_detection_dict.get("silence_duration_ms", 500),
+                    )
             
-            # Extract voice config
+            # Noise reduction and echo cancellation
+            noise_reduction = None
+            nr_type = session_config.get("input_audio_noise_reduction", {}).get("type")
+            if nr_type:
+                noise_reduction = AudioNoiseReduction(type=nr_type)
+            
+            echo_cancellation = None
+            ec_type = session_config.get("input_audio_echo_cancellation", {}).get("type")
+            if ec_type:
+                echo_cancellation = AudioEchoCancellation(type=ec_type)
+            
+            # Voice
             voice_dict = session_config.get("voice", {})
             voice = None
             if voice_dict:
-                voice_name = voice_dict.get("name", "en-US-Ava:DragonHDLatestNeural")
-                voice_type = voice_dict.get("type", "azure-standard")
-                if voice_type == "azure-standard":
-                    voice = AzureStandardVoice(name=voice_name, type="azure-standard")
-                else:
-                    voice = voice_name
-            
-            # Extract modalities
-            modalities_list = session_config.get("modalities", ["audio"])
-            modalities = []
-            for m in modalities_list:
-                if m == "audio":
-                    modalities.append(Modality.AUDIO)
-                elif m == "text":
-                    modalities.append(Modality.TEXT)
-            
-            # Extract transcription config
-            transcription_dict = session_config.get("input_audio_transcription", {})
-            transcription = None
-            if transcription_dict:
-                transcription = AudioInputTranscriptionOptions(
-                    model=transcription_dict.get("model", "whisper-1")
+                voice = AzureStandardVoice(
+                    name=voice_dict.get("name", "en-US-Ava:DragonHDLatestNeural"),
+                    type=voice_dict.get("type", "azure-standard")
                 )
             
-            # Build and send session configuration
+            # Modalities
+            modalities = [Modality.AUDIO if m == "audio" else Modality.TEXT 
+                          for m in session_config.get("modalities", ["audio"])]
+            
+            # Transcription
+            transcription = None
+            trans_model = session_config.get("input_audio_transcription", {}).get("model")
+            if trans_model:
+                transcription = AudioInputTranscriptionOptions(model=trans_model)
+            
             sdk_session = RequestSession(
                 modalities=modalities if modalities else None,
                 instructions=session_config.get("instructions"),
                 voice=voice,
                 turn_detection=turn_detection,
                 input_audio_transcription=transcription,
+                input_audio_noise_reduction=noise_reduction,
+                input_audio_echo_cancellation=echo_cancellation,
                 tools=session_config.get("tools"),
             )
             
             await self._connection.session.update(session=sdk_session)
-            logger.info("SDK session configuration updated")
+            logger.info("SDK session configuration updated (legacy dict path)")
             
         except Exception as e:
             logger.error(f"Error sending session update via SDK: {e}")
@@ -1503,14 +1570,16 @@ def send_audio_from_files(connection: VoiceLiveConnection, audio_files: List[str
     
     all_files_processed_event.set()  # Signal that all files have been processed
 
-def receive_audio_and_save(connection: VoiceLiveConnection, modalities) -> None:
-    global current_metrics, tool_output_sent
+def receive_audio_and_save(connection: VoiceLiveConnection) -> None:
+    global current_metrics, tool_output_sent, session_modalities_global
     last_audio_item_id = None
     current_recorder = None
     # Buffers for function-call arguments streaming
     function_call_buffers = {}
     # Buffers for assistant text output (realtime output_text.* events)
     text_output_buffers = {}
+    # Modalities for response.create events (from SDK-native session configuration)
+    modalities = session_modalities_global
 
     logger.info("Starting audio response recorder...")
     try:
@@ -2297,6 +2366,13 @@ if __name__ == "__main__":
             action='store_true',
             help='Enable verbose logging (DEBUG level instead of INFO)'
         )
+        parser.add_argument(
+            '--sample-rate',
+            dest='sample_rate',
+            type=int,
+            default=16000,
+            help='Audio sample rate in Hz for resampling (default: 16000)'
+        )
         args = parser.parse_args()
         
         # Convert relative paths to absolute paths before changing directory
@@ -2306,6 +2382,11 @@ if __name__ == "__main__":
             args.output_dir = os.path.abspath(args.output_dir)
         if args.evaluation_dir and not os.path.isabs(args.evaluation_dir):
             args.evaluation_dir = os.path.abspath(args.evaluation_dir)
+        
+        # Set global audio sample rate from command-line argument
+        # Use globals() to modify the module-level variable from within the try block
+        globals()['AUDIO_SAMPLE_RATE'] = args.sample_rate
+        print(f"Using audio sample rate: {args.sample_rate} Hz")
         
         # Change to the directory where this script is located
         os.chdir(os.path.dirname(os.path.abspath(__file__)))
