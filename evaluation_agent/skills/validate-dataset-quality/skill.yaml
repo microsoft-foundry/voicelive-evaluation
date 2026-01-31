@@ -1,0 +1,148 @@
+name: validate-dataset-quality
+version: 1.0.0
+language: python
+description: |
+  Validates content quality and appropriateness of JSONL voice agent datasets.
+  This is an ADVISORY quality check that should be run AFTER consistency 
+  validation passes.
+  
+  Assesses:
+  - System prompt relevance to conversation content (domain alignment)
+  - Tool definition appropriateness (action-oriented vs conversational)
+  - Question intent classification (action/instructional/general)
+  - Content quality metrics (length, diversity, depth)
+  
+  Provides quality scores and recommendations but does not block evaluation.
+
+when_to_use:
+  - AFTER consistency validation passes
+  - To assess dataset quality before evaluation
+  - To validate prompt-conversation alignment
+  - To verify tool definitions match question types
+  - For quality assurance in dataset creation pipelines
+  - When reviewing existing datasets for improvement
+
+entry_point: ../../../dataset_validator/validate_dataset_quality.py
+
+parameters:
+  - name: dataset_path
+    type: string
+    required: true
+    description: Path to JSONL file or dataset folder
+    
+  - name: strict
+    type: boolean
+    required: false
+    default: false
+    description: |
+      Use strict keyword-only alignment matching (conservative ~50%).
+      Default permissive mode includes generic support patterns (~88%).
+      Use strict mode to validate domain expertise.
+    
+  - name: verbose
+    type: boolean
+    required: false
+    default: false
+    description: Show detailed per-conversation analysis with alignment status
+    
+  - name: json
+    type: string
+    required: false
+    default: null
+    description: Export results to JSON file for programmatic processing
+    
+  - name: ignore_comments
+    type: boolean
+    required: false
+    default: false
+    description: Skip lines starting with // or # (non-standard JSONL extension)
+
+returns:
+  exit_code:
+    type: integer
+    values:
+      0: Quality validation completed (check results for assessment)
+      1: Validation failed or error occurred
+  
+  results:
+    status: success | failed
+    prompt_alignment: Percentage (0-100)
+    aligned_count: Number of aligned conversations
+    unaligned_count: Number of unaligned conversations
+    domains: Domain breakdown with counts
+    tool_assessment: correct | needs_review | good | mixed
+    action_requests: Count of action-oriented questions
+    content_quality: Quality score (0-3)
+    total_conversations: Number of conversations
+    total_entries: Number of JSONL entries
+
+examples:
+  - description: Basic quality validation (permissive alignment matching)
+    command: python validate_dataset_quality.py dataset.jsonl
+    
+  - description: Strict mode - conservative keyword-only matching
+    command: python validate_dataset_quality.py dataset.jsonl --strict
+    
+  - description: Verbose mode - detailed per-conversation analysis
+    command: python validate_dataset_quality.py dataset.jsonl --verbose
+    
+  - description: JSON export for programmatic processing
+    command: python validate_dataset_quality.py dataset.jsonl --json results.json
+    
+  - description: Combine multiple flags
+    command: python validate_dataset_quality.py dataset.jsonl --strict --verbose --json output.json
+
+validation_checks:
+  - name: System Prompt Relevance
+    critical: false
+    description: Analyzes domain alignment between prompts and conversations
+    thresholds:
+      good: ">= 70%"
+      moderate: "50-70%"
+      low: "< 50%"
+    
+  - name: Tool Definition Appropriateness
+    critical: false
+    description: Validates tool definitions match question intent
+    assessments:
+      - correct: No action requests, NULL tools appropriate
+      - needs_review: Action requests detected but no tools
+      - good: Action requests have corresponding tools
+      - mixed: Mixed dataset with both patterns
+    
+  - name: Content Quality Metrics
+    critical: false
+    description: Assesses question/answer length, prompt diversity
+    score_range: 0-3
+
+alignment_modes:
+  default:
+    name: Permissive (~88%)
+    description: Includes generic support patterns
+    use_when: Assessing quality support responses across domains
+    
+  strict:
+    name: Conservative (~50%)
+    description: Keyword-only domain matching
+    use_when: Validating domain expertise and specific knowledge
+    flag: --strict
+
+integration_modes:
+  dynamic_discovery:
+    description: Agent discovers skill and decides when to use it
+    agent_reads: when_to_use, description, parameters, alignment_modes
+    agent_decides: Whether to assess quality and which mode to use
+    best_for: Autonomous agents, context-aware workflows
+    
+  programmatic:
+    description: Developer hard-codes quality validation in workflow
+    import: from dataset_validator.validate_dataset_quality import DatasetQualityValidator
+    best_for: Fixed QA pipelines, automated quality gates
+
+tags:
+  - validation
+  - dataset
+  - voice-agent
+  - quality-assurance
+  - content-quality
+  - advisory
