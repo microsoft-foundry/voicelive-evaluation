@@ -495,12 +495,16 @@ def run_voicelive_evaluation(
     session_mode: Optional[str] = None,
     session_suffix: Optional[str] = None,
     verbose: bool = False,
-    timeout_minutes: int = 30
+    timeout_minutes: int = 30,
+    max_workers: Optional[int] = None,
+    parallel: bool = True
 ) -> str:
     """
     Runs Azure VoiceLive audio evaluation tests using test audio files and datasets.
     Processes audio through VoiceLive API and captures evaluation metrics including
     transcription accuracy, response quality, latency, and tool usage.
+    
+    Supports parallel processing for faster evaluation of large datasets.
 
     IMPORTANT: Run dataset validation BEFORE using this function.
 
@@ -511,15 +515,22 @@ def run_voicelive_evaluation(
         session_mode: Session handling mode. If not specified, auto-detected:
                       - 'per-conversation': Auto-selected if dataset has conversationID field
                       - 'per-file': Auto-selected if no conversationID field
-                      - 'single': Only used when explicitly requested by user
+                      - 'single': Only used when explicitly requested by user (disables parallelism)
         session_suffix: Suffix for session tracking in batch mode (e.g., conv-1, session-2)
         verbose: Enable verbose/debug logging
         timeout_minutes: Maximum time to wait for evaluation (default: 30 minutes)
+        max_workers: Number of parallel workers for processing sessions.
+                     Default: 4 for local, can be increased for cloud execution.
+                     Set to 1 for sequential processing. Ignored if session_mode='single'.
+        parallel: Enable parallel processing (default: True). Set to False for sequential.
 
     Returns:
         JSON string with evaluation results including success status and output paths
     """
-    script_path = REPO_ROOT / "prototype_v1" / "voice_agent_audio_input_evaluation.py"
+    # Determine which script to use based on parallelism needs
+    batch_processor_path = REPO_ROOT / "prototype_v1" / "batch_processor.py"
+    single_script_path = REPO_ROOT / "prototype_v1" / "voice_agent_audio_input_evaluation.py"
+    
     test_path = Path(test_files_path)
     
     # Check if dataset exists
@@ -560,32 +571,69 @@ def run_voicelive_evaluation(
     else:
         auto_detected = False
     
+    # Determine effective worker count
+    # Single mode always uses 1 worker (no parallelism by design)
+    # Default to 4 workers for local execution (balance performance vs resource usage)
+    if session_mode == 'single' or not parallel:
+        effective_workers = 1
+    elif max_workers is not None:
+        effective_workers = max(1, max_workers)
+    else:
+        # Default: 4 workers for local, can be overridden via env var for cloud
+        default_workers = int(os.environ.get('EVAL_AGENT_MAX_WORKERS', '4'))
+        effective_workers = min(default_workers, total_entries)  # Don't exceed entry count
+    
+    # Decide whether to use batch processor or single script
+    use_batch_processor = effective_workers > 1 and batch_processor_path.exists()
+    
     # Log evaluation start with tracing
     log_tool_execution("run_voicelive_evaluation", "started", {
         "dataset": dataset_name,
         "entries": total_entries,
         "session_mode": session_mode,
         "auto_detected": auto_detected,
-        "timeout_minutes": timeout_minutes
+        "timeout_minutes": timeout_minutes,
+        "max_workers": effective_workers,
+        "parallel": use_batch_processor
     })
     
     mode_info = f" (auto-detected)" if auto_detected else ""
+    parallel_info = f" | Workers: {effective_workers}" if effective_workers > 1 else ""
     print(f"\n⚙️  Starting VoiceLive evaluation on {dataset_name}...", flush=True)
-    print(f"   Session mode: {session_mode}{mode_info}", flush=True)
+    print(f"   Session mode: {session_mode}{mode_info}{parallel_info}", flush=True)
     print(f"   Entries: {total_entries}", flush=True)
     print(f"   Timeout: {timeout_minutes} minutes", flush=True)
     
-    # Build command with correct parameter names
-    cmd = [sys.executable, str(script_path), "--test-files", test_files_path]
-    if output_dir:
-        cmd.extend(["--output-dir", output_dir])
-    if evaluation_dir:
-        cmd.extend(["--evaluation", evaluation_dir])
-    cmd.extend(["--session-mode", session_mode])
-    if session_suffix:
-        cmd.extend(["--session-suffix", session_suffix])
-    if verbose:
-        cmd.append("--verbose")
+    # Build command based on execution mode
+    if use_batch_processor:
+        # Use batch processor for parallel execution
+        print(f"   Mode: Parallel (batch processor)", flush=True)
+        cmd = [
+            sys.executable, str(batch_processor_path),
+            "--test-files", test_files_path,
+            "--session-mode", session_mode,
+            "--max-workers", str(effective_workers),
+            "--timeout", str(timeout_minutes * 60)  # Convert to seconds
+        ]
+        if output_dir:
+            cmd.extend(["--output-dir", output_dir])
+        if evaluation_dir:
+            cmd.extend(["--evaluation", evaluation_dir])
+        if verbose:
+            cmd.append("--verbose")
+    else:
+        # Use single evaluation script (sequential)
+        print(f"   Mode: Sequential", flush=True)
+        cmd = [sys.executable, str(single_script_path), "--test-files", test_files_path]
+        if output_dir:
+            cmd.extend(["--output-dir", output_dir])
+        if evaluation_dir:
+            cmd.extend(["--evaluation", evaluation_dir])
+        cmd.extend(["--session-mode", session_mode])
+        if session_suffix:
+            cmd.extend(["--session-suffix", session_suffix])
+        if verbose:
+            cmd.append("--verbose")
     
     # Set up environment with UTF-8 encoding
     env = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
@@ -599,6 +647,8 @@ def run_voicelive_evaluation(
         status_msg = f"✓ Evaluation COMPLETED for {dataset_name}"
         if result.get("elapsed_seconds"):
             status_msg += f" ({result['elapsed_seconds']}s)"
+        if effective_workers > 1:
+            status_msg += f" [parallel: {effective_workers} workers]"
         print(f"\n{status_msg}", flush=True)
     elif result["status"] == "timeout":
         status_msg = f"⚠ Evaluation TIMED OUT after {timeout_minutes} minutes for {dataset_name}"
@@ -615,7 +665,8 @@ def run_voicelive_evaluation(
         "status": result["status"],
         "elapsed_seconds": result.get("elapsed_seconds"),
         "files_processed": result.get("files_processed", 0),
-        "dataset": dataset_name
+        "dataset": dataset_name,
+        "max_workers": effective_workers
     })
     
     response = {
@@ -626,6 +677,8 @@ def run_voicelive_evaluation(
         "total_entries": total_entries,
         "session_mode": session_mode,
         "session_mode_auto_detected": auto_detected,
+        "max_workers": effective_workers,
+        "parallel_mode": use_batch_processor,
         "elapsed_seconds": result.get("elapsed_seconds"),
         "files_processed": result.get("files_processed", 0),
         "progress_updates": result.get("progress_updates", [])[-10:],  # Last 10 progress updates
@@ -952,6 +1005,10 @@ validate datasets and run voice agent evaluations.
    - run_voicelive_evaluation: Execute audio tests through VoiceLive API
    - Session mode is AUTO-DETECTED based on dataset structure
    - Default timeout is 30 minutes (use timeout_minutes parameter for longer evaluations)
+   - **PARALLEL PROCESSING**: By default uses 4 workers for faster evaluation
+     - Use max_workers parameter to adjust (e.g., max_workers=8 for more parallelism)
+     - Use max_workers=1 or parallel=False for sequential processing
+     - Single session mode always runs sequentially (no parallelism)
 
 4. **Results Analysis**
    - analyze_evaluation_results: Analyze evaluation OUTPUT files (not input datasets!)
@@ -1061,6 +1118,12 @@ User: "Run full evaluation on dataset X"
 User: "Run evaluation on dataset X using single session mode"
 → Check schema, validate, then run with session_mode="single"
 
+User: "Run evaluation with 8 workers" or "Run faster with more parallelism"
+→ Check schema, validate, then run with max_workers=8
+
+User: "Run evaluation sequentially" or "Run without parallelism"
+→ Check schema, validate, then run with parallel=False or max_workers=1
+
 User: "What datasets are available?"
 → Run list_datasets
 → Present ALL datasets found (never summarize or truncate)
@@ -1074,6 +1137,17 @@ User: "Analyze my evaluation results" or "What insights from the evaluation?"
 → Run analyze_evaluation_results on the output file
 → Present metrics (groundedness, relevance, task completion, latency)
 → Provide insights and recommendations
+
+## Parallel Processing
+
+The evaluation supports parallel processing for faster execution of large datasets:
+
+- **Default**: 4 workers (balanced for local execution)
+- **max_workers parameter**: User can request specific number (e.g., "run with 8 workers")
+- **Single mode**: Always sequential (1 worker) regardless of max_workers
+- **EVAL_AGENT_MAX_WORKERS env var**: Sets default for cloud deployments (e.g., 16)
+
+When reporting results, always mention if parallel processing was used and how many workers.
 
 ## Authentication Note
 All Azure API calls use Azure Identity (DefaultAzureCredential). No API keys are used.

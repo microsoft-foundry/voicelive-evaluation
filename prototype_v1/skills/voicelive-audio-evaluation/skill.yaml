@@ -19,7 +19,7 @@ when_to_use: |
   This skill is specifically for RUNTIME evaluation of VoiceLive API, not dataset validation.
   For validating dataset structure/quality, use the dataset-validator skills instead.
 
-entry_point: ../../prototype_v1/voice_agent_audio_input_evaluation.py
+entry_point: ../../voice_agent_audio_input_evaluation.py
 
 parameters:
   - name: test_files

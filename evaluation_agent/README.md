@@ -109,8 +109,21 @@ Agent: Here are the evaluation insights:
 | `list_datasets` | Find all JSONL datasets (shows complete list with metadata) |
 | `validate_dataset_consistency` | MANDATORY structural validation before evaluation |
 | `validate_dataset_quality` | ADVISORY content quality assessment |
-| `run_voicelive_evaluation` | Execute VoiceLive API tests with smart session mode |
+| `run_voicelive_evaluation` | Execute VoiceLive API tests with smart session mode and parallel processing |
 | `analyze_evaluation_results` | Analyze evaluation outputs for metrics and insights |
+
+### Tool Parameters
+
+Most parameters are optional - the agent infers sensible defaults from context.
+
+| Tool | Key Parameters |
+|------|----------------|
+| `check_dataset_schema` | `dataset_path` (auto-resolved from folder) |
+| `list_datasets` | `folder_path` (optional, defaults to common locations) |
+| `validate_dataset_consistency` | `dataset_path`, `expected_turns` (optional), `ignore_comments` |
+| `validate_dataset_quality` | `dataset_path`, `strict`, `verbose`, `json_output`, `ignore_comments` |
+| `run_voicelive_evaluation` | `test_files_path`, `output_dir`, `evaluation_dir`, `session_mode`, `session_suffix`, `timeout_minutes`, `max_workers`, `parallel`, `verbose` |
+| `analyze_evaluation_results` | `results_path` (folder or file) |
 
 ### Input vs Output Files
 
@@ -122,12 +135,45 @@ Agent: Here are the evaluation insights:
 ### Path Handling
 
 The agent accepts both **folder paths** and **file paths**:
-- **Folder**: Automatically finds the `.jsonl` file inside
+- **Folder**: Automatically finds the `.jsonl` file inside (recursive search)
 - **File**: Uses the file directly
 
 ---
 
 ## Features
+
+### Parallel Processing
+
+Evaluations run in parallel by default for faster processing of large datasets:
+
+```
+⚙️  Starting VoiceLive evaluation on dataset.jsonl...
+   Session mode: per-conversation (auto-detected) | Workers: 4
+   Entries: 100
+   Timeout: 30 minutes
+   Mode: Parallel (batch processor)
+✓ Evaluation COMPLETED for dataset.jsonl (45.3s) [parallel: 4 workers]
+```
+
+**Worker Configuration:**
+
+| Environment | Default Workers | Recommended |
+|-------------|----------------|-------------|
+| Local (laptop) | 4 | 2-4 |
+| Local (workstation) | 4 | 4-8 |
+| Cloud (Azure) | Set via env var | 8-16 |
+
+**User Requests:**
+- "Run evaluation with 8 workers" → `max_workers=8`
+- "Run faster" / "more parallelism" → Higher worker count
+- "Run sequentially" / "no parallelism" → `parallel=False`
+- "Run in single mode" → `session_mode="single"` (always sequential)
+
+**Environment Variable:**
+```bash
+# Set default workers (useful for cloud deployments)
+export EVAL_AGENT_MAX_WORKERS=16
+```
 
 ### Real-Time Console Status
 
@@ -141,10 +187,11 @@ Status prints **immediately** when tools execute:
 ✓ Consistency validation PASSED
 
 ⚙️  Starting VoiceLive evaluation on dataset.jsonl...
-   Session mode: per-conversation (auto-detected)
+   Session mode: per-conversation (auto-detected) | Workers: 4
    Entries: 6
    Timeout: 30 minutes
-✓ Evaluation COMPLETED for dataset.jsonl (185.3s)
+   Mode: Parallel (batch processor)
+✓ Evaluation COMPLETED for dataset.jsonl (185.3s) [parallel: 4 workers]
 ```
 
 ### Status Icons
@@ -156,11 +203,11 @@ Status prints **immediately** when tools execute:
 
 ### Session Mode Auto-Detection
 
-| Dataset Structure | Auto-Selected Mode |
-|-------------------|-------------------|
-| Has `conversationID` field | `per-conversation` |
-| No `conversationID` field | `per-file` |
-| User explicitly requests | `single` |
+| Dataset Structure | Auto-Selected Mode | Parallelism |
+|-------------------|-------------------|-------------|
+| Has `conversationID` field | `per-conversation` | ✅ Parallel |
+| No `conversationID` field | `per-file` | ✅ Parallel |
+| User explicitly requests | `single` | ❌ Sequential |
 
 ### Dynamic Metrics Analysis
 
@@ -284,6 +331,9 @@ Traces automatically flow to:
 | `PROJECT_ENDPOINT` | Yes | Azure AI Foundry project endpoint |
 | `MODEL_DEPLOYMENT_NAME` | No | Model to use (default: gpt-4o-mini) |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | No | Azure Monitor (enables cloud tracing) |
+| `EVAL_AGENT_MAX_WORKERS` | No | Default parallel workers (default: 4) |
+| `EVAL_AGENT_LOG_DIR` | No | Log directory (default: ./logs) |
+| `EVAL_AGENT_LOG_LEVEL` | No | Logging level (default: INFO) |
 
 ### Timeout Settings
 
@@ -312,7 +362,20 @@ See `requirements.txt`:
 |---------|------|---------|
 | Dataset Validators | `../dataset_validator/` | Validation scripts |
 | VoiceLive Evaluation | `../prototype_v1/` | Audio evaluation script |
-| Skills | `./skills/` | Skill definitions |
+| Skills | `./skills/` | Skill definitions for agent integration |
+
+### Skills
+
+Skill definitions in `./skills/` enable AI agent integration:
+
+| Skill | Description |
+|-------|-------------|
+| `voicelive-audio-evaluation` | VoiceLive audio evaluation execution |
+| `batch-processor-py` | Parallel batch processing for large datasets |
+| `validate-dataset-consistency` | Structural validation of JSONL datasets |
+| `validate-dataset-quality` | Content quality assessment for datasets |
+
+Skills allow AI agents (GitHub Copilot CLI, Azure AI Agents) to discover and invoke tools via natural language.
 
 ---
 

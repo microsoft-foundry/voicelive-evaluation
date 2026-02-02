@@ -1101,6 +1101,28 @@ The following items are planned or under consideration for future development:
 
 ---
 
+## Skills
+
+Skill definitions for AI agent integration are available in `skills`:
+
+| Skill | Description |
+|-------|-------------|
+| `voicelive-audio-evaluation` | VoiceLive audio evaluation - runs the evaluation script with configurable parameters |
+| `batch-processor-py` | Parallel batch processing - wraps the batch processor for multi-threaded execution |
+
+Skills enable AI agents (GitHub Copilot CLI, Azure AI Agents, etc.) to discover and invoke these tools via natural language.
+
+### Usage with Agents
+
+```plaintext
+# Natural language examples for AI agents
+"Run VoiceLive evaluation on the Eiffel_Tower_Visit dataset"
+"Evaluate the dataset at C:\datasets\test.jsonl with per-conversation mode"
+"Run batch evaluation with 8 workers on the large_dataset folder"
+```
+
+---
+
 ## License
 
 See repository root for license information.

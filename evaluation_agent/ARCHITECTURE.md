@@ -33,7 +33,8 @@ We implemented a **Python-based agent using Azure AI Agents SDK** with local fun
 │  │         (Azure AI Agents SDK)                      │ │
 │  │                                                    │ │
 │  │  ┌──────────────────────────────────────────────┐  │ │
-│  │  │            5 Function Tools                  │  │ │
+│  │  │            6 Function Tools                  │  │ │
+│  │  │  • check_dataset_schema                      │  │ │
 │  │  │  • list_datasets                             │  │ │
 │  │  │  • validate_dataset_consistency              │  │ │
 │  │  │  • validate_dataset_quality                  │  │ │
@@ -63,6 +64,7 @@ We implemented a **Python-based agent using Azure AI Agents SDK** with local fun
 | Session management | Auto-detection | Reduces user friction, intelligent defaults |
 | Progress feedback | Console print + return values | Immediate visibility during long operations |
 | Tracing | OpenTelemetry + Azure Monitor | Standard protocol, dual local/cloud support |
+| Parallel processing | Conditional batch processor | Uses batch_processor.py when workers > 1, single script otherwise |
 
 ---
 
@@ -162,6 +164,38 @@ We implemented a **Python-based agent using Azure AI Agents SDK** with local fun
 - Console tracing can be verbose in DEBUG mode
 - Azure Monitor requires connection string configuration
 
+### 7. Conditional Parallel Processing
+
+**Decision:** Use batch_processor.py for parallel execution, single script for sequential.
+
+**Rationale:**
+- Batch processor already tested and handles subprocess isolation
+- ThreadPoolExecutor provides clean parallel execution
+- Filelock ensures thread-safe result aggregation
+- No need to duplicate parallel logic in agent
+
+**Implementation:**
+```python
+# Decision logic in run_voicelive_evaluation()
+use_batch_processor = effective_workers > 1 and batch_processor_path.exists()
+
+if use_batch_processor:
+    # Uses: batch_processor.py --max-workers N
+else:
+    # Uses: voice_agent_audio_input_evaluation.py (sequential)
+```
+
+**Conditions for sequential mode:**
+- `parallel=False` explicitly set
+- `max_workers=1`
+- `session_mode="single"` (continuous conversation)
+- Very small datasets (workers auto-limited to entry count)
+
+**Trade-offs:**
+- Two code paths to maintain
+- Batch processor adds subprocess overhead
+- But: subprocess isolation prevents state conflicts in parallel sessions
+
 ---
 
 ## Implementation Approaches Evaluated
@@ -249,8 +283,9 @@ We evaluated 4 approaches before implementation:
 ### Agent Core (`agent.py`)
 
 ```
-agent.py (~800 lines)
-├── Function Tools (5)
+agent.py (~1200 lines)
+├── Function Tools (6)
+│   ├── check_dataset_schema()
 │   ├── list_datasets()
 │   ├── validate_dataset_consistency()
 │   ├── validate_dataset_quality()
@@ -447,7 +482,7 @@ Tries authentication methods in order:
 ### Related Projects
 - Dataset Validators: `../dataset_validator/`
 - VoiceLive Evaluation: `../prototype_v1/`
-- Skills Definitions: `./skills/`
+- Skills Definitions: `./skills/` (4 skills: voicelive-audio-evaluation, batch-processor-py, validate-dataset-consistency, validate-dataset-quality)
 
 ---
 
