@@ -4,7 +4,7 @@
 # Azure SDKs
 azure-identity>=1.25.1
 azure-ai-projects>=2.0.0b2
-azure-ai-voicelive>=1.1.0
+azure-ai-voicelive>=1.2.0b2
 azure-core>=1.36.0
 
 # OpenAI (for evaluation SDK)
