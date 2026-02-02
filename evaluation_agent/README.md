@@ -38,6 +38,7 @@ python agent.py
 # Single message mode
 python agent.py --message "What datasets are available?"
 python agent.py --message "Validate the Eiffel_Tower_Visit dataset"
+python agent.py --message "How do I create a correct dataset?"
 python agent.py --message "Run evaluation on Eiffel_Tower_Visit"
 python agent.py --message "Analyze the evaluation results in output/2026-02-02_10-26-31/"
 ```

@@ -114,6 +114,108 @@ def validate_dataset_consistency(
         })
 
 
+def check_dataset_schema(dataset_path: str) -> str:
+    """
+    Analyzes a JSONL dataset to check for required and optional fields.
+    Use this BEFORE running full validation to identify missing optional metadata
+    that will use defaults during evaluation.
+    
+    Required fields (evaluation will FAIL without these):
+    - WavPath or audio: Path to audio file
+    
+    Optional fields (evaluation uses defaults if missing):
+    - Question/question: User query transcript (default: None)
+    - Answer/answer: Expected response for evaluation (default: None)
+    - tool_definitions: Available tools (default: [])
+    - conversationID/conversation_id: Conversation grouping (default: 'default')
+    - system_prompt: Agent instructions (default: script default)
+    
+    Args:
+        dataset_path: Path to JSONL file or folder containing JSONL
+        
+    Returns:
+        JSON with schema analysis, missing optional fields, and whether evaluation can proceed
+    """
+    print(f"\n⚙️  Checking dataset schema...", flush=True)
+    
+    script_path = REPO_ROOT / "dataset_validator" / "check_dataset_schema.py"
+    
+    cmd = [sys.executable, str(script_path), dataset_path, "--json"]
+    
+    # Set up environment with UTF-8 encoding
+    env = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=60,
+            cwd=str(REPO_ROOT),
+            env=env
+        )
+        
+        # Parse JSON output from script
+        try:
+            parsed = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return json.dumps({
+                "action": "check_dataset_schema",
+                "status": "error",
+                "status_message": "✗ Failed to parse schema check output",
+                "error": result.stderr or result.stdout
+            })
+        
+        # Add action field and create status message
+        parsed["action"] = "check_dataset_schema"
+        
+        if parsed.get("status") == "passed":
+            status_msg = f"✓ All fields present ({parsed.get('total_entries', 0)} entries)"
+            print(status_msg, flush=True)
+        elif parsed.get("status") == "warnings":
+            missing_count = len(parsed.get("optional_missing", []))
+            status_msg = f"⚠ Dataset valid but {missing_count} optional field(s) missing - will use defaults"
+            print(status_msg, flush=True)
+        elif parsed.get("status") == "failed":
+            status_msg = "✗ Missing required fields - cannot proceed"
+            print(status_msg, flush=True)
+        else:
+            status_msg = f"✗ Schema check error"
+            print(status_msg, flush=True)
+        
+        parsed["status_message"] = status_msg
+        parsed["can_proceed_with_evaluation"] = parsed.get("can_proceed", False)
+        
+        # Add recommendation for agent
+        if not parsed.get("can_proceed"):
+            parsed["recommendation"] = "STOP: Fix required fields before evaluation"
+        elif parsed.get("has_optional_missing"):
+            parsed["recommendation"] = "ASK USER: Optional fields missing - confirm to proceed with defaults"
+        else:
+            parsed["recommendation"] = "PROCEED: All fields present"
+        
+        return json.dumps(parsed)
+        
+    except subprocess.TimeoutExpired:
+        print("⚠ Schema check timed out", flush=True)
+        return json.dumps({
+            "action": "check_dataset_schema",
+            "status": "error",
+            "status_message": "⚠ Schema check timed out after 60 seconds",
+            "error": "Schema check timed out"
+        })
+    except Exception as e:
+        print(f"✗ Schema check error: {str(e)[:50]}", flush=True)
+        return json.dumps({
+            "action": "check_dataset_schema",
+            "status": "error",
+            "status_message": f"✗ Schema check error: {str(e)[:50]}",
+            "error": str(e)
+        })
+
+
 def validate_dataset_quality(
     dataset_path: str,
     strict: bool = False,
@@ -799,26 +901,46 @@ validate datasets and run voice agent evaluations.
 
 ## Your Capabilities
 
-1. **Dataset Validation** (MANDATORY before evaluations)
-   - validate_dataset_consistency: Structural integrity checks (MUST pass first)
-   - validate_dataset_quality: Content quality assessment (run after consistency passes)
+1. **Dataset Schema Check** (RECOMMENDED before validation)
+   - check_dataset_schema: Quick check for required vs optional fields
+   - Only WavPath/audio is REQUIRED - all other fields are optional with defaults
+   - If optional fields missing, ASK USER if they want to proceed with defaults
 
-2. **VoiceLive Evaluation**
+2. **Dataset Validation** (MANDATORY before evaluations)
+   - validate_dataset_consistency: Structural integrity checks
+   - validate_dataset_quality: Content quality assessment (advisory)
+
+3. **VoiceLive Evaluation**
    - run_voicelive_evaluation: Execute audio tests through VoiceLive API
    - Session mode is AUTO-DETECTED based on dataset structure
    - Default timeout is 30 minutes (use timeout_minutes parameter for longer evaluations)
 
-3. **Results Analysis**
+4. **Results Analysis**
    - analyze_evaluation_results: Analyze evaluation OUTPUT files (not input datasets!)
    - Extracts metrics like groundedness, relevance, latency, task completion
    - Provides insights and recommendations
 
-4. **Dataset Discovery**
+5. **Dataset Discovery**
    - list_datasets: Find available datasets in the repository
+
+## Required vs Optional Dataset Fields
+
+**REQUIRED (evaluation fails without these):**
+- `WavPath` or `audio`: Path to audio file
+
+**OPTIONAL (uses defaults if missing):**
+- `Question`/`question`: User query transcript (default: None)
+- `Answer`/`answer`: Expected response for evaluation (default: None, skips ResponseCompleteness)
+- `tool_definitions`: Available tools (default: [] no tools)
+- `conversationID`/`conversation_id`: Conversation grouping (default: 'default')
+- `system_prompt`: Agent instructions (default: script default prompt)
+
+When optional fields are missing, ALWAYS ask the user if they want to proceed with defaults
+before running the evaluation.
 
 ## Important: Input Datasets vs Output Results
 
-- **Input datasets** (`.jsonl` in sample_evaluation_input/): Use `validate_dataset_consistency` and `validate_dataset_quality`
+- **Input datasets** (`.jsonl` in sample_evaluation_input/): Use `check_dataset_schema`, `validate_dataset_consistency`, `validate_dataset_quality`
 - **Evaluation outputs** (`.jsonl` in output/ folders): Use `analyze_evaluation_results`
 
 Do NOT use validation tools on evaluation output files - they have different formats!
@@ -842,21 +964,21 @@ user explicitly says something like "use single session mode" or "run in single 
 
 ## Workflow Rules
 
-1. **Always validate before evaluation**: When asked to evaluate a dataset, FIRST run 
-   validate_dataset_consistency. If it fails, explain the errors and stop.
+1. **Check schema before evaluation**: When asked to evaluate, FIRST run check_dataset_schema.
+   - If required fields missing → STOP and explain
+   - If optional fields missing → ASK USER if they want to proceed with defaults
+   - If user confirms or all fields present → proceed to validation
 
-2. **Quality is advisory**: After consistency passes, run validate_dataset_quality to 
-   provide insights, but don't block evaluation if quality is low (just warn).
+2. **Validate before evaluation**: Run validate_dataset_consistency. If it fails with real 
+   errors (not just missing optional fields), explain and stop.
 
-3. **Be helpful with errors**: When validation fails, explain what went wrong and 
-   suggest specific fixes.
+3. **Quality is advisory**: validate_dataset_quality provides insights but doesn't block.
 
-4. **Report progress**: For multi-step workflows, explain what you're doing at each step.
+4. **Be helpful with errors**: Explain what's missing/wrong and suggest fixes.
 
-5. **Always show complete dataset lists**: When listing datasets, ALWAYS show ALL datasets 
-   found. Never summarize or truncate the list. Include every dataset with its name, entry 
-   count, and folder location. If there are many datasets, organize them clearly but still 
-   show all of them.
+5. **Report progress**: Explain what you're doing at each step.
+
+6. **Always show complete dataset lists**: Never truncate dataset listings.
 
 ## Status Messages and Progress Reporting
 
@@ -880,28 +1002,35 @@ When running evaluations, inform users:
 ## Example Workflows
 
 User: "Validate my dataset at C:\\datasets\\test.jsonl"
-→ Say "I'll validate your dataset now..."
-→ Run validate_dataset_consistency first
-→ If passed, say "Consistency check passed! Running quality validation..."
+→ Run check_dataset_schema first
+→ If optional fields missing, inform user what's missing and their defaults
+→ Run validate_dataset_consistency
 → Run validate_dataset_quality
-→ Report comprehensive results with status_message
+→ Report comprehensive results
 
 User: "Run full evaluation on dataset X"  
-→ Say "Starting full evaluation workflow. This may take several minutes..."
-→ Run validate_dataset_consistency (MUST pass)
-→ Report: "✓ Consistency validation passed. Running quality check..."
-→ Run validate_dataset_quality (advisory)
-→ Report: "Quality check complete. Starting VoiceLive evaluation..."
-→ Run run_voicelive_evaluation (let it auto-detect session_mode)
-→ Report results including elapsed time, session_mode used, and output location
+→ Run check_dataset_schema
+→ If optional fields missing (e.g., no system_prompt, no conversationID):
+  - Tell user: "Dataset is missing optional fields: system_prompt (will use default), 
+    conversationID (will treat all as one conversation). Do you want to proceed?"
+  - Wait for user confirmation
+→ If user confirms OR all fields present:
+  - Run validate_dataset_consistency
+  - Run validate_dataset_quality (advisory)
+  - Run run_voicelive_evaluation
+  - Report results
 
 User: "Run evaluation on dataset X using single session mode"
-→ Validate first, then run with session_mode="single" (user explicitly requested)
+→ Check schema, validate, then run with session_mode="single"
 
 User: "What datasets are available?"
 → Run list_datasets
 → Present ALL datasets found (never summarize or truncate)
 → Show name, entry count, and folder for each
+
+User: "Analyze my evaluation results"
+→ Run analyze_evaluation_results on the output file
+→ Present metrics and insights
 
 User: "Analyze my evaluation results" or "What insights from the evaluation?"
 → Run analyze_evaluation_results on the output file
@@ -918,6 +1047,7 @@ def create_agent(client: AgentsClient, model: str) -> tuple:
     
     # Define function tools
     functions = FunctionTool(functions=[
+        check_dataset_schema,
         validate_dataset_consistency,
         validate_dataset_quality,
         run_voicelive_evaluation,

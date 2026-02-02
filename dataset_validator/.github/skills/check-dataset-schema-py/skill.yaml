@@ -1,0 +1,98 @@
+name: check-dataset-schema
+version: 1.0.0
+language: python
+description: |
+  Quick pre-validation check to analyze dataset fields and identify what's 
+  required vs optional. Use this BEFORE full validation to understand what
+  defaults will be applied during evaluation.
+  
+  Unlike consistency validation (which may fail on missing fields), this tool
+  distinguishes between:
+  - REQUIRED fields (evaluation cannot proceed without these)
+  - OPTIONAL fields (evaluation uses defaults if missing)
+  
+  REQUIRED (evaluation fails without):
+    - WavPath or audio: Path to audio file
+    
+  OPTIONAL (uses defaults if missing):
+    - Question/question: User query transcript (default: None)
+    - Answer/answer: Expected response (default: None, skips ResponseCompleteness)
+    - tool_definitions: Available tools (default: [] no tools)
+    - conversationID/conversation_id: Conversation grouping (default: 'default')
+    - system_prompt: Agent instructions (default: script default prompt)
+
+when_to_use:
+  - BEFORE running evaluations to understand what defaults will be used
+  - When creating new datasets to verify field coverage
+  - To quickly check if a dataset needs additional metadata
+  - Before full validation to set user expectations about missing optional fields
+  - When user asks about dataset readiness or completeness
+
+entry_point: ../check_dataset_schema.py
+
+parameters:
+  - name: dataset_path
+    type: string
+    required: true
+    description: Path to JSONL file or dataset folder
+    
+  - name: json
+    type: boolean
+    required: false
+    default: false
+    description: Output results as JSON instead of human-readable report
+
+returns:
+  exit_code:
+    type: integer
+    values:
+      0: All fields present (required and optional)
+      1: Error or missing required fields (cannot proceed)
+      2: Can proceed but optional fields missing (warnings)
+  
+  attributes:
+    status: One of 'passed', 'warnings', 'failed', 'error'
+    can_proceed: Boolean indicating if evaluation can run
+    total_entries: Number of entries in dataset
+    required_missing: List of missing required fields
+    optional_missing: List of missing optional fields with their defaults
+
+examples:
+  - description: Basic schema check with human-readable output
+    command: python check_dataset_schema.py dataset.jsonl
+    
+  - description: Check folder (auto-detects JSONL file)
+    command: python check_dataset_schema.py ./datasets/wave1/
+    
+  - description: Output as JSON for programmatic use
+    command: python check_dataset_schema.py dataset.jsonl --json
+
+workflow_guidance:
+  when_optional_missing: |
+    If optional fields are missing, ASK the user if they want to proceed 
+    with defaults before running the evaluation. Explain what defaults will
+    be used for each missing field.
+    
+  when_required_missing: |
+    If required fields are missing, STOP and explain which fields need to
+    be added before evaluation can proceed.
+
+integration_modes:
+  dynamic_discovery:
+    description: Agent discovers skill and uses it before validation
+    agent_reads: when_to_use, description, workflow_guidance
+    agent_decides: Whether to ask user about missing optional fields
+    best_for: User-friendly evaluation workflows
+    
+  programmatic:
+    description: Developer uses in validation pipeline
+    import: from check_dataset_schema import DatasetSchemaChecker
+    best_for: Automated pipelines, CI/CD checks
+
+tags:
+  - validation
+  - dataset
+  - schema
+  - pre-validation
+  - voice-agent
+  - data-quality
