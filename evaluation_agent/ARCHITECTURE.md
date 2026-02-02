@@ -62,6 +62,7 @@ We implemented a **Python-based agent using Azure AI Agents SDK** with local fun
 | Authentication | DefaultAzureCredential | Works locally (CLI) and in production (Managed Identity) |
 | Session management | Auto-detection | Reduces user friction, intelligent defaults |
 | Progress feedback | Console print + return values | Immediate visibility during long operations |
+| Tracing | OpenTelemetry + Azure Monitor | Standard protocol, dual local/cloud support |
 
 ---
 
@@ -117,6 +118,49 @@ We implemented a **Python-based agent using Azure AI Agents SDK** with local fun
 - Long operations (evaluations) need visibility
 - Agent response comes after function completes
 - Users see progress without waiting
+
+### 6. OpenTelemetry-Based Tracing
+
+**Decision:** Use OpenTelemetry as the tracing standard with automatic exporter selection.
+
+**Rationale:**
+- Industry standard protocol (vendor-neutral)
+- Native integration with Azure Monitor / Application Insights
+- Azure AI Agents SDK has built-in OpenTelemetry instrumentation
+- Same code works locally (console) and in production (cloud)
+
+**Implementation:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     tracing.py Module                        │
+├─────────────────────────────────────────────────────────────┤
+│  setup_tracing()                                            │
+│    ├── Check APPLICATIONINSIGHTS_CONNECTION_STRING          │
+│    │     ├── Set? → Azure Monitor exporter                  │
+│    │     └── Not set? → Console exporter                    │
+│    ├── Configure OpenTelemetry TracerProvider               │
+│    ├── Instrument Azure AI Agents SDK (AIAgentsInstrumentor)│
+│    └── Configure structured logging                         │
+├─────────────────────────────────────────────────────────────┤
+│  get_tracer(name) → OpenTelemetry Tracer                    │
+│  get_logger(name) → Python Logger                           │
+│  log_tool_execution(tool, status, details)                  │
+│  trace_tool_function(func) → Decorator                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**What Gets Traced:**
+| Span/Event | Attributes |
+|------------|------------|
+| `agent.main` | model, mode (single/interactive), cloud_tracing |
+| `agent.session` | session_id |
+| `tool.*` | tool.name, tool.args, tool.status, tool.error |
+| Tool events | dataset, entries, elapsed_seconds |
+
+**Trade-offs:**
+- Adds ~15 dependencies (OpenTelemetry stack)
+- Console tracing can be verbose in DEBUG mode
+- Azure Monitor requires connection string configuration
 
 ---
 

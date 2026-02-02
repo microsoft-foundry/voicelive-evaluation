@@ -11,5 +11,13 @@ azure-ai-voicelive>=1.2.0b2
 # Environment configuration
 python-dotenv>=1.0.0
 
+# Tracing and Logging (OpenTelemetry)
+opentelemetry-sdk>=1.20.0
+azure-core-tracing-opentelemetry>=1.0.0b11
+
+# Optional: Azure Monitor (for cloud tracing to Application Insights)
+# Install with: pip install azure-monitor-opentelemetry
+# azure-monitor-opentelemetry>=1.6.0
+
 # Optional: For additional features
 # azure-ai-projects>=2.0.0b2

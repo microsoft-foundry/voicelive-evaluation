@@ -10,6 +10,11 @@ Key Principle: All API calls use Azure Identity - NO API KEYS.
 Usage:
     python agent.py                          # Interactive mode
     python agent.py --message "Validate dataset X"  # Single message mode
+    
+Tracing/Logging:
+    Set APPLICATIONINSIGHTS_CONNECTION_STRING for Azure Monitor tracing
+    Otherwise, uses console tracing for local development
+    Set EVAL_AGENT_LOG_LEVEL=DEBUG for verbose logging
 """
 
 import os
@@ -19,6 +24,7 @@ import subprocess
 import threading
 import queue
 import time
+import argparse
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +40,12 @@ load_dotenv(SCRIPT_DIR / ".env")
 # Add parent directory to path for imports
 REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_ROOT))
+
+# Import tracing module - must be after path setup
+from tracing import (
+    setup_tracing, get_tracer, get_logger, get_conversation_logger,
+    trace_tool_function, log_tool_execution, ToolCall, get_log_directory
+)
 
 
 # =============================================================================
@@ -136,6 +148,7 @@ def check_dataset_schema(dataset_path: str) -> str:
     Returns:
         JSON with schema analysis, missing optional fields, and whether evaluation can proceed
     """
+    log_tool_execution("check_dataset_schema", "started", {"dataset_path": dataset_path})
     print(f"\n⚙️  Checking dataset schema...", flush=True)
     
     script_path = REPO_ROOT / "dataset_validator" / "check_dataset_schema.py"
@@ -161,6 +174,7 @@ def check_dataset_schema(dataset_path: str) -> str:
         try:
             parsed = json.loads(result.stdout)
         except json.JSONDecodeError:
+            log_tool_execution("check_dataset_schema", "failed", {"error": "parse_error"})
             return json.dumps({
                 "action": "check_dataset_schema",
                 "status": "error",
@@ -196,9 +210,15 @@ def check_dataset_schema(dataset_path: str) -> str:
         else:
             parsed["recommendation"] = "PROCEED: All fields present"
         
+        log_tool_execution("check_dataset_schema", "completed", {
+            "status": parsed.get("status"),
+            "can_proceed": parsed.get("can_proceed"),
+            "entries": parsed.get("total_entries", 0)
+        })
         return json.dumps(parsed)
         
     except subprocess.TimeoutExpired:
+        log_tool_execution("check_dataset_schema", "failed", {"error": "timeout"})
         print("⚠ Schema check timed out", flush=True)
         return json.dumps({
             "action": "check_dataset_schema",
@@ -207,6 +227,7 @@ def check_dataset_schema(dataset_path: str) -> str:
             "error": "Schema check timed out"
         })
     except Exception as e:
+        log_tool_execution("check_dataset_schema", "failed", {"error": str(e)[:100]})
         print(f"✗ Schema check error: {str(e)[:50]}", flush=True)
         return json.dumps({
             "action": "check_dataset_schema",
@@ -539,6 +560,15 @@ def run_voicelive_evaluation(
     else:
         auto_detected = False
     
+    # Log evaluation start with tracing
+    log_tool_execution("run_voicelive_evaluation", "started", {
+        "dataset": dataset_name,
+        "entries": total_entries,
+        "session_mode": session_mode,
+        "auto_detected": auto_detected,
+        "timeout_minutes": timeout_minutes
+    })
+    
     mode_info = f" (auto-detected)" if auto_detected else ""
     print(f"\n⚙️  Starting VoiceLive evaluation on {dataset_name}...", flush=True)
     print(f"   Session mode: {session_mode}{mode_info}", flush=True)
@@ -579,6 +609,14 @@ def run_voicelive_evaluation(
     else:
         status_msg = f"✗ Evaluation ERROR for {dataset_name}"
         print(f"\n{status_msg}", flush=True)
+    
+    # Log completion with metrics
+    log_tool_execution("run_voicelive_evaluation", "completed", {
+        "status": result["status"],
+        "elapsed_seconds": result.get("elapsed_seconds"),
+        "files_processed": result.get("files_processed", 0),
+        "dataset": dataset_name
+    })
     
     response = {
         "action": "run_voicelive_evaluation",
@@ -1149,6 +1187,13 @@ class StreamingEventHandler(AgentEventHandler):
 
 def interactive_mode(client: AgentsClient, agent, toolset: ToolSet):
     """Run interactive conversation loop with streaming responses."""
+    logger = get_logger(__name__)
+    conv_logger = get_conversation_logger()
+    
+    # Set up conversation logging
+    conv_logger.set_system_message(AGENT_INSTRUCTIONS[:500])  # First 500 chars
+    thread_id = conv_logger.new_thread()
+    
     print("\n" + "="*60)
     print("Voice Live Evaluation Agent")
     print("="*60)
@@ -1157,6 +1202,7 @@ def interactive_mode(client: AgentsClient, agent, toolset: ToolSet):
     print("  - 'What datasets are available?'")
     print("  - 'Validate the dataset at path/to/dataset.jsonl'")
     print("  - 'Run full evaluation on dataset X'")
+    print(f"\nConversation logs: {get_log_directory()}")
     print("\nType 'quit' or 'exit' to end the session.")
     print("="*60 + "\n")
     
@@ -1174,6 +1220,10 @@ def interactive_mode(client: AgentsClient, agent, toolset: ToolSet):
                 print("\nGoodbye!")
                 break
             
+            # Start a new run for this turn
+            run_id = conv_logger.start_run()
+            tool_calls_logged = []
+            
             # Add user message
             client.messages.create(
                 thread_id=thread.id,
@@ -1183,6 +1233,7 @@ def interactive_mode(client: AgentsClient, agent, toolset: ToolSet):
             
             # Run agent with streaming for real-time feedback
             print("\nAgent: ", end="", flush=True)
+            assistant_response = ""
             
             # Try streaming first, fall back to non-streaming if it fails
             try:
@@ -1195,15 +1246,28 @@ def interactive_mode(client: AgentsClient, agent, toolset: ToolSet):
                 ) as stream:
                     stream.until_done()
                 
+                assistant_response = handler.current_text
+                
+                # Log any tool calls from the handler
+                for tc_name in handler.tool_calls_in_progress:
+                    tool_calls_logged.append(ToolCall(
+                        id=f"tc_{len(tool_calls_logged)}",
+                        name=tc_name,
+                        arguments={},
+                        status="completed"
+                    ))
+                
                 # If streaming didn't produce text (e.g., tool execution only),
                 # fetch the final response
                 if not handler.current_text.strip():
                     messages = client.messages.list(thread_id=thread.id, order="desc")
                     for msg in messages:
                         if msg.role == "assistant":
-                            print(msg.content[0].text.value)
+                            assistant_response = msg.content[0].text.value
+                            print(assistant_response)
                             break
             except Exception as stream_error:
+                logger.debug(f"Streaming failed, falling back: {stream_error}")
                 # Fall back to non-streaming mode
                 run = client.runs.create_and_process(
                     thread_id=thread.id,
@@ -1215,10 +1279,23 @@ def interactive_mode(client: AgentsClient, agent, toolset: ToolSet):
                     messages = client.messages.list(thread_id=thread.id, order="desc")
                     for msg in messages:
                         if msg.role == "assistant":
-                            print(msg.content[0].text.value)
+                            assistant_response = msg.content[0].text.value
+                            print(assistant_response)
                             break
                 else:
-                    print(f"Run failed with status: {run.status}")
+                    assistant_response = f"Run failed with status: {run.status}"
+                    print(assistant_response)
+            
+            # Log conversation turn for evaluation
+            conv_logger.log_turn(
+                user_input=user_input,
+                assistant_output=assistant_response,
+                tool_calls=tool_calls_logged,
+                metadata={
+                    "thread_id": thread.id,
+                    "agent_id": agent.id,
+                }
+            )
             
             print()
             
@@ -1226,55 +1303,88 @@ def interactive_mode(client: AgentsClient, agent, toolset: ToolSet):
             print("\n\nInterrupted. Goodbye!")
             break
         except Exception as e:
+            logger.error(f"Error in conversation: {e}")
             print(f"\nError: {e}")
 
 
 def main():
     """Main entry point."""
-    import argparse
-    
     parser = argparse.ArgumentParser(description="Voice Live Evaluation Agent")
     parser.add_argument("--message", "-m", help="Single message to process (non-interactive)")
     parser.add_argument("--endpoint", help="Azure AI Project endpoint (or set PROJECT_ENDPOINT env var)")
     parser.add_argument("--model", help="Model deployment name (or set MODEL_DEPLOYMENT_NAME env var)")
+    parser.add_argument("--trace-console", action="store_true", 
+                        help="Force console tracing even if Azure Monitor is configured")
+    parser.add_argument("--trace-content", action="store_true",
+                        help="Include message content in traces (may contain PII)")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="Enable verbose logging (DEBUG level)")
     args = parser.parse_args()
+    
+    # Set log level if verbose
+    if args.verbose:
+        os.environ["EVAL_AGENT_LOG_LEVEL"] = "DEBUG"
+    
+    # Initialize tracing
+    is_cloud = setup_tracing(
+        service_name="voicelive-evaluation-agent",
+        force_console=args.trace_console,
+        enable_content_capture=args.trace_content,
+    )
+    
+    logger = get_logger(__name__)
+    tracer = get_tracer(__name__)
     
     # Get configuration
     endpoint = args.endpoint or os.environ.get("PROJECT_ENDPOINT")
     model = args.model or os.environ.get("MODEL_DEPLOYMENT_NAME", "gpt-4o-mini")
     
     if not endpoint:
+        logger.error("PROJECT_ENDPOINT not configured")
         print("Error: PROJECT_ENDPOINT environment variable or --endpoint argument required.")
         print("\nSet it with:")
         print('  $env:PROJECT_ENDPOINT = "https://<resource>.services.ai.azure.com/api/projects/<project>"')
         sys.exit(1)
     
-    # Create client with Azure Identity
-    print("Connecting to Azure AI Foundry...")
-    credential = DefaultAzureCredential()
-    client = AgentsClient(
-        endpoint=endpoint,
-        credential=credential,
-    )
-    
-    # Create agent
-    print(f"Creating agent with model: {model}")
-    agent, toolset = create_agent(client, model)
-    print(f"Agent created: {agent.id}")
-    
-    try:
-        if args.message:
-            # Single message mode
-            response = run_conversation(client, agent, toolset, args.message)
-            print(response)
-        else:
-            # Interactive mode
-            interactive_mode(client, agent, toolset)
-    finally:
-        # Cleanup
-        print("\nCleaning up agent...")
-        client.delete_agent(agent.id)
-        print("Done.")
+    # Start main session span
+    with tracer.start_as_current_span("agent.main") as main_span:
+        main_span.set_attribute("agent.model", model)
+        main_span.set_attribute("agent.mode", "single" if args.message else "interactive")
+        main_span.set_attribute("tracing.cloud_enabled", is_cloud)
+        
+        # Create client with Azure Identity
+        logger.info(f"Connecting to Azure AI Foundry (cloud_tracing={is_cloud})")
+        print("Connecting to Azure AI Foundry...")
+        credential = DefaultAzureCredential()
+        client = AgentsClient(
+            endpoint=endpoint,
+            credential=credential,
+        )
+        
+        # Create agent
+        logger.info(f"Creating agent with model: {model}")
+        print(f"Creating agent with model: {model}")
+        agent, toolset = create_agent(client, model)
+        main_span.set_attribute("agent.id", agent.id)
+        logger.info(f"Agent created: {agent.id}")
+        print(f"Agent created: {agent.id}")
+        
+        try:
+            if args.message:
+                # Single message mode
+                with tracer.start_as_current_span("agent.single_message") as msg_span:
+                    msg_span.set_attribute("message.length", len(args.message))
+                    response = run_conversation(client, agent, toolset, args.message)
+                    print(response)
+            else:
+                # Interactive mode
+                interactive_mode(client, agent, toolset)
+        finally:
+            # Cleanup
+            logger.info("Cleaning up agent")
+            print("\nCleaning up agent...")
+            client.delete_agent(agent.id)
+            print("Done.")
 
 
 if __name__ == "__main__":
