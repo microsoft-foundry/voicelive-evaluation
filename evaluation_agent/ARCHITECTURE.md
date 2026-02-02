@@ -206,6 +206,27 @@ else:
 - Batch processor adds subprocess overhead
 - But: subprocess isolation prevents state conflicts in parallel sessions
 
+### 8. Agent-Owned Storage Directories
+
+**Decision:** Agent uses its own output/log directories rather than downstream script defaults.
+
+**Rationale:**
+- Agent should control where its artifacts are stored
+- Enables consistent configuration for local vs cloud deployment
+- Single environment variable configures storage location
+- Easier to find agent outputs (in `./output/` not `prototype_v1/output/`)
+
+**Implementation:**
+```python
+def get_agent_output_directory() -> Path:
+    env_path = os.environ.get("EVAL_AGENT_OUTPUT_DIR")
+    if env_path:
+        return Path(env_path)
+    return SCRIPT_DIR / "output"  # Agent's local directory
+```
+
+**Cloud deployment:** Set `EVAL_AGENT_OUTPUT_DIR` to mounted cloud storage path.
+
 ---
 
 ## Implementation Approaches Evaluated

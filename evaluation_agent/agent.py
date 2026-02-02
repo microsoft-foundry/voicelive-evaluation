@@ -49,6 +49,32 @@ from tracing import (
 
 
 # =============================================================================
+# Agent Storage Configuration
+# =============================================================================
+
+def get_agent_output_directory() -> Path:
+    """
+    Get the agent's default output directory for evaluation results.
+    
+    Uses EVAL_AGENT_OUTPUT_DIR environment variable if set, otherwise defaults
+    to ./output relative to the agent script directory.
+    
+    For cloud deployment, set EVAL_AGENT_OUTPUT_DIR to a cloud storage path
+    (e.g., Azure Blob mounted path or shared file system).
+    """
+    env_path = os.environ.get("EVAL_AGENT_OUTPUT_DIR")
+    if env_path:
+        output_dir = Path(env_path)
+    else:
+        # Default to agent's local output directory
+        output_dir = SCRIPT_DIR / "output"
+    
+    # Ensure directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
+
+
+# =============================================================================
 # Tool Functions - These wrap our existing validation/evaluation scripts
 # =============================================================================
 
@@ -510,8 +536,8 @@ def run_voicelive_evaluation(
 
     Args:
         test_files_path: Path to audio test file (.wav) or dataset file (.jsonl)
-        output_dir: Directory for audio output files (default: ./output)
-        evaluation_dir: Directory for evaluation result files (default: ./output)
+        output_dir: Directory for audio output files (default: agent's output directory)
+        evaluation_dir: Directory for evaluation result files (default: agent's output directory)
         session_mode: Session handling mode. If not specified, auto-detected:
                       - 'per-conversation': Auto-selected if dataset has conversationID field
                       - 'per-file': Auto-selected if no conversationID field
@@ -527,6 +553,13 @@ def run_voicelive_evaluation(
     Returns:
         JSON string with evaluation results including success status and output paths
     """
+    # Use agent's default output directory if not specified
+    agent_output = get_agent_output_directory()
+    if output_dir is None:
+        output_dir = str(agent_output)
+    if evaluation_dir is None:
+        evaluation_dir = str(agent_output)
+    
     # Determine which script to use based on parallelism needs
     batch_processor_path = REPO_ROOT / "prototype_v1" / "batch_processor.py"
     single_script_path = REPO_ROOT / "prototype_v1" / "voice_agent_audio_input_evaluation.py"
@@ -613,23 +646,22 @@ def run_voicelive_evaluation(
             "--test-files", test_files_path,
             "--session-mode", session_mode,
             "--max-workers", str(effective_workers),
-            "--timeout", str(timeout_minutes * 60)  # Convert to seconds
+            "--timeout", str(timeout_minutes * 60),  # Convert to seconds
+            "--output-dir", output_dir,
+            "--evaluation", evaluation_dir
         ]
-        if output_dir:
-            cmd.extend(["--output-dir", output_dir])
-        if evaluation_dir:
-            cmd.extend(["--evaluation", evaluation_dir])
         if verbose:
             cmd.append("--verbose")
     else:
         # Use single evaluation script (sequential)
         print(f"   Mode: Sequential", flush=True)
-        cmd = [sys.executable, str(single_script_path), "--test-files", test_files_path]
-        if output_dir:
-            cmd.extend(["--output-dir", output_dir])
-        if evaluation_dir:
-            cmd.extend(["--evaluation", evaluation_dir])
-        cmd.extend(["--session-mode", session_mode])
+        cmd = [
+            sys.executable, str(single_script_path),
+            "--test-files", test_files_path,
+            "--output-dir", output_dir,
+            "--evaluation", evaluation_dir,
+            "--session-mode", session_mode
+        ]
         if session_suffix:
             cmd.extend(["--session-suffix", session_suffix])
         if verbose:

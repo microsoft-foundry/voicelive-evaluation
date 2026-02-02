@@ -339,8 +339,18 @@ Traces automatically flow to:
 | `MODEL_DEPLOYMENT_NAME` | No | Model to use (default: gpt-4o-mini) |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | No | Azure Monitor (enables cloud tracing) |
 | `EVAL_AGENT_MAX_WORKERS` | No | Default parallel workers (default: 4) |
+| `EVAL_AGENT_OUTPUT_DIR` | No | Evaluation output directory (default: ./output) |
 | `EVAL_AGENT_LOG_DIR` | No | Log directory (default: ./logs) |
 | `EVAL_AGENT_LOG_LEVEL` | No | Logging level (default: INFO) |
+
+### Storage Directories
+
+| Directory | Purpose | Environment Variable |
+|-----------|---------|---------------------|
+| `./output/` | Evaluation results and audio files | `EVAL_AGENT_OUTPUT_DIR` |
+| `./logs/` | Conversation logs and traces | `EVAL_AGENT_LOG_DIR` |
+
+For cloud deployment, set these environment variables to cloud storage paths (e.g., Azure Blob mounted paths).
 
 ### Timeout Settings
 
