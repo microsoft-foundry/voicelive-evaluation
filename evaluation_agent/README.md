@@ -126,7 +126,7 @@ For VoiceLive evaluations (which can take several minutes), the agent shows:
 
 ## Agent Tools
 
-The agent has 4 built-in tools:
+The agent has 5 built-in tools:
 
 | Tool | Purpose |
 |------|---------|
@@ -134,6 +134,18 @@ The agent has 4 built-in tools:
 | `validate_dataset_consistency` | MANDATORY structural validation before evaluation |
 | `validate_dataset_quality` | ADVISORY content quality assessment |
 | `run_voicelive_evaluation` | Execute VoiceLive API tests with smart session mode and progress tracking |
+| `analyze_evaluation_results` | Analyze evaluation OUTPUT files for metrics and insights |
+
+### Input Datasets vs Output Results
+
+**Important**: Use the right tool for the right file type:
+- **Input datasets** (in `sample_evaluation_input/`): Use `validate_dataset_consistency` and `validate_dataset_quality`
+- **Evaluation outputs** (in `output/` folders): Use `analyze_evaluation_results`
+
+The `analyze_evaluation_results` tool extracts:
+- Metrics: groundedness, relevance, task completion, intent resolution, latency, etc.
+- Aggregated statistics (mean, min, max)
+- Insights and recommendations
 
 ---
 

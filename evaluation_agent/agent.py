@@ -547,6 +547,231 @@ def list_datasets(folder_path: str = None) -> str:
     })
 
 
+def analyze_evaluation_results(results_path: str) -> str:
+    """
+    Analyzes VoiceLive evaluation output files to extract insights and metrics.
+    
+    Use this tool for evaluation OUTPUT files (from run_voicelive_evaluation), 
+    NOT for input datasets. Evaluation outputs contain metrics like groundedness,
+    relevance, task completion, latency, etc.
+    
+    Args:
+        results_path: Path to evaluation output file (.jsonl) or directory containing results
+        
+    Returns:
+        JSON string with analysis including aggregated metrics, insights, and recommendations
+    """
+    print(f"\n⚙️  Analyzing evaluation results...", flush=True)
+    
+    results_file = Path(results_path)
+    
+    if not results_file.exists():
+        print(f"✗ File not found: {results_path}", flush=True)
+        return json.dumps({
+            "action": "analyze_evaluation_results",
+            "status": "error",
+            "status_message": f"✗ File not found: {results_path}",
+            "error": f"Results file does not exist: {results_path}"
+        })
+    
+    try:
+        # Read the file - evaluation outputs can be concatenated JSON objects
+        content = results_file.read_text(encoding='utf-8')
+        
+        # Parse concatenated JSON objects (common format for eval outputs)
+        entries = []
+        decoder = json.JSONDecoder()
+        idx = 0
+        while idx < len(content):
+            content_sub = content[idx:].lstrip()
+            if not content_sub:
+                break
+            try:
+                obj, end = decoder.raw_decode(content_sub)
+                entries.append(obj)
+                idx += len(content) - len(content_sub) + end
+            except json.JSONDecodeError:
+                # Try JSONL format as fallback
+                break
+        
+        # If concatenated JSON didn't work, try JSONL
+        if not entries:
+            for line in content.strip().split('\n'):
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        
+        if not entries:
+            print(f"✗ No valid entries found in file", flush=True)
+            return json.dumps({
+                "action": "analyze_evaluation_results",
+                "status": "error", 
+                "status_message": "✗ No valid entries found in file",
+                "error": "Could not parse any valid JSON entries from the file"
+            })
+        
+        # Dynamically collect ALL metrics from entries (including custom metrics)
+        metrics_collected = {}  # Will be populated dynamically
+        
+        turns_analyzed = 0
+        conversations = set()
+        
+        for entry in entries:
+            # Track conversation IDs if present
+            ds_item = entry.get('datasource_item', {})
+            if isinstance(ds_item, dict):
+                conv_id = ds_item.get('conversation_id') or ds_item.get('conversationID')
+                if conv_id:
+                    conversations.add(conv_id)
+            
+            # Extract ALL metrics from 'results' array (Foundry eval format)
+            # This handles both built-in and custom metrics dynamically
+            results_list = entry.get('results', [])
+            if results_list:
+                turns_analyzed += 1
+                for result in results_list:
+                    if not isinstance(result, dict):
+                        continue
+                    
+                    # Get metric name - normalize to snake_case for consistency
+                    metric_name = result.get('name', '')
+                    if not metric_name:
+                        continue
+                    metric_key = metric_name.lower().replace('-', '_').replace(' ', '_')
+                    
+                    # Get score value
+                    score = result.get('score')
+                    if score is not None:
+                        try:
+                            score_float = float(score)
+                            if metric_key not in metrics_collected:
+                                metrics_collected[metric_key] = {
+                                    'values': [],
+                                    'original_name': metric_name,
+                                    'passed_count': 0,
+                                    'failed_count': 0
+                                }
+                            metrics_collected[metric_key]['values'].append(score_float)
+                            
+                            # Track pass/fail if available
+                            if result.get('passed') is True:
+                                metrics_collected[metric_key]['passed_count'] += 1
+                            elif result.get('passed') is False:
+                                metrics_collected[metric_key]['failed_count'] += 1
+                        except (ValueError, TypeError):
+                            pass
+            
+            # Extract latency and other metrics from datasource_item.metrics
+            if isinstance(ds_item, dict):
+                ds_metrics = ds_item.get('metrics', {})
+                if isinstance(ds_metrics, dict):
+                    for key, value in ds_metrics.items():
+                        if value is None:
+                            continue
+                        try:
+                            value_float = float(value)
+                            metric_key = key.lower().replace('-', '_').replace(' ', '_')
+                            if metric_key not in metrics_collected:
+                                metrics_collected[metric_key] = {
+                                    'values': [],
+                                    'original_name': key,
+                                    'passed_count': 0,
+                                    'failed_count': 0
+                                }
+                            metrics_collected[metric_key]['values'].append(value_float)
+                        except (ValueError, TypeError):
+                            pass
+        
+        # Calculate aggregates for all discovered metrics
+        aggregated = {}
+        for metric_key, data in metrics_collected.items():
+            values = data['values']
+            if values:
+                metric_info = {
+                    "name": data['original_name'],
+                    "mean": round(sum(values) / len(values), 3),
+                    "min": round(min(values), 3),
+                    "max": round(max(values), 3),
+                    "count": len(values)
+                }
+                # Include pass/fail stats if available
+                if data['passed_count'] > 0 or data['failed_count'] > 0:
+                    total = data['passed_count'] + data['failed_count']
+                    metric_info["passed"] = data['passed_count']
+                    metric_info["failed"] = data['failed_count']
+                    metric_info["pass_rate"] = round(data['passed_count'] / total, 3) if total > 0 else None
+                
+                aggregated[metric_key] = metric_info
+        
+        # Generate insights based on common metrics (if present)
+        insights = []
+        
+        # Quality metrics (typically 1-5 scale)
+        quality_metrics = ['groundedness', 'relevance', 'response_completeness', 'intent_resolution', 'coherence', 'fluency']
+        for metric in quality_metrics:
+            if metric in aggregated:
+                mean = aggregated[metric]['mean']
+                name = aggregated[metric]['name']
+                if mean >= 4.0:
+                    insights.append(f"✓ Strong {name} ({mean}/5)")
+                elif mean < 3.0:
+                    insights.append(f"⚠ Low {name} ({mean}/5) - may need improvement")
+        
+        # Binary/rate metrics (0-1 scale)
+        rate_metrics = ['task_completion', 'task_adherence', 'tool_call_success', 'tool_output_utilization']
+        for metric in rate_metrics:
+            if metric in aggregated:
+                mean = aggregated[metric]['mean']
+                name = aggregated[metric]['name']
+                if mean >= 0.9:
+                    insights.append(f"✓ Excellent {name} ({mean*100:.0f}%)")
+                elif mean < 0.7:
+                    insights.append(f"⚠ {name} is below 70% ({mean*100:.0f}%) - review logic")
+        
+        # Latency metrics
+        latency_keys = [k for k in aggregated.keys() if 'latency' in k.lower() or 'response_time' in k.lower()]
+        for metric in latency_keys:
+            mean = aggregated[metric]['mean']
+            name = aggregated[metric]['name']
+            if mean > 3.0:
+                insights.append(f"⚠ High {name}: {mean:.2f}s average")
+            else:
+                insights.append(f"✓ Good {name}: {mean:.2f}s average")
+        
+        # Custom metrics - report any with low pass rates
+        for metric_key, data in aggregated.items():
+            if metric_key not in quality_metrics + rate_metrics + latency_keys:
+                if 'pass_rate' in data and data['pass_rate'] is not None:
+                    if data['pass_rate'] < 0.8:
+                        insights.append(f"⚠ {data['name']} pass rate: {data['pass_rate']*100:.0f}%")
+        
+        print(f"✓ Analyzed {turns_analyzed} turns, {len(aggregated)} metrics from {len(conversations) or 1} conversation(s)", flush=True)
+        
+        return json.dumps({
+            "action": "analyze_evaluation_results",
+            "status": "success",
+            "status_message": f"✓ Analyzed {turns_analyzed} turns with {len(aggregated)} metrics",
+            "file": str(results_file),
+            "turns_analyzed": turns_analyzed,
+            "conversations": len(conversations) if conversations else 1,
+            "metrics_count": len(aggregated),
+            "metrics": aggregated,
+            "insights": insights
+        })
+        
+    except Exception as e:
+        print(f"✗ Analysis error: {str(e)[:50]}", flush=True)
+        return json.dumps({
+            "action": "analyze_evaluation_results",
+            "status": "error",
+            "status_message": f"✗ Analysis error: {str(e)[:50]}",
+            "error": str(e)
+        })
+
+
 # =============================================================================
 # Agent Setup
 # =============================================================================
@@ -565,8 +790,20 @@ validate datasets and run voice agent evaluations.
    - Session mode is AUTO-DETECTED based on dataset structure
    - Default timeout is 30 minutes (use timeout_minutes parameter for longer evaluations)
 
-3. **Dataset Discovery**
+3. **Results Analysis**
+   - analyze_evaluation_results: Analyze evaluation OUTPUT files (not input datasets!)
+   - Extracts metrics like groundedness, relevance, latency, task completion
+   - Provides insights and recommendations
+
+4. **Dataset Discovery**
    - list_datasets: Find available datasets in the repository
+
+## Important: Input Datasets vs Output Results
+
+- **Input datasets** (`.jsonl` in sample_evaluation_input/): Use `validate_dataset_consistency` and `validate_dataset_quality`
+- **Evaluation outputs** (`.jsonl` in output/ folders): Use `analyze_evaluation_results`
+
+Do NOT use validation tools on evaluation output files - they have different formats!
 
 ## Session Mode Selection (AUTO-DETECTED)
 
@@ -648,6 +885,11 @@ User: "What datasets are available?"
 → Present ALL datasets found (never summarize or truncate)
 → Show name, entry count, and folder for each
 
+User: "Analyze my evaluation results" or "What insights from the evaluation?"
+→ Run analyze_evaluation_results on the output file
+→ Present metrics (groundedness, relevance, task completion, latency)
+→ Provide insights and recommendations
+
 ## Authentication Note
 All Azure API calls use Azure Identity (DefaultAzureCredential). No API keys are used.
 """
@@ -662,6 +904,7 @@ def create_agent(client: AgentsClient, model: str) -> tuple:
         validate_dataset_quality,
         run_voicelive_evaluation,
         list_datasets,
+        analyze_evaluation_results,
     ])
     
     # Create toolset for auto-execution
