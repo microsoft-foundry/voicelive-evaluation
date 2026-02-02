@@ -103,14 +103,24 @@ We implemented a **Python-based agent using Azure AI Agents SDK** with local fun
 - Reduces friction and errors
 - Agent instructions mention datasets by name, not full path
 
+**Implementation:**
+- Input datasets: Uses first `.jsonl` file found in folder
+- Evaluation results: Prioritizes `*aggregate*.jsonl` files (batch processor output)
+
 ### 4. Dynamic Metrics Extraction
 
-**Decision:** Discover ALL metrics dynamically rather than hardcoding known metrics.
+**Decision:** Discover ALL metrics dynamically from multiple output formats.
 
 **Rationale:**
 - Foundry evaluations can have custom metrics
+- Raw evaluation output has different structure than Foundry format
 - Future-proof against metric additions
 - No code changes needed for new metrics
+
+**Supported formats:**
+- Foundry evaluator output: `entry.results[].score`
+- Raw evaluation output: `entry.metrics.*`
+- Nested format: `entry.datasource_item.metrics.*`
 
 ### 5. Real-Time Console Status
 
@@ -358,6 +368,16 @@ Tries authentication methods in order:
 
 ## Open Topics & Future Work
 
+### Completed ✅
+
+| Item | Description | Status |
+|------|-------------|--------|
+| Parallel batch processing | Integrated batch_processor.py for parallel evaluations | ✅ Done |
+| Folder path resolution | Auto-find JSONL files in folders for all tools | ✅ Done |
+| Multi-format metrics extraction | Support Foundry, raw, and nested metric formats | ✅ Done |
+| OpenTelemetry tracing | Console + Azure Monitor with file logging | ✅ Done |
+| Conversation logging | Foundry-compatible JSONL for agent evaluation | ✅ Done |
+
 ### High Priority
 
 #### 1. Streaming Progress for Long Evaluations
@@ -368,15 +388,7 @@ Tries authentication methods in order:
 - WebSocket-based progress updates
 - Split into start/status/results functions
 
-#### 2. Batch Operations
-**Problem:** No built-in way to validate/evaluate multiple datasets in one command.
-
-**Potential Solutions:**
-- Add `batch_validate()` and `batch_evaluate()` functions
-- Parallel execution with progress aggregation
-- Summary report generation
-
-#### 3. Error Recovery & Retry
+#### 2. Error Recovery & Retry
 **Problem:** Network failures or transient errors abort the entire operation.
 
 **Potential Solutions:**
@@ -386,7 +398,7 @@ Tries authentication methods in order:
 
 ### Medium Priority
 
-#### 4. Result Caching
+#### 3. Result Caching
 **Problem:** Re-running validations on unchanged datasets wastes time.
 
 **Potential Solutions:**
@@ -394,7 +406,7 @@ Tries authentication methods in order:
 - Store validation results with timestamps
 - Skip if dataset unchanged
 
-#### 5. Custom Evaluator Integration
+#### 4. Custom Evaluator Integration
 **Problem:** Currently uses Foundry's built-in evaluators only.
 
 **Potential Solutions:**
@@ -402,7 +414,7 @@ Tries authentication methods in order:
 - Support for evaluator configuration files
 - Plugin architecture for evaluators
 
-#### 6. Conversation History Persistence
+#### 5. Conversation History Persistence
 **Problem:** Agent forgets context when restarted.
 
 **Potential Solutions:**
@@ -444,6 +456,8 @@ Tries authentication methods in order:
 | Error message parsing | Agent sometimes misinterprets errors | Medium |
 | Test coverage | No automated tests yet | High |
 | Type hints | Incomplete type annotations | Low |
+| ~~Folder path handling~~ | ~~analyze_evaluation_results didn't support folders~~ | ~~Medium~~ ✅ Fixed |
+| ~~Multi-format metrics~~ | ~~Only supported Foundry format, not raw eval output~~ | ~~Medium~~ ✅ Fixed |
 
 ---
 

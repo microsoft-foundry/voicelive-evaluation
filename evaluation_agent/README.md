@@ -123,7 +123,7 @@ Most parameters are optional - the agent infers sensible defaults from context.
 | `validate_dataset_consistency` | `dataset_path`, `expected_turns` (optional), `ignore_comments` |
 | `validate_dataset_quality` | `dataset_path`, `strict`, `verbose`, `json_output`, `ignore_comments` |
 | `run_voicelive_evaluation` | `test_files_path`, `output_dir`, `evaluation_dir`, `session_mode`, `session_suffix`, `timeout_minutes`, `max_workers`, `parallel`, `verbose` |
-| `analyze_evaluation_results` | `results_path` (folder or file) |
+| `analyze_evaluation_results` | `results_path` (folder or file, auto-finds aggregate JSONL) |
 
 ### Input vs Output Files
 
@@ -135,7 +135,9 @@ Most parameters are optional - the agent infers sensible defaults from context.
 ### Path Handling
 
 The agent accepts both **folder paths** and **file paths**:
-- **Folder**: Automatically finds the `.jsonl` file inside (recursive search)
+- **Folder**: Automatically finds the `.jsonl` file inside
+  - For input datasets: Uses first `.jsonl` found
+  - For evaluation results: Prioritizes `*aggregate*.jsonl` files
 - **File**: Uses the file directly
 
 ---
@@ -211,11 +213,16 @@ Status prints **immediately** when tools execute:
 
 ### Dynamic Metrics Analysis
 
-The `analyze_evaluation_results` tool automatically discovers ALL metrics:
-- Built-in metrics (groundedness, relevance, task_completion, etc.)
-- Custom metrics added to Foundry evaluations
-- Latency metrics from datasource_item
-- Pass/fail rates for each metric
+The `analyze_evaluation_results` tool automatically discovers ALL metrics from multiple formats:
+- **Foundry evaluation format**: Metrics from `results` array (groundedness, relevance, task_completion, etc.)
+- **Raw evaluation output**: Metrics directly in entry (latency, turn counts, audio response rates)
+- **Custom metrics**: Any numeric metrics added to evaluations
+- **Pass/fail rates**: For each metric when available
+
+Supported output formats:
+- Foundry evaluator output (with `results` array)
+- Raw VoiceLive evaluation output (with `metrics` object)
+- Aggregated batch processor output
 
 ---
 

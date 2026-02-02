@@ -785,6 +785,27 @@ def analyze_evaluation_results(results_path: str) -> str:
             "error": f"Results file does not exist: {results_path}"
         })
     
+    # If path is a directory, find the evaluation output file inside
+    if results_file.is_dir():
+        # Look for aggregate files first, then any .jsonl files
+        aggregate_files = list(results_file.glob("*aggregate*.jsonl"))
+        if aggregate_files:
+            results_file = aggregate_files[0]
+            print(f"📁 Folder provided, using: {results_file.name}", flush=True)
+        else:
+            jsonl_files = list(results_file.glob("*.jsonl"))
+            if jsonl_files:
+                results_file = jsonl_files[0]
+                print(f"📁 Folder provided, using: {results_file.name}", flush=True)
+            else:
+                print(f"✗ No .jsonl file found in folder: {results_path}", flush=True)
+                return json.dumps({
+                    "action": "analyze_evaluation_results",
+                    "status": "error",
+                    "status_message": f"✗ No .jsonl file found in folder",
+                    "error": f"No evaluation results file found in: {results_path}"
+                })
+    
     try:
         # Read the file - evaluation outputs can be concatenated JSON objects
         content = results_file.read_text(encoding='utf-8')
@@ -895,6 +916,27 @@ def analyze_evaluation_results(results_path: str) -> str:
                             metrics_collected[metric_key]['values'].append(value_float)
                         except (ValueError, TypeError):
                             pass
+            
+            # Also extract metrics directly from entry (raw evaluation output format)
+            direct_metrics = entry.get('metrics', {})
+            if isinstance(direct_metrics, dict):
+                turns_analyzed += 1  # Count as a turn if it has metrics
+                for key, value in direct_metrics.items():
+                    if value is None:
+                        continue
+                    try:
+                        value_float = float(value)
+                        metric_key = key.lower().replace('-', '_').replace(' ', '_')
+                        if metric_key not in metrics_collected:
+                            metrics_collected[metric_key] = {
+                                'values': [],
+                                'original_name': key,
+                                'passed_count': 0,
+                                'failed_count': 0
+                            }
+                        metrics_collected[metric_key]['values'].append(value_float)
+                    except (ValueError, TypeError):
+                        pass
         
         # Calculate aggregates for all discovered metrics
         aggregated = {}
