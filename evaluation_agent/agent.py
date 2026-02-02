@@ -397,10 +397,10 @@ def run_voicelive_evaluation(
         JSON string with evaluation results including success status and output paths
     """
     script_path = REPO_ROOT / "prototype_v1" / "voice_agent_audio_input_evaluation.py"
-    dataset_name = Path(test_files_path).name
+    test_path = Path(test_files_path)
     
     # Check if dataset exists
-    if not Path(test_files_path).exists():
+    if not test_path.exists():
         print(f"\n✗ Dataset not found: {test_files_path}", flush=True)
         return json.dumps({
             "action": "run_voicelive_evaluation",
@@ -408,6 +408,24 @@ def run_voicelive_evaluation(
             "status_message": f"✗ Dataset not found: {test_files_path}",
             "error": f"Test files path does not exist: {test_files_path}"
         })
+    
+    # If path is a directory, find the .jsonl file inside
+    if test_path.is_dir():
+        jsonl_files = list(test_path.glob("*.jsonl"))
+        if jsonl_files:
+            test_path = jsonl_files[0]  # Use first .jsonl file found
+            print(f"\n📁 Folder provided, using: {test_path.name}", flush=True)
+        else:
+            print(f"\n✗ No .jsonl file found in folder: {test_files_path}", flush=True)
+            return json.dumps({
+                "action": "run_voicelive_evaluation",
+                "status": "error",
+                "status_message": f"✗ No .jsonl file found in folder",
+                "error": f"No .jsonl dataset file found in: {test_files_path}"
+            })
+    
+    dataset_name = test_path.name
+    test_files_path = str(test_path)
     
     # Count entries for progress tracking
     total_entries = _count_dataset_entries(test_files_path)
