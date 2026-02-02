@@ -1,0 +1,12 @@
+# Voice Live Evaluation Agent Requirements
+# Python 3.10+ recommended
+
+# Azure AI Agents SDK
+azure-ai-agents>=1.1.0
+azure-identity>=1.25.1
+
+# Environment configuration
+python-dotenv>=1.0.0
+
+# Optional: For additional features
+# azure-ai-projects>=2.0.0b2
