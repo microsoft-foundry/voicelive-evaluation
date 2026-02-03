@@ -1,0 +1,18 @@
+# VoiceLive Evaluation Agent v3 - Requirements
+# Foundry Agent Service based implementation
+
+# Azure AI SDKs
+azure-ai-agents>=1.1.0
+azure-ai-projects>=2.0.0b2
+azure-identity>=1.25.1
+azure-core>=1.36.0
+
+# Azure Blob Storage (for cloud mode)
+azure-storage-blob>=12.19.0
+
+# Environment configuration
+python-dotenv>=1.0.0
+
+# Tracing (optional - Foundry provides built-in tracing)
+opentelemetry-sdk>=1.20.0
+azure-core-tracing-opentelemetry>=1.0.0b11
