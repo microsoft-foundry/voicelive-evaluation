@@ -60,7 +60,8 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
       containers: [
         {
           name: 'agent'
-          image: '${containerRegistry.properties.loginServer}/voicelive-evaluation-agent:latest'
+          // Use mcr.io placeholder during initial provision; azd deploy will update to actual image
+          image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
           resources: {
             cpu: json('1.0')
             memory: '2Gi'
