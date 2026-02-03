@@ -439,6 +439,7 @@ def _run_subprocess_with_progress(cmd: list, timeout_seconds: int, env: dict, cw
         current_file = ""
         stdout_done = False
         stderr_done = False
+        report_url = None  # Capture Foundry portal URL if present
         
         while not (stdout_done and stderr_done):
             elapsed = time.time() - start_time
@@ -450,7 +451,8 @@ def _run_subprocess_with_progress(cmd: list, timeout_seconds: int, env: dict, cw
                     "errors": "\n".join(error_lines[-20:]),
                     "progress_updates": progress_updates,
                     "files_processed": files_processed,
-                    "elapsed_seconds": elapsed
+                    "elapsed_seconds": elapsed,
+                    "report_url": report_url
                 }
             
             # Read from stdout
@@ -476,6 +478,14 @@ def _run_subprocess_with_progress(cmd: list, timeout_seconds: int, env: dict, cw
                             "time": round(elapsed, 1),
                             "message": f"Completed item {files_processed}"
                         })
+                    
+                    # Capture Foundry portal report URL
+                    if 'report_url' in lower_line or 'report url' in lower_line:
+                        # Extract URL from lines like "Eval Run Report URL: https://..."
+                        import re
+                        url_match = re.search(r'https?://[^\s]+', line)
+                        if url_match:
+                            report_url = url_match.group(0)
             except queue.Empty:
                 pass
             
@@ -502,7 +512,8 @@ def _run_subprocess_with_progress(cmd: list, timeout_seconds: int, env: dict, cw
             "errors": "\n".join(error_lines) if process.returncode != 0 else None,
             "progress_updates": progress_updates,
             "files_processed": files_processed,
-            "elapsed_seconds": round(time.time() - start_time, 1)
+            "elapsed_seconds": round(time.time() - start_time, 1),
+            "report_url": report_url
         }
         
     except Exception as e:
@@ -510,7 +521,8 @@ def _run_subprocess_with_progress(cmd: list, timeout_seconds: int, env: dict, cw
             "status": "error",
             "error": str(e),
             "progress_updates": progress_updates,
-            "elapsed_seconds": round(time.time() - start_time, 1)
+            "elapsed_seconds": round(time.time() - start_time, 1),
+            "report_url": None
         }
 
 
@@ -682,6 +694,11 @@ def run_voicelive_evaluation(
         if effective_workers > 1:
             status_msg += f" [parallel: {effective_workers} workers]"
         print(f"\n{status_msg}", flush=True)
+        
+        # Display Foundry portal URL if available
+        if result.get("report_url"):
+            print(f"\n📊 View results in AI Foundry Portal:", flush=True)
+            print(f"   {result['report_url']}", flush=True)
     elif result["status"] == "timeout":
         status_msg = f"⚠ Evaluation TIMED OUT after {timeout_minutes} minutes for {dataset_name}"
         print(f"\n{status_msg}", flush=True)
@@ -698,7 +715,8 @@ def run_voicelive_evaluation(
         "elapsed_seconds": result.get("elapsed_seconds"),
         "files_processed": result.get("files_processed", 0),
         "dataset": dataset_name,
-        "max_workers": effective_workers
+        "max_workers": effective_workers,
+        "report_url": result.get("report_url")
     })
     
     response = {
@@ -715,7 +733,8 @@ def run_voicelive_evaluation(
         "files_processed": result.get("files_processed", 0),
         "progress_updates": result.get("progress_updates", [])[-10:],  # Last 10 progress updates
         "output": result.get("output", "")[-2000:],  # Last 2000 chars
-        "errors": result.get("errors") if result["status"] != "completed" else None
+        "errors": result.get("errors") if result["status"] != "completed" else None,
+        "foundry_portal_url": result.get("report_url")  # AI Foundry Portal link for viewing results
     }
     
     if result["status"] == "timeout":

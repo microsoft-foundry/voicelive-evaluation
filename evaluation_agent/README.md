@@ -14,6 +14,7 @@ An intelligent agent for automating VoiceLive evaluation workflows, including da
 - ✅ Dynamic metrics extraction (including custom metrics)
 - ✅ Folder and file path handling
 - ✅ OpenTelemetry tracing (console + Azure Monitor)
+- ✅ AI Foundry Portal URL for cloud evaluation results
 
 ---
 
@@ -365,6 +366,7 @@ Default evaluation timeout is **30 minutes**. For longer evaluations:
 
 See `requirements.txt`:
 - `azure-ai-agents>=1.1.0` - Azure AI Agents SDK
+- `azure-ai-projects>=2.0.0b2` - Azure AI Projects SDK (Foundry evaluation)
 - `azure-identity>=1.25.1` - Azure authentication
 - `azure-ai-voicelive>=1.2.0b2` - VoiceLive SDK
 - `python-dotenv>=1.0.0` - Environment configuration
@@ -393,6 +395,27 @@ Skill definitions in `./skills/` enable AI agent integration:
 | `validate-dataset-quality` | Content quality assessment for datasets |
 
 Skills allow AI agents (GitHub Copilot CLI, Azure AI Agents) to discover and invoke tools via natural language.
+
+---
+
+## Roadmap & Future Features
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design discussions.
+
+### Planned Enhancements
+
+| Feature | Description | Priority |
+|---------|-------------|----------|
+| **Create Dataset** | Generate evaluation datasets from audio folders via natural language | High |
+| **Flexible VoiceLive Config** | Runtime configuration of VoiceLive API parameters | High |
+| **VoiceLive SDK Migration** | Replace subprocess calls with native SDK integration | Medium |
+| **Comparative Reports** | Compare results across evaluation runs | Medium |
+| **CI/CD Integration** | GitHub Actions and Azure DevOps pipeline support | Medium |
+| **Dataset Augmentation** | Auto-generate dataset variations for testing | Low |
+
+### Contributing Ideas
+
+Have a feature idea? See the "Feature Ideas" section in [ARCHITECTURE.md](ARCHITECTURE.md) for the current roadmap and add your suggestions there.
 
 ---
 

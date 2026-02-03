@@ -5,6 +5,9 @@
 azure-ai-agents>=1.1.0
 azure-identity>=1.25.1
 
+# Azure AI Projects SDK (for Foundry evaluation integration)
+azure-ai-projects>=2.0.0b2
+
 # Azure VoiceLive SDK (for evaluation)
 azure-ai-voicelive>=1.2.0b2
 
@@ -18,6 +21,3 @@ azure-core-tracing-opentelemetry>=1.0.0b11
 # Optional: Azure Monitor (for cloud tracing to Application Insights)
 # Install with: pip install azure-monitor-opentelemetry
 # azure-monitor-opentelemetry>=1.6.0
-
-# Optional: For additional features
-# azure-ai-projects>=2.0.0b2

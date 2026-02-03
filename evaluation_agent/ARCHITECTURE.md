@@ -398,6 +398,8 @@ Tries authentication methods in order:
 | Multi-format metrics extraction | Support Foundry, raw, and nested metric formats | ✅ Done |
 | OpenTelemetry tracing | Console + Azure Monitor with file logging | ✅ Done |
 | Conversation logging | Foundry-compatible JSONL for agent evaluation | ✅ Done |
+| Foundry portal URL | Extract and display report_url from cloud evaluations | ✅ Done |
+| Azure AI Projects SDK | Added as required dependency for Foundry evaluation | ✅ Done |
 
 ### High Priority
 
@@ -469,6 +471,82 @@ Tries authentication methods in order:
 - Result storage and notification
 - Drift detection
 
+### Feature Ideas & Future Enhancements
+
+Ideas for new capabilities to extend the agent's functionality:
+
+#### 1. Create Dataset Feature 🆕
+**Description:** Enable users to create properly formatted evaluation datasets through natural language.
+
+**Capabilities:**
+- Generate JSONL dataset from audio files in a folder
+- Auto-detect conversation structure from filenames
+- Add/edit metadata (system prompts, ground truth, tool definitions)
+- Validate generated dataset before saving
+
+**User Experience:**
+```
+User: "Create a dataset from the audio files in /path/to/audio/"
+Agent: Scans folder, detects 10 audio files, generates dataset.jsonl
+```
+
+#### 2. Enable Flexible VoiceLive Configuration 🆕
+**Description:** Allow users to customize VoiceLive API parameters at runtime.
+
+**Configuration Options:**
+- Model selection (voice model, language model)
+- Voice settings (speed, pitch, voice ID)
+- Timeout and retry policies
+- Custom system prompts per evaluation
+- Tool definitions injection
+
+**Implementation Approach:**
+- Configuration file support (YAML/JSON)
+- Command-line parameter passthrough
+- Environment variable overrides
+
+#### 3. Finalize Full VoiceLive SDK Migration 🆕
+**Description:** Complete migration from subprocess-based execution to native SDK integration.
+
+**Benefits:**
+- Eliminate subprocess overhead
+- Better error handling and recovery
+- Direct access to streaming responses
+- Simplified dependency management
+
+**Migration Steps:**
+1. Replace subprocess calls with direct SDK imports
+2. Implement async/await for concurrent processing
+3. Add proper connection pooling
+4. Unified error handling across all tools
+
+#### 4. Comparative Evaluation Reports 🆕
+**Description:** Compare results across multiple evaluation runs to track improvements or regressions.
+
+**Features:**
+- Side-by-side metrics comparison
+- Trend analysis over time
+- Automatic regression detection
+- Visual diff of transcription quality
+
+#### 5. Dataset Augmentation 🆕
+**Description:** Automatically generate variations of existing datasets for more comprehensive testing.
+
+**Techniques:**
+- Audio speed/pitch variations
+- Background noise injection
+- Accent simulation
+- Multi-speaker scenarios
+
+#### 6. Integration with CI/CD Pipelines 🆕
+**Description:** Enable automated evaluation as part of continuous integration workflows.
+
+**Features:**
+- GitHub Actions integration
+- Azure DevOps pipeline support
+- Threshold-based pass/fail gates
+- Automated regression alerts
+
 ### Technical Debt
 
 | Item | Description | Priority |
@@ -521,4 +599,4 @@ Tries authentication methods in order:
 
 ---
 
-*Last updated: February 2026*
+*Last updated: February 3, 2026*
