@@ -37,15 +37,51 @@ from azure.ai.agents.models import FunctionTool, ToolSet, AgentEventHandler
 SCRIPT_DIR = Path(__file__).parent
 load_dotenv(SCRIPT_DIR / ".env")
 
-# Add parent directory to path for imports
-REPO_ROOT = SCRIPT_DIR.parent
+# =============================================================================
+# Cloud Mode Detection and Path Resolution
+# =============================================================================
+
+def is_cloud_mode() -> bool:
+    """
+    Detect if running in cloud mode (Azure Container Apps / Foundry).
+    
+    Cloud mode is enabled when:
+    - AZURE_STORAGE_ACCOUNT is set (blob storage available), OR
+    - EVAL_AGENT_MODE is set to 'cloud', OR
+    - --cloud flag was passed
+    """
+    return bool(
+        os.environ.get("AZURE_STORAGE_ACCOUNT") or 
+        os.environ.get("EVAL_AGENT_MODE", "").lower() == "cloud" or
+        "--cloud" in sys.argv
+    )
+
+# Determine paths based on deployment mode
+if is_cloud_mode():
+    # Cloud mode: scripts are in local ./scripts/ subdirectory
+    SCRIPTS_DIR = SCRIPT_DIR / "scripts"
+    VALIDATORS_DIR = SCRIPTS_DIR / "validators"
+    REPO_ROOT = SCRIPT_DIR  # For cloud, agent dir is the root
+else:
+    # Local mode: scripts are in repo sibling directories
+    # evaluation_agent_v2 is at repo_root/evaluation_agent_v2
+    REPO_ROOT = SCRIPT_DIR.parent  # Go up one level to repo root (voicelive-evaluation)
+    SCRIPTS_DIR = REPO_ROOT / "prototype_v1"
+    VALIDATORS_DIR = REPO_ROOT / "dataset_validator"
+
+# Add paths to Python path for imports
+sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(REPO_ROOT))
 
-# Import tracing module - must be after path setup
+# Import tracing module
 from tracing import (
     setup_tracing, get_tracer, get_logger, get_conversation_logger,
     trace_tool_function, log_tool_execution, ToolCall, get_log_directory
 )
+
+# Import cloud storage for cloud mode
+if is_cloud_mode():
+    from cloud_storage import CloudStorageClient, get_storage_client
 
 
 # =============================================================================
@@ -99,7 +135,11 @@ def validate_dataset_consistency(
     dataset_name = Path(dataset_path).name
     print(f"\n⚙️  Running consistency validation on {dataset_name}...", flush=True)
     
-    script_path = REPO_ROOT / "dataset_validator" / "validate_dataset_consistency.py"
+    # Use cloud or local path based on mode
+    if is_cloud_mode():
+        script_path = VALIDATORS_DIR / "validate_dataset_consistency.py"
+    else:
+        script_path = REPO_ROOT / "dataset_validator" / "validate_dataset_consistency.py"
     
     cmd = [sys.executable, str(script_path), dataset_path]
     if expected_turns is not None:
@@ -177,7 +217,11 @@ def check_dataset_schema(dataset_path: str) -> str:
     log_tool_execution("check_dataset_schema", "started", {"dataset_path": dataset_path})
     print(f"\n⚙️  Checking dataset schema...", flush=True)
     
-    script_path = REPO_ROOT / "dataset_validator" / "check_dataset_schema.py"
+    # Use cloud or local path based on mode
+    if is_cloud_mode():
+        script_path = VALIDATORS_DIR / "check_dataset_schema.py"
+    else:
+        script_path = REPO_ROOT / "dataset_validator" / "check_dataset_schema.py"
     
     cmd = [sys.executable, str(script_path), dataset_path, "--json"]
     
@@ -290,7 +334,11 @@ def validate_dataset_quality(
     dataset_name = Path(dataset_path).name
     print(f"\n⚙️  Running quality validation on {dataset_name}...", flush=True)
     
-    script_path = REPO_ROOT / "dataset_validator" / "validate_dataset_quality.py"
+    # Use cloud or local path based on mode
+    if is_cloud_mode():
+        script_path = VALIDATORS_DIR / "validate_dataset_quality.py"
+    else:
+        script_path = REPO_ROOT / "dataset_validator" / "validate_dataset_quality.py"
     
     cmd = [sys.executable, str(script_path), dataset_path]
     if strict:
@@ -573,8 +621,13 @@ def run_voicelive_evaluation(
         evaluation_dir = str(agent_output)
     
     # Determine which script to use based on parallelism needs
-    batch_processor_path = REPO_ROOT / "prototype_v1" / "batch_processor.py"
-    single_script_path = REPO_ROOT / "prototype_v1" / "voice_agent_audio_input_evaluation.py"
+    # Use cloud or local path based on mode
+    if is_cloud_mode():
+        batch_processor_path = SCRIPTS_DIR / "batch_processor.py"
+        single_script_path = SCRIPTS_DIR / "voice_agent_audio_input_evaluation.py"
+    else:
+        batch_processor_path = REPO_ROOT / "prototype_v1" / "batch_processor.py"
+        single_script_path = REPO_ROOT / "prototype_v1" / "voice_agent_audio_input_evaluation.py"
     
     test_path = Path(test_files_path)
     
@@ -764,12 +817,18 @@ def list_datasets(folder_path: str = None) -> str:
     if folder_path:
         search_paths.append(Path(folder_path))
     else:
-        # Default search locations
-        search_paths.extend([
-            REPO_ROOT / "prototype_v1" / "sample_evaluation_input",
-            REPO_ROOT / "prototype_v1" / "local_datasets",
-            REPO_ROOT / "dataset_validator",
-        ])
+        # Default search locations (different for cloud vs local)
+        if is_cloud_mode():
+            # In cloud mode, list from blob storage instead
+            search_paths.extend([
+                SCRIPT_DIR / "datasets",  # Local fallback
+            ])
+        else:
+            search_paths.extend([
+                REPO_ROOT / "prototype_v1" / "sample_evaluation_input",
+                REPO_ROOT / "prototype_v1" / "local_datasets",
+                REPO_ROOT / "dataset_validator",
+            ])
     
     datasets = []
     searched_locations = []
@@ -1689,6 +1748,8 @@ def main():
     parser.add_argument("--message", "-m", help="Single message to process (non-interactive)")
     parser.add_argument("--endpoint", help="Azure AI Project endpoint (or set PROJECT_ENDPOINT env var)")
     parser.add_argument("--model", help="Model deployment name (or set MODEL_DEPLOYMENT_NAME env var)")
+    parser.add_argument("--cloud", action="store_true",
+                        help="Run in cloud mode (use blob storage for datasets/outputs)")
     parser.add_argument("--trace-console", action="store_true", 
                         help="Force console tracing even if Azure Monitor is configured")
     parser.add_argument("--trace-content", action="store_true",
@@ -1697,12 +1758,16 @@ def main():
                         help="Enable verbose logging (DEBUG level)")
     args = parser.parse_args()
     
+    # Set cloud mode if flag provided
+    if args.cloud:
+        os.environ["EVAL_AGENT_MODE"] = "cloud"
+    
     # Set log level if verbose
     if args.verbose:
         os.environ["EVAL_AGENT_LOG_LEVEL"] = "DEBUG"
     
     # Initialize tracing
-    is_cloud = setup_tracing(
+    is_cloud_tracing = setup_tracing(
         service_name="voicelive-evaluation-agent",
         force_console=args.trace_console,
         enable_content_capture=args.trace_content,
@@ -1710,6 +1775,14 @@ def main():
     
     logger = get_logger(__name__)
     tracer = get_tracer(__name__)
+    
+    # Log deployment mode
+    cloud_mode = is_cloud_mode()
+    logger.info(f"Deployment mode: {'CLOUD' if cloud_mode else 'LOCAL'}")
+    if cloud_mode:
+        storage_account = os.environ.get("AZURE_STORAGE_ACCOUNT", "not-set")
+        logger.info(f"Storage account: {storage_account}")
+        print(f"☁️  Cloud mode enabled (storage: {storage_account})")
     
     # Get configuration
     endpoint = args.endpoint or os.environ.get("PROJECT_ENDPOINT")
@@ -1726,10 +1799,11 @@ def main():
     with tracer.start_as_current_span("agent.main") as main_span:
         main_span.set_attribute("agent.model", model)
         main_span.set_attribute("agent.mode", "single" if args.message else "interactive")
-        main_span.set_attribute("tracing.cloud_enabled", is_cloud)
+        main_span.set_attribute("tracing.cloud_enabled", is_cloud_tracing)
+        main_span.set_attribute("deployment.cloud_mode", cloud_mode)
         
         # Create client with Azure Identity
-        logger.info(f"Connecting to Azure AI Foundry (cloud_tracing={is_cloud})")
+        logger.info(f"Connecting to Azure AI Foundry (cloud_tracing={is_cloud_tracing})")
         print("Connecting to Azure AI Foundry...")
         credential = DefaultAzureCredential()
         client = AgentsClient(

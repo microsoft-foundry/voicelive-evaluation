@@ -11,7 +11,7 @@ An intelligent agent for automating VoiceLive evaluation workflows, including da
 - **Cloud:** Deploy to Azure AI Foundry Agent Service (see [Cloud Deployment](#cloud-deployment))
 
 **Current Status:** ✅ Implemented
-- ✅ 6 function tools (schema check, validation, evaluation, analysis)
+- ✅ 7 function tools (schema check, validation, recommendations, evaluation, analysis)
 - ✅ Smart session mode auto-detection
 - ✅ Real-time console status output
 - ✅ Progress tracking for long evaluations
@@ -19,6 +19,7 @@ An intelligent agent for automating VoiceLive evaluation workflows, including da
 - ✅ Folder and file path handling
 - ✅ OpenTelemetry tracing (console + Azure Monitor)
 - ✅ AI Foundry Portal URL for cloud evaluation results
+- ✅ Large dataset recommendations (timeout/workers guidance)
 
 ---
 
@@ -114,6 +115,7 @@ Agent: Here are the evaluation insights:
 | `list_datasets` | Find all JSONL datasets (shows complete list with metadata) |
 | `validate_dataset_consistency` | MANDATORY structural validation before evaluation |
 | `validate_dataset_quality` | ADVISORY content quality assessment |
+| `get_evaluation_recommendations` | Analyzes dataset size and recommends timeout/worker settings |
 | `run_voicelive_evaluation` | Execute VoiceLive API tests with smart session mode and parallel processing |
 | `analyze_evaluation_results` | Analyze evaluation outputs for metrics and insights |
 
@@ -127,6 +129,7 @@ Most parameters are optional - the agent infers sensible defaults from context.
 | `list_datasets` | `folder_path` (optional, defaults to common locations) |
 | `validate_dataset_consistency` | `dataset_path`, `expected_turns` (optional), `ignore_comments` |
 | `validate_dataset_quality` | `dataset_path`, `strict`, `verbose`, `json_output`, `ignore_comments` |
+| `get_evaluation_recommendations` | `dataset_path` (returns recommended timeout_minutes and max_workers) |
 | `run_voicelive_evaluation` | `test_files_path`, `output_dir`, `evaluation_dir`, `session_mode`, `session_suffix`, `timeout_minutes`, `max_workers`, `parallel`, `verbose` |
 | `analyze_evaluation_results` | `results_path` (folder or file, auto-finds aggregate JSONL) |
 
@@ -149,6 +152,25 @@ The agent accepts both **folder paths** and **file paths**:
 
 ## Features
 
+### Large Dataset Handling
+
+For datasets with >50 entries, the agent automatically analyzes and recommends optimal settings:
+
+```
+⚙️  Analyzing dataset for evaluation settings...
+⚠️  Large dataset detected (150 entries)
+   Recommended: timeout_minutes=26, max_workers=8
+🎵 Contains 150 audio entries (increases processing time)
+
+📋 Worker Limits Guide:
+   • 1-2 workers: Small datasets (<25 entries), debugging
+   • 4 workers: Default, good for most use cases
+   • 6-8 workers: Large datasets (75+ entries)
+   • Max recommended: 8 (higher may hit API rate limits)
+```
+
+The agent will ask for confirmation before running large evaluations with the recommended settings.
+
 ### Parallel Processing
 
 Evaluations run in parallel by default for faster processing of large datasets:
@@ -164,11 +186,14 @@ Evaluations run in parallel by default for faster processing of large datasets:
 
 **Worker Configuration:**
 
-| Environment | Default Workers | Recommended |
-|-------------|----------------|-------------|
-| Local (laptop) | 4 | 2-4 |
-| Local (workstation) | 4 | 4-8 |
-| Cloud (Azure) | Set via env var | 8-16 |
+| Dataset Size | Recommended Workers | Default Timeout |
+|--------------|--------------------:|----------------:|
+| Small (<25 entries) | 1-2 | 15 min |
+| Medium (25-75 entries) | 4 | 20-30 min |
+| Large (75-150 entries) | 6-8 | 30-45 min |
+| Very Large (150+ entries) | 8 (max) | 60-120 min |
+
+**⚠️ Maximum 8 workers recommended** - Going higher may cause API rate limiting.
 
 **User Requests:**
 - "Run evaluation with 8 workers" → `max_workers=8`
