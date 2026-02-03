@@ -6,6 +6,10 @@ An intelligent agent for automating VoiceLive evaluation workflows, including da
 
 **Key Principle:** All API calls use Azure Identity - NO API KEYS.
 
+**Deployment Options:**
+- **Local:** Run directly with `python agent.py`
+- **Cloud:** Deploy to Azure AI Foundry Agent Service (see [Cloud Deployment](#cloud-deployment))
+
 **Current Status:** ✅ Implemented
 - ✅ 6 function tools (schema check, validation, evaluation, analysis)
 - ✅ Smart session mode auto-detection
@@ -395,6 +399,51 @@ Skill definitions in `./skills/` enable AI agent integration:
 | `validate-dataset-quality` | Content quality assessment for datasets |
 
 Skills allow AI agents (GitHub Copilot CLI, Azure AI Agents) to discover and invoke tools via natural language.
+
+---
+
+## Cloud Deployment
+
+The agent can be deployed to Azure AI Foundry Agent Service for cloud execution.
+
+### Architecture
+
+| Component | Service |
+|-----------|---------|
+| Agent hosting | Azure AI Foundry Agent Service (hosted container) |
+| Storage | Azure Blob Storage (datasets, outputs) |
+| LLM | Azure OpenAI (gpt-4o-mini) via Foundry |
+| Tracing | Foundry native tracing |
+| Auth | Managed Identity (no secrets) |
+
+### Why This Architecture
+
+| Decision | Rationale |
+|----------|-----------|
+| **Containers** | Agent uses subprocess calls - needs full Python runtime |
+| **Foundry Agent Service** | Native integration, simpler than Container Apps |
+| **No Key Vault** | Pure Entra ID auth - no secrets to store |
+| **No Container Registry** | Foundry manages containers internally |
+| **No App Insights** | Foundry has native tracing |
+
+### Deployment with azd
+
+```bash
+# Deploy everything
+azd up
+
+# Tear down
+azd down
+```
+
+### Required Azure Services
+
+- Azure AI Foundry (hosting + LLM)
+- Azure Blob Storage
+
+**Estimated cost:** $55-220/month
+
+See [ARCHITECTURE.md](ARCHITECTURE.md#cloud-deployment-architecture) for detailed design decisions and the full deployment plan.
 
 ---
 

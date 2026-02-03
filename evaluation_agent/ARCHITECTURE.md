@@ -7,19 +7,20 @@ This document captures architecture decisions, design considerations, implementa
 ## Table of Contents
 
 1. [Current Architecture](#current-architecture)
-2. [Design Decisions](#design-decisions)
-3. [Implementation Approaches Evaluated](#implementation-approaches-evaluated)
-4. [Component Details](#component-details)
-5. [Authentication & Security](#authentication--security)
-6. [Open Topics & Future Work](#open-topics--future-work)
+2. [Cloud Deployment Architecture](#cloud-deployment-architecture)
+3. [Design Decisions](#design-decisions)
+4. [Implementation Approaches Evaluated](#implementation-approaches-evaluated)
+5. [Component Details](#component-details)
+6. [Authentication & Security](#authentication--security)
+7. [Open Topics & Future Work](#open-topics--future-work)
 
 ---
 
 ## Current Architecture
 
-### Implemented Approach: Azure AI Agents SDK with Function Tools
+### Local Execution: Azure AI Agents SDK with Function Tools
 
-We implemented a **Python-based agent using Azure AI Agents SDK** with local function tools. This is a variation of the "Pure Foundry" approach, optimized for rapid iteration.
+The agent runs locally using **Azure AI Agents SDK** with function tools that call external scripts via subprocess.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -54,7 +55,7 @@ We implemented a **Python-based agent using Azure AI Agents SDK** with local fun
 └─────────────┘  └─────────────┘  └─────────────┘
 ```
 
-### Key Design Choices
+### Key Design Choices (Local)
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
@@ -65,6 +66,178 @@ We implemented a **Python-based agent using Azure AI Agents SDK** with local fun
 | Progress feedback | Console print + return values | Immediate visibility during long operations |
 | Tracing | OpenTelemetry + Azure Monitor | Standard protocol, dual local/cloud support |
 | Parallel processing | Conditional batch processor | Uses batch_processor.py when workers > 1, single script otherwise |
+
+---
+
+## Cloud Deployment Architecture
+
+### Target: Azure AI Foundry Agent Service with Hosted Containers
+
+For cloud deployment, the agent runs as a **hosted container** in Azure AI Foundry Agent Service, with Azure Blob Storage for datasets and outputs.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Azure Cloud                                     │
+│                                                                              │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                     Azure AI Foundry Project                          │  │
+│  │  ┌─────────────────────────────────────────────────────────────────┐  │  │
+│  │  │         VoiceLive Evaluation Agent (Hosted Container)           │  │  │
+│  │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────────────┐    │  │  │
+│  │  │  │ agent.py    │ │ Function    │ │ Evaluation Scripts      │    │  │  │
+│  │  │  │ (main)      │ │ Tools (6)   │ │ • batch_processor.py    │    │  │  │
+│  │  │  │             │ │             │ │ • voice_agent_eval.py   │    │  │  │
+│  │  │  │             │ │             │ │ • validators            │    │  │  │
+│  │  │  └─────────────┘ └─────────────┘ └─────────────────────────┘    │  │  │
+│  │  └─────────────────────────────────────────────────────────────────┘  │  │
+│  │                                                                       │  │
+│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐   │  │
+│  │  │  Azure OpenAI   │  │  Native         │  │  Evaluations        │   │  │
+│  │  │  (gpt-4o-mini)  │  │  Tracing        │  │  & Datasets         │   │  │
+│  │  └─────────────────┘  └─────────────────┘  └─────────────────────┘   │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                │                                                             │
+│                │ Managed Identity                                            │
+│                ▼                                                             │
+│  ┌─────────────────────────────┐                                            │
+│  │  Azure Blob Storage         │                                            │
+│  │  ┌───────────────────────┐  │                                            │
+│  │  │ datasets/             │  │                                            │
+│  │  │ outputs/              │  │                                            │
+│  │  └───────────────────────┘  │                                            │
+│  └─────────────────────────────┘                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Azure Services Required
+
+| Service | Purpose | Required |
+|---------|---------|----------|
+| **Azure AI Foundry** | Hosts agent container, LLM access, native tracing | ✅ Yes |
+| **Azure Blob Storage** | Datasets, evaluation outputs, audio files | ✅ Yes |
+| Azure Virtual Network | Network isolation | Optional (enterprise) |
+| Azure Private Link | Private endpoints | Optional (enterprise) |
+
+### Services NOT Required (Design Decisions)
+
+| Service | Why Not Needed |
+|---------|----------------|
+| **Azure Key Vault** | All auth uses Managed Identity via Entra ID - no secrets |
+| **Azure Container Apps** | Foundry Agent Service hosts containers directly |
+| **Azure Container Registry** | Foundry manages container registry internally |
+| **Application Insights** | Foundry provides native tracing |
+| **Log Analytics** | Built into Foundry |
+
+### Cloud Deployment Design Decisions
+
+#### 1. Containers Required for Subprocess Architecture
+
+**Decision:** Use containerized deployment rather than serverless functions.
+
+**Rationale:**
+- Agent tools use **subprocess calls** to external Python scripts (batch_processor.py, validators, etc.)
+- Subprocess execution requires full Python runtime control
+- VoiceLive SDK has complex dependencies including audio processing
+- Batch processor uses multiprocessing for parallel evaluation
+
+**Alternative Considered:** Refactor to inline functions or Azure Functions
+- Rejected: Would require significant rewrite of existing evaluation scripts
+- Container approach preserves existing code with minimal changes
+
+#### 2. Foundry Agent Service over Container Apps
+
+**Decision:** Deploy to Azure AI Foundry Agent Service instead of Azure Container Apps.
+
+**Rationale:**
+- Foundry supports **hosted agents** with custom containers
+- Native integration with Foundry tracing, evaluations, and datasets
+- Eliminates need for separate Container Apps, Container Registry, and monitoring infrastructure
+- Simpler deployment and fewer services to manage
+- Cost reduction: ~$55-220/month vs ~$85-345/month with Container Apps
+
+#### 3. No Key Vault - Pure Entra ID Authentication
+
+**Decision:** Do not use Azure Key Vault for secrets management.
+
+**Rationale:**
+- All Azure services authenticate via **Managed Identity** using `DefaultAzureCredential`
+- No API keys or connection strings need to be stored
+- Storage account access granted via RBAC (Storage Blob Data Contributor)
+- OpenAI/Foundry access granted via RBAC (Cognitive Services User)
+- Application Insights connection string is not a secret (instrumentation key)
+
+**Code Impact:** Zero - `DefaultAzureCredential` automatically uses Managed Identity in cloud.
+
+#### 4. Minimal Deployment Package
+
+**Decision:** Deploy only files required by the agent, not the full repository.
+
+**Files Included:**
+```
+src/agent/
+├── agent.py              # Main agent
+├── tracing.py            # OpenTelemetry tracing
+├── cloud_storage.py      # NEW: Blob storage integration
+├── requirements.txt
+├── Dockerfile
+└── scripts/
+    ├── batch_processor.py
+    ├── voice_agent_audio_input_evaluation.py
+    ├── voice_agent_evaluation.py
+    ├── voice_metrics_evaluator.py
+    └── validators/
+        ├── validate_dataset_consistency.py
+        └── validate_dataset_quality.py
+```
+
+**Files Excluded:**
+- Old prototypes in `prototype_v1/old_prototypes/`
+- Sample data and test files
+- Development utilities
+- Documentation (not needed at runtime)
+
+#### 5. Azure Developer CLI (azd) for Deployment
+
+**Decision:** Use azd with Bicep for infrastructure as code.
+
+**Benefits:**
+- Single command deployment: `azd up`
+- Infrastructure and code deployed together
+- Environment management (dev, staging, prod)
+- Repeatable deployments
+
+**Project Structure:**
+```
+voicelive-evaluation/
+├── azure.yaml           # azd configuration
+├── infra/
+│   ├── main.bicep      # Main orchestration
+│   └── modules/
+│       ├── foundry.bicep
+│       └── storage.bicep
+└── src/agent/          # Deployment package
+```
+
+### Authentication Flow
+
+**Local Development:**
+```
+Developer → Azure CLI login → DefaultAzureCredential → Azure Services
+```
+
+**Cloud (Foundry Hosted Agent):**
+```
+Hosted Agent → Managed Identity → DefaultAzureCredential → Azure Services
+```
+
+No code changes required - `DefaultAzureCredential` automatically selects the appropriate authentication method.
+
+### Cost Comparison
+
+| Approach | Monthly Estimate |
+|----------|-----------------|
+| Container Apps + ACR + App Insights + Log Analytics | $85-345 |
+| **Foundry Agent Service + Blob Storage** | **$55-220** |
 
 ---
 
