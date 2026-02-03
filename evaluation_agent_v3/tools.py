@@ -19,13 +19,8 @@ from typing import Optional
 SCRIPT_DIR = Path(__file__).parent
 REPO_ROOT = SCRIPT_DIR.parent
 
-
-def is_cloud_mode() -> bool:
-    """Check if running in cloud mode."""
-    return bool(
-        os.environ.get("AZURE_STORAGE_ACCOUNT") or
-        os.environ.get("EVAL_AGENT_MODE", "").lower() == "cloud"
-    )
+# Import cloud storage
+from cloud_storage import is_cloud_mode, get_storage_client, CloudStorageClient
 
 
 def get_scripts_dir() -> Path:
@@ -51,6 +46,32 @@ def get_output_directory() -> Path:
         output_dir = SCRIPT_DIR / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
+
+
+def resolve_dataset_path(dataset_path: str) -> tuple[str, Optional[CloudStorageClient]]:
+    """
+    Resolve a dataset path, downloading from blob storage if needed.
+    
+    Returns:
+        Tuple of (local_path, storage_client or None)
+    """
+    # Check if it's a blob path (container/path format)
+    if is_cloud_mode() and "/" in dataset_path and not Path(dataset_path).exists():
+        try:
+            storage = get_storage_client()
+            if storage:
+                # Extract blob path (remove container prefix if present)
+                blob_path = dataset_path
+                if blob_path.startswith("datasets/"):
+                    blob_path = blob_path[len("datasets/"):]
+                
+                print(f"   📥 Downloading from blob storage: {blob_path}", flush=True)
+                local_path = storage.download_dataset(blob_path)
+                return local_path, storage
+        except Exception as e:
+            print(f"   ⚠️ Could not download from blob: {e}", flush=True)
+    
+    return dataset_path, None
 
 
 # =============================================================================
@@ -268,7 +289,9 @@ def run_voicelive_evaluation(
     batch_processor = scripts_dir / "batch_processor.py"
     single_script = scripts_dir / "voice_agent_audio_input_evaluation.py"
     
-    test_path = Path(test_files_path)
+    # Resolve dataset path (download from blob if needed)
+    local_test_path, storage_client = resolve_dataset_path(test_files_path)
+    test_path = Path(local_test_path)
     
     if not test_path.exists():
         return {"action": "run_voicelive_evaluation", "status": "error", "error": f"Dataset not found: {test_files_path}"}
@@ -324,6 +347,21 @@ def run_voicelive_evaluation(
                 report_url = line
                 break
         
+        # Upload results to blob storage if in cloud mode
+        blob_urls = []
+        if is_cloud_mode() and status == "completed":
+            try:
+                storage = get_storage_client()
+                if storage:
+                    import datetime
+                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                    blob_prefix = f"results/{timestamp}"
+                    print(f"   📤 Uploading results to blob storage: {blob_prefix}/", flush=True)
+                    blob_urls = storage.upload_directory(output_dir, blob_prefix, extensions=['.jsonl', '.json', '.txt'])
+                    print(f"   ✓ Uploaded {len(blob_urls)} files", flush=True)
+            except Exception as e:
+                print(f"   ⚠️ Could not upload results: {e}", flush=True)
+        
         return {
             "action": "run_voicelive_evaluation",
             "status": status,
@@ -331,6 +369,7 @@ def run_voicelive_evaluation(
             "workers": effective_workers,
             "output": result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout,
             "report_url": report_url,
+            "blob_urls": blob_urls if blob_urls else None,
             "errors": result.stderr if result.returncode != 0 else None
         }
     except subprocess.TimeoutExpired:
@@ -343,18 +382,45 @@ def list_datasets(folder_path: Optional[str] = None) -> dict:
     """List available datasets."""
     print(f"\n⚙️  Searching for datasets...", flush=True)
     
+    # Cloud mode: list from blob storage
+    if is_cloud_mode():
+        try:
+            storage = get_storage_client()
+            if storage:
+                blobs = storage.list_datasets(prefix=folder_path or "")
+                datasets = [
+                    {
+                        "path": blob.full_path,
+                        "name": Path(blob.name).stem,
+                        "folder": str(Path(blob.name).parent),
+                        "size_bytes": blob.size,
+                        "last_modified": blob.last_modified,
+                        "storage": "azure_blob"
+                    }
+                    for blob in blobs
+                ]
+                print(f"✓ Found {len(datasets)} datasets in blob storage", flush=True)
+                return {
+                    "action": "list_datasets",
+                    "status": "success",
+                    "storage_mode": "cloud",
+                    "datasets_found": len(datasets),
+                    "datasets": datasets
+                }
+        except Exception as e:
+            print(f"⚠️  Cloud storage error, falling back to local: {e}", flush=True)
+    
+    # Local mode: search filesystem
     search_paths = []
     
     if folder_path:
         search_paths.append(Path(folder_path))
-    elif is_cloud_mode():
-        # Cloud mode: would list from blob storage
-        search_paths.append(SCRIPT_DIR / "datasets")
     else:
         search_paths.extend([
             REPO_ROOT / "prototype_v1" / "sample_evaluation_input",
             REPO_ROOT / "prototype_v1" / "local_datasets",
             REPO_ROOT / "dataset_validator",
+            SCRIPT_DIR / "datasets",  # Local datasets folder
         ])
     
     datasets = []
@@ -368,6 +434,7 @@ def list_datasets(folder_path: Optional[str] = None) -> dict:
                         "name": jsonl_file.stem,
                         "folder": str(jsonl_file.parent),
                         "entries": line_count,
+                        "storage": "local"
                     })
                 except Exception:
                     datasets.append({"path": str(jsonl_file), "name": jsonl_file.stem, "error": "Could not read"})
@@ -377,6 +444,7 @@ def list_datasets(folder_path: Optional[str] = None) -> dict:
     return {
         "action": "list_datasets",
         "status": "success",
+        "storage_mode": "local",
         "datasets_found": len(datasets),
         "datasets": datasets
     }

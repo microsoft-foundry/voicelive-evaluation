@@ -1,9 +1,9 @@
 # VoiceLive Evaluation Agent v3 - Requirements
-# Foundry Agent Service based implementation
+# Azure AI Projects SDK based implementation (new Foundry Portal)
 
 # Azure AI SDKs
-azure-ai-agents>=1.1.0
-azure-ai-projects>=2.0.0b2
+azure-ai-projects>=1.0.0b8      # Primary SDK for Foundry (new API)
+azure-ai-agents>=1.1.0          # Agent models (FunctionTool, etc.)
 azure-identity>=1.25.1
 azure-core>=1.36.0
 

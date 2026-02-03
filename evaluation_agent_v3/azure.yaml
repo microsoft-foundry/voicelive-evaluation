@@ -1,0 +1,57 @@
+# VoiceLive Evaluation Agent v3 - Azure Developer CLI Configuration
+name: voicelive-evaluation-agent-v3
+
+metadata:
+  template: voicelive-evaluation-agent-v3
+
+# Infrastructure provisioning
+infra:
+  provider: bicep
+  path: ./infra
+
+# Services to deploy
+services:
+  # Option A: Azure Functions (default) - tools as HTTP API
+  tools-api:
+    project: ./deploy/azure-functions
+    language: python
+    host: function
+
+  # Option B: Container App runner (optional) - for full evaluations
+  # Uncomment below to deploy the runner container
+  # runner:
+  #   project: .
+  #   language: python
+  #   host: containerapp
+  #   docker:
+  #     path: ./Dockerfile
+
+# Hooks for post-deployment
+hooks:
+  postprovision:
+    windows:
+      shell: pwsh
+      run: |
+        Write-Host "Deployment complete!"
+        Write-Host ""
+        Write-Host "Function App URL: $env:AZURE_FUNCTION_APP_URL"
+        Write-Host ""
+        Write-Host "Next steps:"
+        Write-Host "1. Create the agent with OpenAPI tools:"
+        Write-Host "   python setup_agent_openapi.py --function-url $env:AZURE_FUNCTION_APP_URL"
+        Write-Host ""
+        Write-Host "2. Upload datasets to blob storage:"
+        Write-Host "   az storage blob upload --account-name $env:AZURE_STORAGE_ACCOUNT --container datasets --file <your-dataset.jsonl>"
+    posix:
+      shell: bash
+      run: |
+        echo "Deployment complete!"
+        echo ""
+        echo "Function App URL: $AZURE_FUNCTION_APP_URL"
+        echo ""
+        echo "Next steps:"
+        echo "1. Create the agent with OpenAPI tools:"
+        echo "   python setup_agent_openapi.py --function-url $AZURE_FUNCTION_APP_URL"
+        echo ""
+        echo "2. Upload datasets to blob storage:"
+        echo "   az storage blob upload --account-name $AZURE_STORAGE_ACCOUNT --container datasets --file <your-dataset.jsonl>"

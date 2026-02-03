@@ -1,7 +1,7 @@
 """
 Foundry Agent Setup Script
 
-Creates or updates the VoiceLive Evaluation Agent in Azure AI Foundry Agent Service.
+Creates or updates the VoiceLive Evaluation Agent in Azure AI Foundry.
 This is a one-time setup that registers the agent with its tool definitions.
 
 The agent persists in Foundry and can be accessed via:
@@ -24,7 +24,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from azure.identity import DefaultAzureCredential
-from azure.ai.agents import AgentsClient
+from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import FunctionTool
 
 # Load environment
@@ -232,22 +232,22 @@ For datasets with >50 entries:
 """
 
 
-def get_client() -> AgentsClient:
-    """Get authenticated AgentsClient."""
+def get_client() -> AIProjectClient:
+    """Get authenticated AIProjectClient."""
     endpoint = os.environ.get("PROJECT_ENDPOINT")
     if not endpoint:
         print("ERROR: PROJECT_ENDPOINT environment variable required")
         sys.exit(1)
     
     credential = DefaultAzureCredential()
-    return AgentsClient(endpoint=endpoint, credential=credential)
+    return AIProjectClient(endpoint=endpoint, credential=credential)
 
 
-def create_agent(client: AgentsClient) -> str:
+def create_agent(client: AIProjectClient) -> str:
     """Create a new agent in Foundry."""
     print(f"Creating agent '{AGENT_NAME}' with model '{AGENT_MODEL}'...")
     
-    agent = client.create_agent(
+    agent = client.agents.create_agent(
         model=AGENT_MODEL,
         name=AGENT_NAME,
         instructions=AGENT_INSTRUCTIONS,
@@ -271,11 +271,11 @@ def create_agent(client: AgentsClient) -> str:
     return agent.id
 
 
-def update_agent(client: AgentsClient, agent_id: str) -> None:
+def update_agent(client: AIProjectClient, agent_id: str) -> None:
     """Update an existing agent."""
     print(f"Updating agent '{agent_id}'...")
     
-    agent = client.update_agent(
+    agent = client.agents.update_agent(
         agent_id=agent_id,
         model=AGENT_MODEL,
         name=AGENT_NAME,
@@ -288,14 +288,15 @@ def update_agent(client: AgentsClient, agent_id: str) -> None:
     print(f"  Tools: {len(TOOL_DEFINITIONS)}")
 
 
-def list_agents(client: AgentsClient) -> None:
+def list_agents(client: AIProjectClient) -> None:
     """List all agents in the project."""
     print("Listing agents...")
     
-    agents = client.list_agents()
+    agents = client.agents.list_agents()
     
-    print(f"\nFound {len(agents.data)} agent(s):\n")
-    for agent in agents.data:
+    agent_list = list(agents)
+    print(f"\nFound {len(agent_list)} agent(s):\n")
+    for agent in agent_list:
         print(f"  ID: {agent.id}")
         print(f"  Name: {agent.name}")
         print(f"  Model: {agent.model}")
@@ -303,11 +304,11 @@ def list_agents(client: AgentsClient) -> None:
         print()
 
 
-def delete_agent(client: AgentsClient, agent_id: str) -> None:
+def delete_agent(client: AIProjectClient, agent_id: str) -> None:
     """Delete an agent."""
     print(f"Deleting agent '{agent_id}'...")
     
-    client.delete_agent(agent_id)
+    client.agents.delete_agent(agent_id)
     
     print(f"✓ Agent deleted successfully!")
     

@@ -19,13 +19,11 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from azure.identity import DefaultAzureCredential
-from azure.ai.agents import AgentsClient
+from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import (
-    MessageRole,
-    ThreadRun,
-    RunStatus,
     SubmitToolOutputsAction,
     RequiredFunctionToolCall,
+    ToolOutput,
 )
 
 # Load environment
@@ -53,7 +51,7 @@ def get_agent_id() -> str:
     return None
 
 
-def handle_tool_calls(client: AgentsClient, thread_id: str, run: ThreadRun) -> None:
+def handle_tool_calls(client: AIProjectClient, thread_id: str, run) -> None:
     """Handle tool calls from the agent."""
     if not isinstance(run.required_action, SubmitToolOutputsAction):
         return
@@ -74,47 +72,47 @@ def handle_tool_calls(client: AgentsClient, thread_id: str, run: ThreadRun) -> N
             # Execute the tool
             result = execute_tool(tool_name, arguments)
             
-            tool_outputs.append({
-                "tool_call_id": tool_call.id,
-                "output": json.dumps(result)
-            })
+            tool_outputs.append(ToolOutput(
+                tool_call_id=tool_call.id,
+                output=json.dumps(result)
+            ))
     
     # Submit tool outputs
     if tool_outputs:
-        client.submit_tool_outputs_to_run(
+        client.agents.runs.submit_tool_outputs(
             thread_id=thread_id,
             run_id=run.id,
             tool_outputs=tool_outputs
         )
 
 
-def run_conversation(client: AgentsClient, agent_id: str, user_message: str) -> str:
+def run_conversation(client: AIProjectClient, agent_id: str, user_message: str) -> str:
     """Run a single conversation turn."""
     # Create thread
-    thread = client.threads.create()
+    thread = client.agents.threads.create()
     
     # Add user message
-    client.messages.create(
+    client.agents.messages.create(
         thread_id=thread.id,
-        role=MessageRole.USER,
+        role="user",
         content=user_message
     )
     
     # Create run
-    run = client.runs.create(
+    run = client.agents.runs.create(
         thread_id=thread.id,
         agent_id=agent_id
     )
     
     # Poll for completion
     while True:
-        run = client.runs.get(thread_id=thread.id, run_id=run.id)
+        run = client.agents.runs.get(thread_id=thread.id, run_id=run.id)
         
-        if run.status == RunStatus.COMPLETED:
+        if run.status == "completed":
             break
-        elif run.status == RunStatus.REQUIRES_ACTION:
+        elif run.status == "requires_action":
             handle_tool_calls(client, thread.id, run)
-        elif run.status in [RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.EXPIRED]:
+        elif run.status in ["failed", "cancelled", "expired"]:
             return f"Run failed with status: {run.status}"
         else:
             # Still running, wait a bit
@@ -122,11 +120,11 @@ def run_conversation(client: AgentsClient, agent_id: str, user_message: str) -> 
             time.sleep(1)
     
     # Get messages
-    messages = client.messages.list(thread_id=thread.id)
+    messages = client.agents.messages.list(thread_id=thread.id)
     
     # Find assistant response
-    for msg in messages.data:
-        if msg.role == MessageRole.ASSISTANT:
+    for msg in messages:
+        if msg.role == "assistant":
             # Extract text content
             for content in msg.content:
                 if hasattr(content, 'text'):
@@ -135,10 +133,10 @@ def run_conversation(client: AgentsClient, agent_id: str, user_message: str) -> 
     return "No response from agent"
 
 
-def interactive_mode(client: AgentsClient, agent_id: str) -> None:
+def interactive_mode(client: AIProjectClient, agent_id: str) -> None:
     """Run in interactive mode."""
     print("\n" + "=" * 60)
-    print("VoiceLive Evaluation Agent v3 (Foundry Agent Service)")
+    print("VoiceLive Evaluation Agent v3 (Azure AI Projects SDK)")
     print("=" * 60)
     print(f"Agent ID: {agent_id}")
     print(f"Tools: {', '.join(TOOLS.keys())}")
@@ -196,11 +194,11 @@ def main():
     # Create client
     print("Connecting to Azure AI Foundry...")
     credential = DefaultAzureCredential()
-    client = AgentsClient(endpoint=endpoint, credential=credential)
+    client = AIProjectClient(endpoint=endpoint, credential=credential)
     
     # Verify agent exists
     try:
-        agent = client.get_agent(agent_id)
+        agent = client.agents.get_agent(agent_id)
         print(f"Connected to agent: {agent.name} ({agent.id})")
     except Exception as e:
         print(f"ERROR: Could not find agent '{agent_id}': {e}")

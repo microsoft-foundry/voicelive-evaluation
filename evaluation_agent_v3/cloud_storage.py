@@ -28,7 +28,10 @@ from dataclasses import dataclass
 
 def is_cloud_mode() -> bool:
     """Check if running in cloud mode (Azure Blob Storage enabled)."""
-    return os.environ.get("AZURE_STORAGE_ACCOUNT") is not None
+    return (
+        os.environ.get("AZURE_STORAGE_ACCOUNT") is not None or
+        os.environ.get("EVAL_AGENT_MODE", "").lower() == "cloud"
+    )
 
 
 @dataclass

@@ -1,0 +1,237 @@
+openapi: 3.0.0
+info:
+  title: VoiceLive Evaluation Tools API
+  description: HTTP API for VoiceLive evaluation tools, called by Foundry Agent
+  version: 1.0.0
+
+servers:
+  - url: https://{functionAppName}.azurewebsites.net/api
+    variables:
+      functionAppName:
+        default: voicelive-eval-tools
+        description: Azure Function App name
+
+paths:
+  /list_datasets:
+    post:
+      operationId: list_datasets
+      summary: List available datasets
+      description: Lists ALL available JSONL datasets for evaluation from blob storage
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                folder_path:
+                  type: string
+                  description: Optional prefix to filter datasets
+      responses:
+        '200':
+          description: List of datasets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  datasets_found:
+                    type: integer
+                  datasets:
+                    type: array
+                    items:
+                      type: object
+
+  /check_dataset_schema:
+    post:
+      operationId: check_dataset_schema
+      summary: Check dataset schema
+      description: Analyzes a JSONL dataset to check for required and optional fields
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: Path to JSONL file in blob storage
+      responses:
+        '200':
+          description: Schema analysis results
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /validate_dataset_consistency:
+    post:
+      operationId: validate_dataset_consistency
+      summary: Validate dataset consistency
+      description: Validates JSONL dataset for structural integrity and completeness
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: Path to JSONL file in blob storage
+                expected_turns:
+                  type: integer
+                  description: Expected number of turns per conversation
+                ignore_comments:
+                  type: boolean
+                  description: Skip comment lines
+      responses:
+        '200':
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /validate_dataset_quality:
+    post:
+      operationId: validate_dataset_quality
+      summary: Validate dataset quality
+      description: Assesses content quality of a validated dataset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: Path to JSONL file in blob storage
+                strict:
+                  type: boolean
+                  description: Use strict matching
+                verbose:
+                  type: boolean
+                  description: Show detailed analysis
+      responses:
+        '200':
+          description: Quality analysis results
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /get_evaluation_recommendations:
+    post:
+      operationId: get_evaluation_recommendations
+      summary: Get evaluation recommendations
+      description: Analyzes a dataset and provides recommended settings for evaluation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: Path to validated JSONL dataset
+      responses:
+        '200':
+          description: Recommended settings
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /run_voicelive_evaluation:
+    post:
+      operationId: run_voicelive_evaluation
+      summary: Run VoiceLive evaluation
+      description: |
+        Runs Azure VoiceLive audio evaluation tests.
+        NOTE: This endpoint returns a message to use Container Apps for full evaluation
+        due to Azure Functions timeout limits.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - test_files_path
+              properties:
+                test_files_path:
+                  type: string
+                  description: Path to audio test file or dataset
+                output_dir:
+                  type: string
+                  description: Directory for output files
+                session_mode:
+                  type: string
+                  enum: [per-conversation, per-file, single]
+                timeout_minutes:
+                  type: integer
+                  description: Maximum time to wait
+                max_workers:
+                  type: integer
+                  description: Number of parallel workers
+                parallel:
+                  type: boolean
+                  description: Enable parallel processing
+      responses:
+        '200':
+          description: Evaluation results
+          content:
+            application/json:
+              schema:
+                type: object
+        '501':
+          description: Not implemented - use Container Apps
+
+  /analyze_evaluation_results:
+    post:
+      operationId: analyze_evaluation_results
+      summary: Analyze evaluation results
+      description: Analyzes VoiceLive evaluation output files to extract insights
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - results_path
+              properties:
+                results_path:
+                  type: string
+                  description: Path to evaluation results in blob storage
+      responses:
+        '200':
+          description: Analysis results
+          content:
+            application/json:
+              schema:
+                type: object
+
+security:
+  - functionKey: []
+
+components:
+  securitySchemes:
+    functionKey:
+      type: apiKey
+      in: query
+      name: code
+      description: Azure Function key for authentication
