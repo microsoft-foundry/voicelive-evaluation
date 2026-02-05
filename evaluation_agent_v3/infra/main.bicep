@@ -12,6 +12,12 @@ param location string
 @description('Deploy the Container App runner for full evaluation support')
 param deployRunner bool = false
 
+@description('Enable Entra ID authentication on Function App')
+param enableEntraAuth bool = false
+
+@description('App Registration Client ID for Function App Entra ID auth')
+param entraClientId string = ''
+
 @description('AI Foundry project endpoint')
 param projectEndpoint string = ''
 
@@ -64,6 +70,8 @@ module functionApp 'modules/function-app.bicep' = {
     location: location
     tags: tags
     storageAccountName: storage.outputs.name
+    enableEntraAuth: enableEntraAuth
+    entraClientId: entraClientId
     appSettings: {
       AZURE_STORAGE_ACCOUNT: storage.outputs.name
       AZURE_STORAGE_DATASETS_CONTAINER: 'datasets'

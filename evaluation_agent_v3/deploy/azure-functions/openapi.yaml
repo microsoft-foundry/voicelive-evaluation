@@ -11,6 +11,19 @@ servers:
         default: voicelive-eval-tools
         description: Azure Function App name
 
+# Security scheme for Function Key authentication
+components:
+  securitySchemes:
+    functionKey:
+      type: apiKey
+      name: x-functions-key
+      in: header
+      description: Azure Function key for authentication
+
+# Apply security globally (can be overridden per-operation)
+security:
+  - functionKey: []
+
 paths:
   /list_datasets:
     post:
@@ -192,13 +205,54 @@ paths:
                   description: Enable parallel processing
       responses:
         '200':
-          description: Evaluation results
+          description: Evaluation job started (returns instance_id for status checking)
           content:
             application/json:
               schema:
                 type: object
-        '501':
-          description: Not implemented - use Container Apps
+                properties:
+                  status:
+                    type: string
+                    description: "started"
+                  instance_id:
+                    type: string
+                    description: ID to use with check_evaluation_status
+
+  /check_evaluation_status:
+    post:
+      operationId: check_evaluation_status
+      summary: Check evaluation job status
+      description: |
+        Checks the status of a running evaluation job. Use the instance_id 
+        returned from run_voicelive_evaluation to poll for completion.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - instance_id
+              properties:
+                instance_id:
+                  type: string
+                  description: The instance_id returned from run_voicelive_evaluation
+      responses:
+        '200':
+          description: Evaluation status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [pending, running, completed, failed]
+                  instance_id:
+                    type: string
+                  output:
+                    type: object
+                    description: Results when completed
 
   /analyze_evaluation_results:
     post:

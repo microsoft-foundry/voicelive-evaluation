@@ -11,6 +11,12 @@
     "deployRunner": {
       "value": "${DEPLOY_RUNNER=false}"
     },
+    "enableEntraAuth": {
+      "value": "${ENABLE_ENTRA_AUTH=false}"
+    },
+    "entraClientId": {
+      "value": "${ENTRA_CLIENT_ID=}"
+    },
     "projectEndpoint": {
       "value": "${PROJECT_ENDPOINT}"
     },

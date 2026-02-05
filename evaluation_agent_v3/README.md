@@ -56,26 +56,34 @@ Cloud-native implementation using **Azure AI Projects SDK** (`azure-ai-projects`
 
 ## Quick Start
 
-### 1. Create the Foundry Agent (one-time setup)
+### Option A: Cloud Deployment (Recommended)
+
+Deploy Azure Functions and create agent with OpenAPI tools:
 
 ```bash
 cd evaluation_agent_v3
-python setup_agent.py
+
+# 1. Deploy infrastructure (creates Function App + Storage)
+azd up
+
+# 2. Create agent with anonymous auth (for testing)
+python setup_agent_openapi.py --function-url https://<func-name>.azurewebsites.net/api
+
+# 3. (Optional) Enable Entra ID auth for production
+./scripts/setup-entra-auth.ps1
+python setup_agent_openapi.py --function-url https://<func-name>.azurewebsites.net/api \
+    --entra-auth --client-id <app-client-id> --update
 ```
 
-This registers the agent in your Foundry project. You'll get an Agent ID.
-
-### 2. Run the Tool Runner
+### Option B: Local Runner (Development)
 
 ```bash
-# Interactive mode - handles tool calls locally
-python runner.py
-
-# Or in cloud mode (uses blob storage)
-python runner.py --cloud
+cd evaluation_agent_v3
+python setup_agent.py          # Create agent with function tools
+python runner.py               # Run local tool executor
 ```
 
-### 3. Access via Foundry Portal
+### Access via Foundry Portal
 
 1. Go to [AI Foundry Portal](https://ai.azure.com)
 2. Select your project
@@ -87,11 +95,12 @@ python runner.py --cloud
 
 | File | Purpose |
 |------|---------|
-| `setup_agent.py` | Creates/updates agent in Foundry (run once) |
-| `runner.py` | Handles tool execution (run when using agent) |
+| `setup_agent.py` | Creates agent with local function tools |
+| `setup_agent_openapi.py` | Creates agent with OpenAPI tools (cloud) |
+| `runner.py` | Local tool executor |
 | `tools.py` | Tool function implementations |
 | `cloud_storage.py` | Azure Blob Storage integration |
-| `tracing.py` | OpenTelemetry tracing setup |
+| `scripts/setup-entra-auth.ps1` | Configures Entra ID authentication |
 
 ## Environment Variables
 
@@ -184,20 +193,78 @@ az storage blob upload \
    - Latency metrics
    - Token usage
 
+## Authentication Options
+
+### Option 1: Function Key via Foundry Connection (Recommended)
+
+Uses Azure's built-in Function Key auth with a Foundry Connection:
+
+```bash
+# 1. Deploy with Function Key auth (default)
+azd up
+
+# 2. Get the Function Key from Azure Portal:
+#    Function App → Functions → list_datasets → Function Keys → default
+
+# 3. Create a Custom Key Connection in Foundry Portal:
+#    Project → Management → Connections → + New Connection
+#    - Type: Custom keys
+#    - Name: voicelive-eval-api-key
+#    - Key name: x-functions-key
+#    - Key value: <your-function-key>
+
+# 4. Create agent with connection auth
+python setup_agent_openapi.py \
+  --function-url https://<func>.azurewebsites.net/api \
+  --connection-name voicelive-eval-api-key
+```
+
+### Option 2: Anonymous (Testing Only)
+
+For quick testing without authentication:
+
+```bash
+# Set ALLOW_ANONYMOUS=true in Function App settings
+az functionapp config appsettings set \
+  --name <func-name> \
+  --resource-group <rg-name> \
+  --settings ALLOW_ANONYMOUS=true
+
+# Create agent with anonymous auth
+python setup_agent_openapi.py --function-url https://<func>.azurewebsites.net/api
+```
+
+### Option 3: Entra ID with Managed Identity
+
+Requires App Registration (may need ServiceTree GUID in enterprise tenants):
+
+```bash
+# 1. Set up App Registration (requires AD permissions)
+./scripts/setup-entra-auth.ps1
+
+# 2. Create agent with managed identity auth
+python setup_agent_openapi.py \
+  --function-url https://<func>.azurewebsites.net/api \
+  --entra-auth \
+  --client-id <app-client-id>
+```
+
 ## Deployment Options
 
-### Option A: Local Runner (Development)
+### Option A: Azure Functions + OpenAPI (Recommended)
+- Deploy with `azd up`
+- Agent calls Functions via HTTP
+- Supports Function Key or Entra ID auth
+- Serverless, auto-scaling
+
+### Option B: Local Runner (Development)
 - Run `runner.py` on your machine
 - Tools execute locally
 - Good for development/testing
 
-### Option B: Azure Functions (Production)
-- Deploy tool functions to Azure Functions
-- Fully serverless
-- See `deploy/` folder for templates (TODO)
-
-### Option C: Container + Foundry (Hybrid)
-- Tools run in Container App
+### Option C: Container Apps (Full Evaluations)
+- Set `DEPLOY_RUNNER=true` and run `azd up`
+- Required for `run_voicelive_evaluation` (Functions timeout)
 - Agent managed by Foundry
 - Best of both worlds
 

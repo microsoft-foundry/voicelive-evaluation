@@ -13,6 +13,18 @@ param storageAccountName string
 @description('App settings for the Function App')
 param appSettings object = {}
 
+@description('Entra ID tenant ID for authentication')
+param tenantId string = subscription().tenantId
+
+@description('Enable Entra ID authentication')
+param enableEntraAuth bool = false
+
+@description('App Registration Client ID for Entra ID auth (required if enableEntraAuth is true)')
+param entraClientId string = ''
+
+@description('Allowed principal IDs that can call the Function App via RBAC')
+param allowedCallerPrincipalIds array = []
+
 // App Service Plan (Consumption)
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
   name: '${name}-plan'
@@ -111,6 +123,38 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
   }
 }
 
+// Entra ID Authentication for Function App (Easy Auth v2)
+resource functionAppAuth 'Microsoft.Web/sites/config@2023-01-01' = if (enableEntraAuth && !empty(entraClientId)) {
+  parent: functionApp
+  name: 'authsettingsV2'
+  properties: {
+    globalValidation: {
+      requireAuthentication: true
+      unauthenticatedClientAction: 'Return401'
+    }
+    identityProviders: {
+      azureActiveDirectory: {
+        enabled: true
+        registration: {
+          openIdIssuer: 'https://sts.windows.net/${tenantId}/v2.0'
+          clientId: entraClientId
+        }
+        validation: {
+          allowedAudiences: [
+            'api://${entraClientId}'
+            entraClientId
+          ]
+        }
+      }
+    }
+    login: {
+      tokenStore: {
+        enabled: true
+      }
+    }
+  }
+}
+
 // Storage Blob Data Contributor role for Function App
 resource storageBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(storageAccount.id, functionApp.id, 'Storage Blob Data Contributor')
@@ -122,8 +166,21 @@ resource storageBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
+// RBAC: Website Contributor role for allowed callers (allows invoking the function)
+resource websiteContributorRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for principalId in allowedCallerPrincipalIds: {
+  name: guid(functionApp.id, principalId, 'Website Contributor')
+  scope: functionApp
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'de139f84-1756-47ae-9be6-808fbbe84772')
+    principalId: principalId
+    principalType: 'ServicePrincipal'
+  }
+}]
+
 // Outputs
 output name string = functionApp.name
 output url string = 'https://${functionApp.properties.defaultHostName}/api'
+output hostname string = functionApp.properties.defaultHostName
 output principalId string = functionApp.identity.principalId
+output resourceId string = functionApp.id
 output appInsightsConnectionString string = appInsights.properties.ConnectionString

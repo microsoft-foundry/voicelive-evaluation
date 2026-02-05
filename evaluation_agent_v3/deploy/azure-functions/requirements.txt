@@ -1,5 +1,6 @@
 # Azure Functions for VoiceLive Evaluation Tools
 azure-functions
+azure-functions-durable
 azure-identity
 azure-storage-blob
 azure-ai-projects
