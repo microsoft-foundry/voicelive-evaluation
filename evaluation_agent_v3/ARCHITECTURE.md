@@ -1,33 +1,113 @@
 # VoiceLive Evaluation Agent v3 - Architecture
 
+*Last updated: February 6, 2026*
+
 ## Overview
 
 The VoiceLive Evaluation Agent v3 is a cloud-native AI agent deployed on Azure AI Foundry Agent Service. It automates the validation and execution of VoiceLive audio evaluation workflows through natural language interaction.
 
+## System Architecture
+
+```mermaid
+graph TB
+    subgraph "User Interfaces"
+        FP[Foundry Portal<br/>ai.azure.com]
+        SDK[Azure AI SDK]
+        API[REST API]
+    end
+    
+    subgraph "Azure AI Foundry"
+        Agent[VoiceLive Evaluation Agent<br/>voicelive-evaluation-agent-cloud]
+        Trace[Tracing & Observability]
+    end
+    
+    subgraph "Azure Functions"
+        HTTP[HTTP Triggers<br/>list_datasets, validate, etc.]
+        Durable[Durable Functions<br/>evaluation_orchestrator]
+    end
+    
+    subgraph "Container App"
+        VL[VoiceLive Processor<br/>ca-voicelive-processor]
+    end
+    
+    subgraph "Azure Blob Storage"
+        DS[(datasets/)]
+        OUT[(outputs/)]
+    end
+    
+    subgraph "Azure AI Foundry Evaluators"
+        EVAL[Evaluations API<br/>10 Built-in Evaluators]
+    end
+    
+    FP --> Agent
+    SDK --> Agent
+    API --> Agent
+    Agent --> HTTP
+    Agent --> VL
+    Agent --> Trace
+    HTTP --> Durable
+    HTTP --> DS
+    HTTP --> OUT
+    Durable --> EVAL
+    Durable --> OUT
+    VL --> DS
+    VL --> OUT
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Azure Cloud                                     │
-│                                                                              │
-│   User ──► Foundry Portal ──► Agent ──► HTTP ──► Azure Functions            │
-│              (ai.azure.com)    │              (OpenAPI Tools)                │
-│                                │                     │                       │
-│                                │              ┌──────┴──────┐                │
-│                                │              │  Durable    │                │
-│                                │              │  Functions  │                │
-│                                │              │  (async)    │                │
-│                                │              └──────┬──────┘                │
-│                                │                     ▼                       │
-│                                │              Blob Storage                   │
-│                                │              ├── datasets/                  │
-│                                │              └── outputs/                   │
-│                                │                                             │
-│                                └──► Tracing & Observability                 │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+
+## Service Separation
+
+The system separates concerns across three primary services:
+
+| Service | Purpose | Timeout | Auth |
+|---------|---------|---------|------|
+| **Container App** | VoiceLive audio processing | Unlimited | Managed Identity |
+| **Azure Functions** | Dataset validation, Foundry evaluations | 10 min (Durable) | Function Key |
+| **Foundry Agent** | Natural language orchestration | N/A | Foundry Connection |
 
 ## Design Decisions
 
-### 1. Why Azure AI Foundry Agent Service?
+### 1. Why Separate Container App for VoiceLive Audio?
+
+**Decision**: Use a dedicated Container App for VoiceLive SDK audio processing, separate from Azure Functions.
+
+**Problem**: VoiceLive audio processing requires:
+- Long-running WebSocket connections (minutes per conversation)
+- Real-time audio streaming with SDK
+- No function timeout constraints
+
+**Alternatives Considered**:
+- Azure Functions only (10-min timeout limit)
+- Single Container App for everything (over-provisioned for simple tasks)
+- Local runner only (not cloud-native)
+
+**Reasoning**:
+- **Separation of concerns**: Container App handles long-running audio; Functions handle quick validation
+- **Cost efficiency**: Container App scales to zero when idle; Functions are serverless
+- **Timeout freedom**: Container App has no execution time limits
+- **SDK compatibility**: VoiceLive SDK works best in persistent process
+
+**Architecture**:
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant ContainerApp as Container App
+    participant VoiceLive as VoiceLive SDK
+    participant Blob as Blob Storage
+    
+    Agent->>ContainerApp: POST /run_voicelive_audio_tests
+    ContainerApp->>Blob: Download dataset + audio files
+    loop For each audio file
+        ContainerApp->>VoiceLive: Open WebSocket session
+        VoiceLive-->>ContainerApp: Transcription + response
+    end
+    ContainerApp->>Blob: Upload results JSONL
+    Agent->>ContainerApp: POST /check_job_status
+    ContainerApp-->>Agent: status: completed, output_path
+```
+
+---
+
+### 2. Why Azure AI Foundry Agent Service?
 
 **Decision**: Use Foundry Agent Service instead of standalone agent deployment.
 
@@ -50,42 +130,40 @@ The VoiceLive Evaluation Agent v3 is a cloud-native AI agent deployed on Azure A
 
 ---
 
-### 2. Why Azure Functions + Durable Functions?
+### 3. Why Azure Functions + Durable Functions?
 
-**Decision**: Implement tools as Azure Functions with Durable Functions for long-running operations.
+**Decision**: Implement validation and evaluation tools as Azure Functions with Durable Functions for long-running evaluations.
 
 **Alternatives Considered**:
 - Azure Container Apps (always-on container)
-- Azure Container Instances (per-job containers)
 - Standard Functions only (with 10-min timeout)
+- All logic in Container App
 
 **Reasoning**:
 - **Serverless cost model**: Pay only for execution time
 - **Auto-scaling**: Handles variable load automatically
-- **Durable Functions**: Overcomes 10-minute timeout for evaluations
+- **Durable Functions**: Overcomes 10-minute timeout for Foundry evaluations
 - **Async pattern**: Natural fit for AI agent workflows (start job → poll status)
-- **Same codebase**: No need for separate container image
 
-**How Durable Functions Work**:
+**Durable Functions Flow**:
+```mermaid
+stateDiagram-v2
+    [*] --> run_voicelive_evaluation: HTTP POST
+    run_voicelive_evaluation --> evaluation_orchestrator: Start orchestration
+    evaluation_orchestrator --> prepare_evaluation: Activity 1
+    prepare_evaluation --> execute_evaluation: Activity 2
+    execute_evaluation --> finalize_evaluation: Activity 3
+    finalize_evaluation --> [*]: Return results
+    
+    state check_status <<fork>>
+    [*] --> check_status: HTTP POST
+    check_status --> Running: status polling
+    check_status --> Completed: get output
 ```
-run_voicelive_evaluation (HTTP) 
-    → evaluation_orchestrator (Durable)
-        → prepare_evaluation (Activity)
-        → execute_evaluation (Activity) 
-        → finalize_evaluation (Activity)
-
-check_evaluation_status (HTTP)
-    → queries orchestrator status
-```
-
-**Trade-offs**:
-- More complex than simple HTTP functions
-- Durable Functions have their own learning curve
-- Activity functions have 10-min timeout (orchestrator doesn't)
 
 ---
 
-### 3. Why Function Keys over Entra ID?
+### 4. Why Function Keys over Entra ID?
 
 **Decision**: Use Azure Function Keys with Foundry Custom Key Connection.
 
@@ -96,7 +174,7 @@ check_evaluation_status (HTTP)
 - API Management gateway
 
 **Reasoning**:
-- **No App Registration needed**: Enterprise tenants often require ServiceTree GUID for App Registration creation, which blocked our Entra ID approach
+- **No App Registration needed**: Enterprise tenants often require ServiceTree GUID for App Registration creation
 - **Built-in to Functions**: Function Keys are native, no additional setup
 - **Foundry Connection support**: Custom Key Connections work well with OpenAPI tools
 - **Simple rotation**: Keys can be rotated in Azure Portal
@@ -106,9 +184,6 @@ check_evaluation_status (HTTP)
 # Function App uses FUNCTION auth level
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
-# Foundry Connection stores the key
-# Connection has both 'code' and 'x-functions-key' keys
-
 # Agent uses connection-based auth
 auth = OpenApiProjectConnectionAuthDetails(
     security_scheme=OpenApiProjectConnectionSecurityScheme(
@@ -117,154 +192,328 @@ auth = OpenApiProjectConnectionAuthDetails(
 )
 ```
 
-**Trade-offs**:
-- Function keys are shared secrets (less secure than identity-based)
-- Must manage key rotation manually
-- Connection requires full resource ID (not just name)
+---
+
+### 5. Why 10 Default Evaluators?
+
+**Decision**: Align with prototype_v1's evaluator set for consistency.
+
+**Default Evaluators**:
+| Evaluator | Model Type | Purpose |
+|-----------|------------|---------|
+| intent_resolution | Reasoning | Did agent understand user intent? |
+| task_adherence | Reasoning | Did agent follow instructions? |
+| task_completion | Reasoning | Did agent complete the task? |
+| response_completeness | Reasoning | Was response complete? |
+| groundedness | Standard | Is response grounded in context? |
+| relevance | Reasoning | Is response relevant to query? |
+| tool_call_accuracy | Reasoning | Were tool calls correct? |
+| tool_selection | Reasoning | Did agent pick right tools? |
+| tool_input_accuracy | Reasoning | Were tool inputs correct? |
+| tool_output_utilization | Reasoning | Did agent use tool outputs well? |
+
+**Flexibility**: Users can specify custom subset via `evaluators` parameter.
 
 ---
 
-### 4. Why Flexible Path Handling?
+### 6. Why Flexible Path Handling?
 
-**Decision**: Make `download_dataset()` accept any path format the agent might send.
+**Decision**: Make all blob operations accept any path format.
 
-**Problem**: The agent sends paths in various formats:
+**Problem**: Agent sends paths in various formats:
 - `"Eiffel_Tower_Visit_1"` (just name)
-- `"Eiffel_Tower_Visit_1/Eiffel_Tower_Visit_1.jsonl"` (relative)
-- `"datasets/Eiffel_Tower_Visit_1/Eiffel_Tower_Visit_1.jsonl"` (with container)
+- `"Eiffel_Tower_Visit_1/data.jsonl"` (relative)
+- `"datasets/Eiffel_Tower_Visit_1/data.jsonl"` (with container)
+- `"voicelive_jobs/abc123/results.jsonl"` (outputs container)
 
-**Solution**:
+**Solution**: Unified path handling with auto-detection:
 ```python
-def normalize_dataset_path(dataset_path: str) -> str:
-    # Strip whitespace, quotes, leading slashes
-    # Strip container prefix if present
-    # Search for matching blob if not exact match
+def download_blob_flexible(container_name, blob_path, extensions, prefer_patterns):
+    # 1. Normalize path (strip whitespace, quotes, container prefix)
+    # 2. Try exact match first
+    # 3. Fall back to fuzzy search with extensions
+    # 4. Auto-detect container from path prefix
 ```
-
-**Reasoning**:
-- Agent behavior is non-deterministic; can't guarantee path format
-- Better UX to be flexible than fail on formatting
-- Reduces need for complex agent instructions
-
-**Trade-offs**:
-- Slightly slower (may search blobs)
-- Could match wrong dataset if names are similar
-
----
-
-### 5. Why Schema Validation Changes?
-
-**Decision**: Update validation to match actual dataset schema, not assumed schema.
-
-**Original (Wrong)**:
-```python
-required_fields = {"ConversationId", "Turns"}  # Wrong!
-```
-
-**Corrected**:
-```python
-required_field_aliases = {
-    "audio_path": ["WavPath", "audio"],  # Actual required field
-}
-optional_field_aliases = {
-    "question": ["Question", "question"],
-    "answer": ["Answer", "answer"],
-    "conversation_id": ["conversationID", "conversation_id"],
-    # ...
-}
-```
-
-**Reasoning**:
-- Actual datasets use `WavPath`, `Question`, `Answer` fields
-- Field names have multiple aliases (camelCase vs snake_case)
-- Only `audio_path` is truly required; others have defaults
-
-**Lesson Learned**: Always verify schema against actual data, not assumptions.
-
----
-
-### 6. Why OpenAPI Tools over Function Tools?
-
-**Decision**: Use OpenAPI tools instead of local function tools.
-
-**Comparison**:
-
-| Aspect | Function Tools (v1/v2) | OpenAPI Tools (v3) |
-|--------|------------------------|-------------------|
-| Execution | Local runner process | HTTP calls to Functions |
-| Deployment | Runner must be running | Serverless, always available |
-| Debugging | Local logs | App Insights + Foundry tracing |
-| Auth | Implicit (same process) | Explicit (keys/tokens) |
-| Scalability | Limited by runner | Auto-scales |
-
-**Reasoning**:
-- No dependency on local runner process
-- Works from any client (Portal, SDK, API)
-- Built-in monitoring and tracing
-- Scales automatically with load
 
 ---
 
 ## Component Details
 
-### Azure Functions (12 total)
+### Azure Functions (14 Endpoints)
 
 | Function | Type | Purpose |
 |----------|------|---------|
-| `list_datasets` | HTTP | List available datasets in blob storage |
-| `check_dataset_schema` | HTTP | Validate dataset has required fields |
-| `validate_dataset_consistency` | HTTP | Check for data consistency issues |
-| `validate_dataset_quality` | HTTP | Assess data quality metrics |
-| `get_evaluation_recommendations` | HTTP | Suggest evaluation settings |
-| `run_voicelive_evaluation` | HTTP | Start async evaluation job |
-| `check_evaluation_status` | HTTP | Poll evaluation job status |
-| `analyze_evaluation_results` | HTTP | Analyze completed evaluation results |
+| `list_datasets` | HTTP | List datasets in blob storage |
+| `check_dataset_schema` | HTTP | Validate required/optional fields |
+| `validate_dataset_consistency` | HTTP | Check structural consistency |
+| `validate_dataset_quality` | HTTP | Assess content quality |
+| `get_evaluation_recommendations` | HTTP | Suggest settings for large datasets |
+| `run_voicelive_evaluation` | HTTP+Durable | Start async Foundry evaluation |
+| `check_evaluation_status` | HTTP | Poll evaluation status |
+| `analyze_evaluation_results` | HTTP | Analyze completed results |
+| `list_evaluation_groups` | HTTP | List Foundry eval groups |
+| `list_foundry_datasets` | HTTP | List Foundry datasets |
+| `delete_evaluation_groups` | HTTP | Delete eval groups |
+| `delete_foundry_datasets` | HTTP | Delete Foundry datasets |
 | `evaluation_orchestrator` | Durable | Orchestrate evaluation workflow |
-| `prepare_evaluation` | Activity | Download and prepare dataset |
-| `execute_evaluation` | Activity | Run actual evaluation |
+| `prepare_evaluation` | Activity | Prepare output directory |
+| `execute_evaluation` | Activity | Run Foundry evaluators |
 | `finalize_evaluation` | Activity | Upload results, cleanup |
+
+### Container App Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/run_voicelive_audio_tests` | POST | Start audio processing job |
+| `/check_job_status` | POST | Poll job status |
+| `/jobs` | GET | List all jobs |
+| `/jobs/{job_id}` | GET | Get job details |
+| `/health` | GET | Health check |
 
 ### Blob Storage Structure
 
 ```
 stv3g7ywvldzjeo/
-├── datasets/
+├── datasets/                          # Input datasets
 │   ├── Eiffel_Tower_Visit_1/
-│   │   └── Eiffel_Tower_Visit_1.jsonl
-│   ├── MultiConversationSample/
-│   │   └── multiConversationSample.jsonl
-│   └── ...
-└── outputs/
-    └── evaluations/
-        └── {instance_id}/
-            └── results.json
+│   │   ├── Eiffel_Tower_Visit_1.jsonl
+│   │   └── *.wav                      # Audio files
+│   └── MultiConversationSample/
+│       └── multiConversationSample.jsonl
+└── outputs/                           # All outputs
+    ├── evaluations/                   # Foundry evaluation results
+    │   └── {instance_id}/
+    │       └── results.json
+    └── voicelive_jobs/                # VoiceLive audio results
+        └── {job_id}/
+            ├── metadata.json
+            └── results_YYYYMMDD_HHMMSS.jsonl
 ```
-
-### Foundry Connection
-
-- **Type**: CustomKeys
-- **Keys**: `code`, `x-functions-key` (same value)
-- **Usage**: Agent includes key in HTTP requests to Functions
 
 ---
 
 ## Security Considerations
 
 1. **Function Keys**: Stored in Foundry Connection, not in code
-2. **Blob Storage**: Functions use managed identity to access blobs
+2. **Blob Storage**: Functions and Container App use managed identity
 3. **No secrets in OpenAPI spec**: Auth handled via connection reference
 4. **HTTPS only**: All endpoints require HTTPS
+5. **RBAC**: Azure AI User role required for Foundry evaluations
 
 ---
 
-## Future Improvements
+## Use Case Workflows
 
-1. **Full azd automation**: Create Foundry resources + agent via Bicep/scripts
-2. **Webhook notifications**: Notify when long evaluations complete
-3. **Progress streaming**: Report evaluation progress in real-time
-4. **Multi-region**: Deploy Functions closer to data sources
-5. **Cost optimization**: Use Premium plan for faster cold starts
+### Workflow 1: List and Explore Datasets
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Agent
+    participant Functions as Azure Functions
+    participant Blob as Blob Storage
+    
+    User->>Agent: "List available datasets"
+    Agent->>Functions: POST /list_datasets
+    Functions->>Blob: List blobs in datasets/
+    Blob-->>Functions: Blob list
+    Functions-->>Agent: datasets: [{path, entry_count}]
+    Agent-->>User: "Found 5 datasets: ..."
+    
+    User->>Agent: "Check schema of Eiffel dataset"
+    Agent->>Functions: POST /check_dataset_schema
+    Functions->>Blob: Download dataset
+    Functions-->>Agent: required_fields, optional_fields
+    Agent-->>User: "Dataset has query, response, tool_definitions..."
+```
+
+### Workflow 2: Validate Dataset Before Evaluation
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Agent
+    participant Functions as Azure Functions
+    
+    User->>Agent: "Validate Eiffel_Tower_Visit_1"
+    Agent->>Functions: POST /validate_dataset_consistency
+    Functions-->>Agent: {validation_passed: true, issues: []}
+    
+    Agent->>Functions: POST /validate_dataset_quality
+    Functions-->>Agent: {quality_score: 0.85, suggestions: [...]}
+    
+    Agent-->>User: "Dataset passed validation.<br/>Quality score: 85%"
+```
+
+### Workflow 3: Run Evaluation on Existing Dataset
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Agent
+    participant Functions as Azure Functions
+    participant Foundry as Foundry Evaluators
+    participant Blob as Blob Storage
+    
+    User->>Agent: "Run evaluation with intent_resolution and task_adherence"
+    Agent->>Functions: POST /run_voicelive_evaluation
+    Functions->>Functions: Start Durable orchestrator
+    Functions-->>Agent: {instance_id: "abc123", status: "started"}
+    
+    loop Poll status
+        Agent->>Functions: POST /check_evaluation_status
+        Functions-->>Agent: {status: "running"}
+    end
+    
+    Note over Functions,Foundry: execute_evaluation activity
+    Functions->>Blob: Download dataset
+    Functions->>Foundry: Create eval group + run
+    Foundry-->>Functions: Metrics results
+    Functions->>Blob: Save results.json
+    
+    Agent->>Functions: POST /check_evaluation_status
+    Functions-->>Agent: {status: "completed", portal_url, metrics}
+    Agent-->>User: "Evaluation complete!<br/>Portal: https://ai.azure.com/...<br/>intent_resolution: 1.67"
+```
+
+### Workflow 4: Full Audio Processing + Evaluation Pipeline
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Agent
+    participant CA as Container App
+    participant Functions as Azure Functions
+    participant VL as VoiceLive SDK
+    participant Foundry as Foundry Evaluators
+    participant Blob as Blob Storage
+    
+    User->>Agent: "Process and evaluate Eiffel_Tower_Visit_1"
+    
+    rect rgb(200, 220, 240)
+        Note over Agent,VL: Phase 1: VoiceLive Audio Processing
+        Agent->>CA: POST /run_voicelive_audio_tests
+        CA->>Blob: Download dataset + audio
+        CA->>VL: Process each audio file
+        VL-->>CA: Transcriptions + responses
+        CA->>Blob: Upload results JSONL
+        CA-->>Agent: {job_id, status: "completed", output_path}
+    end
+    
+    rect rgb(220, 240, 200)
+        Note over Agent,Foundry: Phase 2: Foundry Evaluation
+        Agent->>Functions: POST /run_voicelive_evaluation<br/>{dataset_path: output_path}
+        Functions->>Blob: Download VoiceLive results
+        Functions->>Foundry: Run 10 evaluators
+        Foundry-->>Functions: Metrics
+        Functions->>Blob: Save evaluation results
+        Functions-->>Agent: {portal_url, metrics_summary}
+    end
+    
+    Agent-->>User: "Complete!<br/>Audio: 6/6 files processed<br/>Portal: https://ai.azure.com/..."
+```
+
+### Workflow 5: Manage Foundry Resources
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Agent
+    participant Functions as Azure Functions
+    participant Foundry as Foundry Project
+    
+    User->>Agent: "List my evaluation groups"
+    Agent->>Functions: POST /list_evaluation_groups
+    Functions->>Foundry: List evals
+    Foundry-->>Functions: [51 eval groups]
+    Functions-->>Agent: {count: 51, groups: [...]}
+    Agent-->>User: "Found 51 evaluation groups..."
+    
+    User->>Agent: "Delete all groups containing 'test'"
+    Agent->>Functions: POST /delete_evaluation_groups<br/>{search_string: "test"}
+    Functions->>Foundry: Delete matching
+    Foundry-->>Functions: Deleted 5
+    Functions-->>Agent: {deleted_count: 5}
+    Agent-->>User: "Deleted 5 evaluation groups"
+```
+
+### Workflow 6: Reuse Existing Foundry Resources
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Agent
+    participant Functions as Azure Functions
+    participant Foundry as Foundry Project
+    
+    User->>Agent: "List datasets and use existing one"
+    Agent->>Functions: POST /list_foundry_datasets
+    Functions-->>Agent: {datasets: [{id, name}, ...]}
+    Agent-->>User: "Found 60 datasets. Which one?"
+    
+    User->>Agent: "Use dataset eval-dataset-771f3d39"
+    Agent->>Functions: POST /run_voicelive_evaluation<br/>{foundry_dataset_id: "azureai://..."}
+    
+    Note over Functions,Foundry: Skip upload, reuse existing
+    Functions->>Foundry: Create eval run with existing dataset
+    Foundry-->>Functions: Results
+    Functions-->>Agent: {portal_url, metrics}
+    Agent-->>User: "Evaluation complete (reused existing dataset)"
+```
 
 ---
 
-*Document created: February 4, 2026*
+## Deployed Resources
+
+| Resource | Name | Purpose |
+|----------|------|---------|
+| Resource Group | rg-voicelive-eval-v3 | Container for all resources |
+| Storage Account | stv3g7ywvldzjeo | datasets/ and outputs/ containers |
+| Function App | func-v3g7ywvldzjeo | 14 functions (HTTP + Durable) |
+| Container App | ca-voicelive-processor | VoiceLive audio processing |
+| Container Registry | acrvoicelive9976 | Container images |
+| App Insights | func-v3g7ywvldzjeo-insights | Monitoring |
+| **Agent** | voicelive-evaluation-agent-cloud | Foundry Agent |
+| **Connection** | voicelive-eval-api-key | Function Key auth |
+
+---
+
+## Open Work Items
+
+### High Priority
+- [ ] **Add RBAC assignments to azd automation** - Currently requires manual Azure AI User role assignment
+- [ ] **Fix VoiceLive Container App progress tracking** - Shows 0/6 files even when successful
+- [ ] **Add webhook notifications** - Notify when long evaluations complete
+
+### Medium Priority
+- [ ] **Multi-region deployment** - Deploy Functions/Container App closer to data
+- [ ] **Add retry logic** - Handle transient failures in VoiceLive SDK
+- [ ] **Implement rate limiting** - Prevent quota exhaustion on Foundry evaluators
+
+### Low Priority
+- [ ] **Progress streaming** - Report evaluation progress in real-time via SSE
+- [ ] **Cost optimization** - Use Premium Functions plan for faster cold starts
+- [ ] **Container App scaling** - Auto-scale based on queue depth
+
+### Known Limitations
+1. **Metrics sometimes empty** - Foundry SDK may not return metrics immediately after completion
+2. **Container App no auth** - Currently public endpoint (add API key or MSI if needed)
+3. **eval_group_id reuse** - Only works within same Foundry project
+
+---
+
+## Version Comparison
+
+| Aspect | v1 | v2 | v3 |
+|--------|----|----|-----|
+| SDK | azure-ai-agents | azure-ai-agents | **azure-ai-projects** |
+| Deployment | Local only | Container Apps | Foundry + Functions + Container App |
+| Agent lifecycle | Per-session | Per-session | **Persistent** |
+| Audio processing | Local script | Local script | **Cloud Container App** |
+| Foundry evaluation | None | None | **10 built-in evaluators** |
+| Tracing | Console | AppInsights | **Foundry native** |
+| Portal | None | Azure Portal | **AI Foundry Portal** |
+
+---
+
+*Document last updated: February 6, 2026*

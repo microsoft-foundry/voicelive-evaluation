@@ -24,7 +24,6 @@ import os
 import json
 import logging
 import tempfile
-import subprocess
 from pathlib import Path
 from datetime import datetime
 
@@ -705,8 +704,9 @@ def evaluation_orchestrator(context: df.DurableOrchestrationContext):
         return {"status": "failed", "error": prep_result["error"]}
     
     # Step 2: Run evaluation (this is the long-running part)
+    # Pass dataset_path so execute_evaluation can download directly
     eval_result = yield context.call_activity("execute_evaluation", {
-        "local_path": prep_result["local_path"],
+        "dataset_path": dataset_path,
         "output_path": prep_result["output_path"],
         "max_workers": max_workers,
         "session_mode": session_mode,
@@ -729,19 +729,9 @@ def evaluation_orchestrator(context: df.DurableOrchestrationContext):
 
 @bp.activity_trigger(input_name="params")
 def prepare_evaluation(params: dict) -> dict:
-    """Download dataset and prepare for evaluation."""
+    """Prepare output directory for evaluation. Download happens in execute_evaluation."""
     try:
-        dataset_path = params["dataset_path"]
         instance_id = params["instance_id"]
-        
-        # Detect which container the file is in based on path patterns
-        # VoiceLive results are in outputs container (voicelive_jobs/ prefix)
-        if dataset_path.startswith("voicelive_jobs/") or dataset_path.startswith("outputs/voicelive_jobs/") or "/voicelive_jobs/" in dataset_path:
-            # Download from outputs container
-            local_path, _ = download_results(dataset_path)
-        else:
-            # Download from datasets container
-            local_path = download_dataset(dataset_path)
         
         # Create output directory
         output_dir = f"/tmp/eval_{instance_id}"
@@ -749,7 +739,6 @@ def prepare_evaluation(params: dict) -> dict:
         
         return {
             "status": "prepared",
-            "local_path": local_path,
             "output_path": output_dir
         }
     except Exception as e:
@@ -971,12 +960,6 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
     Returns:
         dict with eval_id, eval_run_id, portal_url, and metrics summary
     """
-        instance_id: Unique identifier for this evaluation run
-        evaluators: List of evaluator names to run (None = use defaults)
-    
-    Returns:
-        dict with eval_id, eval_run_id, portal_url, and metrics summary
-    """
     from azure.ai.projects import AIProjectClient
     from azure.identity import DefaultAzureCredential
     
@@ -1168,7 +1151,8 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
 def execute_evaluation(params: dict) -> dict:
     """Execute the actual evaluation (long-running)."""
     try:
-        local_path = params["local_path"]
+        # Get dataset_path from params (download here to avoid temp file issues across workers)
+        dataset_path = params["dataset_path"]
         output_path = params["output_path"]
         max_workers = params.get("max_workers", 4)
         session_mode = params.get("session_mode", "per-conversation")
@@ -1177,6 +1161,13 @@ def execute_evaluation(params: dict) -> dict:
         run_voicelive_tests = params.get("run_voicelive_tests", True)
         eval_group_id = params.get("eval_group_id")  # Optional: reuse existing eval group
         foundry_dataset_id = params.get("foundry_dataset_id")  # Optional: reuse existing dataset
+        
+        # Download dataset here (not in prepare_evaluation) to avoid temp file issues
+        # Detect which container the file is in based on path patterns
+        if dataset_path.startswith("voicelive_jobs/") or dataset_path.startswith("outputs/voicelive_jobs/") or "/voicelive_jobs/" in dataset_path:
+            local_path, _ = download_results(dataset_path)
+        else:
+            local_path = download_dataset(dataset_path)
         
         # Count entries in dataset
         entry_count = 0
@@ -1201,15 +1192,14 @@ def execute_evaluation(params: dict) -> dict:
         
         voicelive_results = None
         if run_voicelive_tests and has_audio_files and not has_eval_data:
-            # Dataset has audio files but no query/response - would need VoiceLive processing
-            # VoiceLive audio testing requires long-running connections not suitable for Functions
-            # Use prototype_v1/voice_agent_audio_input_evaluation.py for audio testing
+            # Dataset has audio files but no query/response - needs VoiceLive Container App
+            # Use the VoiceLive Container App to process audio and generate evaluation dataset
             logging.warning("Dataset contains raw audio files without evaluation data")
             voicelive_results = {
                 "status": "not_supported",
-                "reason": "VoiceLive audio testing requires local execution (prototype_v1). "
-                         "Please run voice_agent_audio_input_evaluation.py first to generate "
-                         "evaluation-ready JSONL with query/response fields, then upload that dataset."
+                "reason": "Dataset has audio files but no query/response. Use the VoiceLive Container App "
+                         "(ca-voicelive-processor) to process audio files first, then run evaluation on "
+                         "the generated output in the outputs container."
             }
             # We can still try to run Foundry evaluation on the raw data
         elif has_eval_data:
@@ -1470,13 +1460,38 @@ def analyze_evaluation_results(req: func.HttpRequest) -> func.HttpResponse:
         # Cleanup temp file
         os.unlink(local_path)
         
+        # Try to parse as JSON first (new format), then as JSONL (legacy)
         entries = []
-        for line in content.split('\n'):
-            if line.strip():
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
+        results_data = None
+        try:
+            results_data = json.loads(content)
+            # If it's the new evaluation results format with foundry_evaluation
+            if isinstance(results_data, dict):
+                return func.HttpResponse(
+                    json.dumps({
+                        "action": "analyze_evaluation_results",
+                        "status": "success",
+                        "file": actual_blob,
+                        "evaluation_status": results_data.get("status", "unknown"),
+                        "entries_evaluated": results_data.get("entries_evaluated", 0),
+                        "foundry_portal_url": results_data.get("foundry_evaluation", {}).get("foundry_portal_url"),
+                        "evaluators_run": results_data.get("foundry_evaluation", {}).get("evaluators_run", []),
+                        "metrics_summary": results_data.get("foundry_evaluation", {}).get("metrics_summary", {}),
+                        "voicelive_status": results_data.get("voicelive_tests", {}).get("status", "unknown"),
+                        "timestamp": results_data.get("timestamp")
+                    }),
+                    mimetype="application/json"
+                )
+            elif isinstance(results_data, list):
+                entries = results_data
+        except json.JSONDecodeError:
+            # Try JSONL format
+            for line in content.split('\n'):
+                if line.strip():
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
         
         # Extract metrics
         metrics = {}
@@ -1509,6 +1524,283 @@ def analyze_evaluation_results(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logging.error(f"analyze_evaluation_results error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+# =============================================================================
+# Foundry Resource Management Endpoints
+# =============================================================================
+
+@app.route(route="list_evaluation_groups", methods=["POST", "GET"])
+def list_evaluation_groups(req: func.HttpRequest) -> func.HttpResponse:
+    """List all evaluation groups in the Foundry project."""
+    logging.info("list_evaluation_groups called")
+    
+    try:
+        from azure.ai.projects import AIProjectClient
+        from azure.identity import DefaultAzureCredential
+        
+        project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT") or os.environ.get("PROJECT_ENDPOINT")
+        if not project_endpoint:
+            return func.HttpResponse(
+                json.dumps({"error": "PROJECT_ENDPOINT not configured"}),
+                status_code=500,
+                mimetype="application/json"
+            )
+        
+        project_client = AIProjectClient(
+            credential=DefaultAzureCredential(),
+            endpoint=project_endpoint
+        )
+        openai_client = project_client.get_openai_client()
+        
+        # List all evaluation groups
+        eval_groups = list(openai_client.evals.list())
+        
+        groups_list = []
+        for group in eval_groups:
+            groups_list.append({
+                "id": group.id,
+                "name": group.name,
+                "created_at": getattr(group, 'created_at', None),
+            })
+        
+        return func.HttpResponse(
+            json.dumps({
+                "action": "list_evaluation_groups",
+                "count": len(groups_list),
+                "evaluation_groups": groups_list
+            }),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"list_evaluation_groups error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+@app.route(route="list_foundry_datasets", methods=["POST", "GET"])
+def list_foundry_datasets(req: func.HttpRequest) -> func.HttpResponse:
+    """List all datasets in the Foundry project."""
+    logging.info("list_foundry_datasets called")
+    
+    try:
+        from azure.ai.projects import AIProjectClient
+        from azure.identity import DefaultAzureCredential
+        
+        project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT") or os.environ.get("PROJECT_ENDPOINT")
+        if not project_endpoint:
+            return func.HttpResponse(
+                json.dumps({"error": "PROJECT_ENDPOINT not configured"}),
+                status_code=500,
+                mimetype="application/json"
+            )
+        
+        project_client = AIProjectClient(
+            credential=DefaultAzureCredential(),
+            endpoint=project_endpoint
+        )
+        
+        # List all datasets
+        datasets = list(project_client.datasets.list())
+        
+        datasets_list = []
+        for dataset in datasets:
+            # Get versions for this dataset
+            try:
+                versions = list(project_client.datasets.list_versions(name=dataset.name))
+                version_count = len(versions)
+                latest_version = max(int(v.version) for v in versions) if versions else 0
+            except Exception:
+                version_count = 0
+                latest_version = 0
+            
+            datasets_list.append({
+                "id": dataset.id,
+                "name": dataset.name,
+                "version_count": version_count,
+                "latest_version": latest_version,
+            })
+        
+        return func.HttpResponse(
+            json.dumps({
+                "action": "list_foundry_datasets",
+                "count": len(datasets_list),
+                "datasets": datasets_list
+            }),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"list_foundry_datasets error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+@app.route(route="delete_evaluation_groups", methods=["POST"])
+def delete_evaluation_groups(req: func.HttpRequest) -> func.HttpResponse:
+    """Delete evaluation groups matching a search string."""
+    logging.info("delete_evaluation_groups called")
+    
+    try:
+        from azure.ai.projects import AIProjectClient
+        from azure.identity import DefaultAzureCredential
+        
+        body = req.get_json()
+        search_string = body.get("search_string")
+        eval_group_id = body.get("eval_group_id")  # Delete specific ID
+        
+        if not search_string and not eval_group_id:
+            return func.HttpResponse(
+                json.dumps({"error": "Either search_string or eval_group_id required"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT") or os.environ.get("PROJECT_ENDPOINT")
+        if not project_endpoint:
+            return func.HttpResponse(
+                json.dumps({"error": "PROJECT_ENDPOINT not configured"}),
+                status_code=500,
+                mimetype="application/json"
+            )
+        
+        project_client = AIProjectClient(
+            credential=DefaultAzureCredential(),
+            endpoint=project_endpoint
+        )
+        openai_client = project_client.get_openai_client()
+        
+        deleted = []
+        skipped = []
+        
+        if eval_group_id:
+            # Delete specific group by ID
+            try:
+                openai_client.evals.delete(eval_id=eval_group_id)
+                deleted.append({"id": eval_group_id})
+            except Exception as e:
+                skipped.append({"id": eval_group_id, "error": str(e)})
+        else:
+            # Delete groups matching search string
+            eval_groups = list(openai_client.evals.list())
+            for group in eval_groups:
+                if search_string in (group.name or ""):
+                    try:
+                        openai_client.evals.delete(eval_id=group.id)
+                        deleted.append({"id": group.id, "name": group.name})
+                    except Exception as e:
+                        skipped.append({"id": group.id, "name": group.name, "error": str(e)})
+                else:
+                    skipped.append({"id": group.id, "name": group.name, "reason": "No match"})
+        
+        return func.HttpResponse(
+            json.dumps({
+                "action": "delete_evaluation_groups",
+                "deleted_count": len(deleted),
+                "skipped_count": len(skipped),
+                "deleted": deleted,
+                "skipped": skipped
+            }),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"delete_evaluation_groups error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+@app.route(route="delete_foundry_datasets", methods=["POST"])
+def delete_foundry_datasets(req: func.HttpRequest) -> func.HttpResponse:
+    """Delete Foundry datasets matching a search string."""
+    logging.info("delete_foundry_datasets called")
+    
+    try:
+        from azure.ai.projects import AIProjectClient
+        from azure.identity import DefaultAzureCredential
+        
+        body = req.get_json()
+        search_string = body.get("search_string")
+        dataset_name = body.get("dataset_name")  # Delete specific dataset
+        version = body.get("version")  # Optional: delete specific version
+        
+        if not search_string and not dataset_name:
+            return func.HttpResponse(
+                json.dumps({"error": "Either search_string or dataset_name required"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT") or os.environ.get("PROJECT_ENDPOINT")
+        if not project_endpoint:
+            return func.HttpResponse(
+                json.dumps({"error": "PROJECT_ENDPOINT not configured"}),
+                status_code=500,
+                mimetype="application/json"
+            )
+        
+        project_client = AIProjectClient(
+            credential=DefaultAzureCredential(),
+            endpoint=project_endpoint
+        )
+        
+        deleted = []
+        skipped = []
+        
+        if dataset_name:
+            # Delete specific dataset
+            try:
+                if version:
+                    # Delete specific version
+                    project_client.datasets.delete(name=dataset_name, version=version)
+                    deleted.append({"name": dataset_name, "version": version})
+                else:
+                    # Delete all versions
+                    versions = list(project_client.datasets.list_versions(name=dataset_name))
+                    for v in versions:
+                        project_client.datasets.delete(name=dataset_name, version=v.version)
+                        deleted.append({"name": dataset_name, "version": v.version})
+            except Exception as e:
+                skipped.append({"name": dataset_name, "error": str(e)})
+        else:
+            # Delete datasets matching search string
+            datasets = list(project_client.datasets.list())
+            for dataset in datasets:
+                if search_string in (dataset.name or ""):
+                    try:
+                        versions = list(project_client.datasets.list_versions(name=dataset.name))
+                        for v in versions:
+                            project_client.datasets.delete(name=dataset.name, version=v.version)
+                            deleted.append({"name": dataset.name, "version": v.version})
+                    except Exception as e:
+                        skipped.append({"name": dataset.name, "error": str(e)})
+                else:
+                    skipped.append({"name": dataset.name, "reason": "No match"})
+        
+        return func.HttpResponse(
+            json.dumps({
+                "action": "delete_foundry_datasets",
+                "deleted_count": len(deleted),
+                "skipped_count": len(skipped),
+                "deleted": deleted,
+                "skipped": [s for s in skipped if "error" in s]  # Only show errors, not non-matches
+            }),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"delete_foundry_datasets error: {e}")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             status_code=500,

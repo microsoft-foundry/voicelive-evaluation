@@ -209,12 +209,26 @@ paths:
                     - "relevance" - Is response relevant to query
                     - "tool_call_accuracy" - Were tool calls correct
                     - "tool_selection" - Were correct tools selected
+                    - "tool_input_accuracy" - Were tool inputs correct
+                    - "tool_output_utilization" - Was tool output used properly
                     - "fluency" - Language quality
                     - "coherence" - Logical flow
                     If not specified, defaults to all available evaluators.
                 run_voicelive_tests:
                   type: boolean
                   description: Whether to run VoiceLive audio tests (default true). Set false to only run evaluators on existing data.
+                eval_group_id:
+                  type: string
+                  description: |
+                    Optional: Reuse an existing Foundry evaluation group instead of creating a new one.
+                    Get available eval group IDs from list_evaluation_groups.
+                    Example: "eval_4609a79f9f2f458fbc6f37248bfb2e9d"
+                foundry_dataset_id:
+                  type: string
+                  description: |
+                    Optional: Reuse an existing Foundry dataset instead of uploading a new one.
+                    Get available dataset IDs from list_foundry_datasets.
+                    Example: "azureai://accounts/.../data/dataset-name/versions/1"
       responses:
         '200':
           description: Evaluation job started (returns instance_id for status checking)
@@ -305,6 +319,247 @@ paths:
             application/json:
               schema:
                 type: object
+
+  /list_evaluation_groups:
+    get:
+      operationId: list_evaluation_groups
+      summary: List Foundry evaluation groups
+      description: |
+        Lists all evaluation groups in the Foundry project.
+        Use this to find eval_group_id values for reusing existing groups.
+      responses:
+        '200':
+          description: List of evaluation groups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  evaluation_groups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Eval group ID to pass as eval_group_id parameter
+                        name:
+                          type: string
+                        created_at:
+                          type: string
+
+  /list_foundry_datasets:
+    get:
+      operationId: list_foundry_datasets
+      summary: List Foundry datasets
+      description: |
+        Lists all datasets in the Foundry project.
+        Use this to find foundry_dataset_id values for reusing existing datasets.
+        Note: These are Foundry-uploaded datasets, NOT blob storage datasets.
+      responses:
+        '200':
+          description: List of datasets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  datasets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Dataset ID to pass as foundry_dataset_id parameter
+                        name:
+                          type: string
+                        version_count:
+                          type: integer
+                        latest_version:
+                          type: integer
+
+  /delete_evaluation_groups:
+    post:
+      operationId: delete_evaluation_groups
+      summary: Delete evaluation groups
+      description: |
+        Deletes evaluation groups by ID or search string.
+        Use list_evaluation_groups first to find groups to delete.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                eval_group_id:
+                  type: string
+                  description: Specific eval group ID to delete
+                search_string:
+                  type: string
+                  description: Delete all groups with names containing this string
+      responses:
+        '200':
+          description: Deletion results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_count:
+                    type: integer
+                  deleted:
+                    type: array
+                    items:
+                      type: object
+
+  /delete_foundry_datasets:
+    post:
+      operationId: delete_foundry_datasets
+      summary: Delete Foundry datasets
+      description: |
+        Deletes Foundry datasets by name or search string.
+        Use list_foundry_datasets first to find datasets to delete.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dataset_name:
+                  type: string
+                  description: Specific dataset name to delete
+                version:
+                  type: string
+                  description: Specific version to delete (optional, deletes all versions if omitted)
+                search_string:
+                  type: string
+                  description: Delete all datasets with names containing this string
+      responses:
+        '200':
+          description: Deletion results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_count:
+                    type: integer
+                  deleted:
+                    type: array
+                    items:
+                      type: object
+
+  # VoiceLive Container App endpoints (different server)
+  /run_voicelive_audio_tests:
+    post:
+      operationId: run_voicelive_audio_tests
+      summary: Process audio files through VoiceLive
+      description: |
+        Starts a job to process audio files from a dataset through the Azure VoiceLive SDK.
+        This is the first step in a full evaluation: audio → VoiceLive → evaluation dataset.
+        The resulting dataset can then be evaluated using run_voicelive_evaluation.
+        
+        NOTE: This endpoint is served by the VoiceLive Container App, not the Function App.
+      servers:
+        - url: https://ca-voicelive-processor.ashyisland-d1546750.eastus2.azurecontainerapps.io
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: |
+                    Path to dataset in blob storage. Examples:
+                    - "Eiffel_Tower_Visit_1" (folder name)
+                    - "datasets/sample.jsonl" (direct path)
+                session_mode:
+                  type: string
+                  enum: ["per-conversation", "per-file", "single"]
+                  default: "per-conversation"
+                  description: How to group audio files for processing
+                max_workers:
+                  type: integer
+                  default: 4
+                  description: Maximum parallel workers
+      responses:
+        '200':
+          description: Job started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  job_id:
+                    type: string
+                    description: Use this to check status with check_voicelive_job_status
+                  message:
+                    type: string
+
+  /check_job_status:
+    post:
+      operationId: check_voicelive_job_status
+      summary: Check VoiceLive audio processing job status
+      description: |
+        Check the status of a VoiceLive audio processing job.
+        When status is 'completed', the output_path contains the evaluation dataset.
+        
+        NOTE: This endpoint is served by the VoiceLive Container App.
+      servers:
+        - url: https://ca-voicelive-processor.ashyisland-d1546750.eastus2.azurecontainerapps.io
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - job_id
+              properties:
+                job_id:
+                  type: string
+                  description: The job_id from run_voicelive_audio_tests
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: ["pending", "running", "completed", "failed"]
+                  progress:
+                    type: object
+                    properties:
+                      total_files:
+                        type: integer
+                      files_processed:
+                        type: integer
+                      percent_complete:
+                        type: number
+                  output_path:
+                    type: string
+                    description: Path to evaluation dataset in outputs container (when completed)
+                  error:
+                    type: string
+                    description: Error message if failed
 
 security:
   - functionKey: []
