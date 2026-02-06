@@ -229,6 +229,12 @@ paths:
                     Optional: Reuse an existing Foundry dataset instead of uploading a new one.
                     Get available dataset IDs from list_foundry_datasets.
                     Example: "azureai://accounts/.../data/dataset-name/versions/1"
+                session_config:
+                  type: object
+                  description: |
+                    Optional: VoiceLive session configuration for eval group naming.
+                    Eval groups are named based on config: {model}_{voice}_{vad}_{eod}.
+                    Example: {"model": "gpt-realtime", "voice": "alloy", "vad_threshold": "0.5", "end_of_speech_timeout": "500"}
       responses:
         '200':
           description: Evaluation job started (returns instance_id for status checking)

@@ -24,6 +24,7 @@ import os
 import json
 import logging
 import tempfile
+import secrets
 from pathlib import Path
 from datetime import datetime
 
@@ -31,6 +32,7 @@ import azure.functions as func
 import azure.durable_functions as df
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
+from azure.data.tables import TableServiceClient, TableClient
 
 # Use FUNCTION auth level - requires x-functions-key header or ?code= query param
 # For anonymous access (testing), set ALLOW_ANONYMOUS=true in app settings
@@ -271,6 +273,134 @@ def upload_results(local_path: str, blob_path: str) -> str:
         blob_client.upload_blob(f, overwrite=True)
     
     return blob_client.url
+
+
+# =============================================================================
+# Config Journal & Eval Group Naming
+# =============================================================================
+
+def get_table_client(table_name: str) -> TableClient:
+    """Get Azure Table client for config journaling."""
+    account = os.environ.get("AZURE_STORAGE_ACCOUNT")
+    if not account:
+        return None
+    credential = DefaultAzureCredential()
+    return TableClient(
+        endpoint=f"https://{account}.table.core.windows.net",
+        table_name=table_name,
+        credential=credential
+    )
+
+
+def generate_eval_group_name(session_config: dict = None) -> str:
+    """
+    Generate eval group name based on VoiceLive session config.
+    
+    Format: {model}_{voice}_{vad}_{eod}
+    Example: gpt-realtime_alloy_0.5_500
+    """
+    if not session_config:
+        # Use defaults
+        session_config = {
+            "model": "gpt-realtime",
+            "voice": "alloy",
+            "vad_threshold": "0.5",
+            "end_of_speech_timeout": "500"
+        }
+    
+    model = session_config.get("model", "gpt-realtime")
+    voice = session_config.get("voice", "alloy")
+    vad = session_config.get("vad_threshold", "0.5")
+    eod = session_config.get("end_of_speech_timeout", "500")
+    
+    # Clean up model name (remove version suffixes for grouping)
+    model_clean = model.replace("-", "").replace(".", "")
+    
+    return f"{model_clean}_{voice}_{vad}_{eod}"
+
+
+def generate_run_name(dataset_name: str, dataset_version: str, evaluators: list) -> str:
+    """
+    Generate run name with timestamp and dataset reference.
+    
+    Format: YYYYMMDD-HHMMSS-xxx │ {dataset}_v{version} │ {evaluator_summary}
+    Example: 20260206-122000-x7k │ Eiffel_Tower_Visit_1_v1 │ all
+    """
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    random_suffix = secrets.token_hex(2)[:3]  # 3 char hex
+    
+    # Summarize evaluators
+    if not evaluators or len(evaluators) >= 10:
+        eval_summary = "all"
+    elif len(evaluators) >= 5:
+        eval_summary = "default"
+    else:
+        eval_summary = "subset"
+    
+    # Clean dataset name (extract base name)
+    dataset_base = Path(dataset_name).stem if dataset_name else "dataset"
+    
+    return f"{timestamp}-{random_suffix} │ {dataset_base}_v{dataset_version} │ {eval_summary}"
+
+
+def journal_eval_group(eval_group_name: str, session_config: dict, eval_group_id: str = None) -> bool:
+    """
+    Record eval group creation in config journal.
+    
+    Creates entry in Azure Table Storage for tracking config → eval group mapping.
+    """
+    try:
+        table_client = get_table_client("configjournal")
+        if not table_client:
+            logging.warning("Table storage not configured for journaling")
+            return False
+        
+        timestamp = datetime.utcnow().isoformat()
+        
+        entity = {
+            "PartitionKey": "evalgroups",
+            "RowKey": f"{eval_group_name}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            "EvalGroupName": eval_group_name,
+            "EvalGroupId": eval_group_id or "",
+            "Model": session_config.get("model", ""),
+            "Voice": session_config.get("voice", ""),
+            "VadThreshold": str(session_config.get("vad_threshold", "")),
+            "EndOfSpeechTimeout": str(session_config.get("end_of_speech_timeout", "")),
+            "CreatedAt": timestamp,
+        }
+        
+        table_client.upsert_entity(entity)
+        logging.info(f"Journaled eval group: {eval_group_name}")
+        return True
+        
+    except Exception as e:
+        logging.warning(f"Failed to journal eval group: {e}")
+        return False
+
+
+def get_session_configs() -> list:
+    """Get available session configs from Table Storage."""
+    try:
+        table_client = get_table_client("sessionconfigs")
+        if not table_client:
+            return []
+        
+        configs = []
+        for entity in table_client.query_entities("PartitionKey eq 'voicelive'"):
+            configs.append({
+                "name": entity.get("Name", entity["RowKey"]),
+                "description": entity.get("Description", ""),
+                "model": entity.get("Model", "gpt-realtime"),
+                "voice": entity.get("Voice", "alloy"),
+                "vad_threshold": entity.get("VadThreshold", "0.5"),
+                "end_of_speech_timeout": entity.get("EndOfSpeechTimeout", "500"),
+                "is_default": entity.get("IsDefault", "false") == "true",
+            })
+        return configs
+        
+    except Exception as e:
+        logging.warning(f"Failed to get session configs: {e}")
+        return []
 
 
 # =============================================================================
@@ -693,6 +823,8 @@ def evaluation_orchestrator(context: df.DurableOrchestrationContext):
     run_voicelive_tests = params.get("run_voicelive_tests", True)
     eval_group_id = params.get("eval_group_id")  # Optional: reuse existing eval group
     foundry_dataset_id = params.get("foundry_dataset_id")  # Optional: reuse existing dataset
+    session_config = params.get("session_config")  # VoiceLive session config for naming
+    dataset_name = params.get("dataset_name")  # Dataset name for run naming
     
     # Step 1: Download and prepare dataset
     prep_result = yield context.call_activity("prepare_evaluation", {
@@ -714,7 +846,9 @@ def evaluation_orchestrator(context: df.DurableOrchestrationContext):
         "evaluators": evaluators,
         "run_voicelive_tests": run_voicelive_tests,
         "eval_group_id": eval_group_id,
-        "foundry_dataset_id": foundry_dataset_id
+        "foundry_dataset_id": foundry_dataset_id,
+        "session_config": session_config,
+        "dataset_name": dataset_name
     })
     
     # Step 3: Upload results and cleanup
@@ -945,7 +1079,8 @@ def get_testing_criteria(evaluators: list, model_deployment: str, reasoning_depl
 
 def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str, 
                            evaluators: list = None, eval_group_id: str = None,
-                           foundry_dataset_id: str = None) -> dict:
+                           foundry_dataset_id: str = None, session_config: dict = None,
+                           dataset_name: str = None, dataset_version: str = "1") -> dict:
     """
     Run Azure AI Foundry evaluation on a dataset.
     
@@ -956,6 +1091,9 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
         evaluators: List of evaluator names to run (None = use defaults)
         eval_group_id: Optional existing eval group ID to reuse (skip creating new)
         foundry_dataset_id: Optional existing Foundry dataset ID to reuse (skip uploading)
+        session_config: VoiceLive session config for eval group naming
+        dataset_name: Dataset name for run naming
+        dataset_version: Dataset version for run naming
     
     Returns:
         dict with eval_id, eval_run_id, portal_url, and metrics summary
@@ -1015,29 +1153,34 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
             # Reuse existing eval group
             eval_id = eval_group_id
             logging.info(f"Reusing existing eval group: {eval_id}")
+            eval_group_name = None
         else:
-            # Create new eval group
-            eval_name = f"voicelive-eval-{instance_id[:8]}"
+            # Create new eval group with config-based name
+            eval_group_name = generate_eval_group_name(session_config)
             eval_object = openai_client.evals.create(
-                name=eval_name,
+                name=eval_group_name,
                 data_source_config=data_source_config,
                 testing_criteria=testing_criteria,
             )
             eval_id = eval_object.id
-            logging.info(f"Created eval group: {eval_id}")
+            logging.info(f"Created eval group: {eval_group_name} ({eval_id})")
+            
+            # Journal the config -> eval group mapping
+            journal_eval_group(eval_group_name, session_config or {}, eval_id)
         
         # Upload or reuse dataset
         if foundry_dataset_id:
             # Reuse existing Foundry dataset
             dataset_id = foundry_dataset_id
             logging.info(f"Reusing existing Foundry dataset: {dataset_id}")
+            new_version = dataset_version
         else:
             # Upload dataset with auto-versioning (like prototype)
-            dataset_name = f"eval-dataset-{instance_id[:8]}"
+            ds_name = dataset_name or f"eval-dataset-{instance_id[:8]}"
             try:
                 # Check for existing versions
                 existing = list(project_client.datasets.list())
-                existing_versions = [d for d in existing if d.name == dataset_name]
+                existing_versions = [d for d in existing if d.name == ds_name]
                 if existing_versions:
                     new_version = str(max(int(d.version) for d in existing_versions) + 1)
                 else:
@@ -1046,7 +1189,7 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
                 new_version = "1"
             
             dataset = project_client.datasets.upload_file(
-                name=dataset_name,
+                name=ds_name,
                 version=new_version,
                 file_path=dataset_path
             )
@@ -1064,14 +1207,26 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
             source=SourceFileID(type="file_id", id=dataset_id),
         )
         
+        # Generate run name with dataset version reference
+        run_name = generate_run_name(
+            dataset_name=dataset_name or ds_name,
+            dataset_version=new_version,
+            evaluators=eval_list
+        )
+        
         eval_run = openai_client.evals.runs.create(
             eval_id=eval_id,
-            name=f"run-{instance_id[:8]}",
-            metadata={"instance_id": instance_id, "source": "voicelive-agent-v3"},
+            name=run_name,
+            metadata={
+                "instance_id": instance_id,
+                "source": "voicelive-agent-v3",
+                "dataset_version": new_version,
+                "evaluators": ",".join(eval_list) if eval_list else "all"
+            },
             data_source=data_source
         )
         eval_run_id = eval_run.id
-        logging.info(f"Created eval run: {eval_run_id}")
+        logging.info(f"Created eval run: {run_name} ({eval_run_id})")
         
         # Wait for completion (with timeout)
         import time
@@ -1161,6 +1316,8 @@ def execute_evaluation(params: dict) -> dict:
         run_voicelive_tests = params.get("run_voicelive_tests", True)
         eval_group_id = params.get("eval_group_id")  # Optional: reuse existing eval group
         foundry_dataset_id = params.get("foundry_dataset_id")  # Optional: reuse existing dataset
+        session_config = params.get("session_config")  # VoiceLive session config for naming
+        dataset_name = params.get("dataset_name")  # Dataset name for run naming
         
         # Download dataset here (not in prepare_evaluation) to avoid temp file issues
         # Detect which container the file is in based on path patterns
@@ -1216,7 +1373,9 @@ def execute_evaluation(params: dict) -> dict:
             instance_id=instance_id,
             evaluators=evaluators,
             eval_group_id=eval_group_id,
-            foundry_dataset_id=foundry_dataset_id
+            foundry_dataset_id=foundry_dataset_id,
+            session_config=session_config,
+            dataset_name=dataset_name
         )
         
         # Combine results
@@ -1300,6 +1459,9 @@ async def run_voicelive_evaluation(req: func.HttpRequest, client) -> func.HttpRe
                 mimetype="application/json"
             )
         
+        # Extract dataset name for run naming
+        dataset_name = Path(dataset_path).stem if dataset_path else None
+        
         # Start the orchestration with all parameters
         instance_id = await client.start_new(
             "evaluation_orchestrator",
@@ -1312,6 +1474,9 @@ async def run_voicelive_evaluation(req: func.HttpRequest, client) -> func.HttpRe
                 # Optional: reuse existing Foundry resources
                 "eval_group_id": body.get("eval_group_id"),  # Reuse existing eval group
                 "foundry_dataset_id": body.get("foundry_dataset_id"),  # Reuse existing Foundry dataset
+                # Config-based naming parameters
+                "session_config": body.get("session_config"),  # VoiceLive session config for eval group naming
+                "dataset_name": dataset_name,  # Dataset name for run naming
             }
         )
         
