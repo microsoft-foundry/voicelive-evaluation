@@ -366,6 +366,54 @@ def download_blob_flexible(container_name, blob_path, extensions, prefer_pattern
 
 ---
 
+### 7. Why Config-Based Eval Group Naming?
+
+**Decision**: Name eval groups based on VoiceLive session configuration, not dataset name.
+
+**Format**: `{model}_{voice}_{vad}_{eod}`
+- Example: `gptrealtime_alloy_0.5_500`
+
+**Problem**: With the old naming (`voicelive-eval-{instance_id}`):
+- No way to compare runs across same config
+- No grouping by agent behavior settings
+- No cross-dataset comparison for same agent
+
+**Solution**: Group by config, enabling:
+- Cross-dataset comparison within same agent config
+- Easy identification of config → eval group mapping
+- Config journal in Azure Table Storage for tracking
+
+**Run Naming**: `YYYYMMDD-HHMMSS-xxx │ {dataset}_v{version} │ {evaluator_summary}`
+- Timestamp-first for chronological sorting
+- 3-char random suffix for parallel jobs
+- Dataset version reference for traceability
+- Evaluator summary: `all`, `default`, or `subset`
+
+**Example**: `20260206-122000-x7k │ Eiffel_Tower_Visit_1_v1 │ all`
+
+---
+
+### 8. Why Azure Table Storage for Config Journal?
+
+**Decision**: Store config → eval group mappings in Azure Table Storage, not App Insights or CSV.
+
+**Alternatives Considered**:
+| Option | Pros | Cons |
+|--------|------|------|
+| Azure Table Storage ✅ | Permanent, atomic, queryable | Requires SDK |
+| App Insights custom events | Unified with telemetry | 90-day retention limit |
+| CSV on blob storage | Simple | No atomic writes, corruption risk |
+
+**Table Structure**:
+```
+Table: configjournal
+PartitionKey: "evalgroups"
+RowKey: "{eval_group_name}_{timestamp}"
+Fields: EvalGroupId, Model, Voice, VadThreshold, EndOfSpeechTimeout, CreatedAt
+```
+
+---
+
 ## Component Details
 
 ### Azure Functions (14 Endpoints)
