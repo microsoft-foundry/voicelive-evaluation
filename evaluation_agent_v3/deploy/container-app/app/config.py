@@ -37,6 +37,12 @@ class VoiceConfig:
     type: str = "azure-standard"
 
 
+class EouModel(str, Enum):
+    """End of Utterance detection models."""
+    SEMANTIC_V1_MULTILINGUAL = "semantic_detection_v1_multilingual"
+    # Add more models as they become available
+
+
 @dataclass
 class TurnDetectionConfig:
     """Turn detection (VAD) configuration."""
@@ -45,6 +51,7 @@ class TurnDetectionConfig:
     prefix_padding_ms: Optional[int] = None
     silence_duration_ms: Optional[int] = None
     use_eou_detection: bool = True  # End-of-utterance detection (non-GPT models only)
+    eou_model: EouModel = EouModel.SEMANTIC_V1_MULTILINGUAL  # EOU detection model
 
 
 @dataclass
@@ -122,7 +129,10 @@ class SessionConfig:
             "transcription_model": self.get_transcription_model(),
             "turn_detection": {
                 "type": self.turn_detection.type.value,
-                "use_eou_detection": self.turn_detection.use_eou_detection and self.supports_eou_detection()
+                "threshold": self.turn_detection.threshold,
+                "silence_duration_ms": self.turn_detection.silence_duration_ms,
+                "use_eou_detection": self.turn_detection.use_eou_detection and self.supports_eou_detection(),
+                "eou_model": self.turn_detection.eou_model.value if self.turn_detection.use_eou_detection else None
             },
             "audio": {
                 "sample_rate": self.audio.sample_rate,
@@ -167,12 +177,20 @@ class SessionConfig:
         # Turn detection
         if "turn_detection" in data:
             td_data = data["turn_detection"]
+            eou_model = EouModel.SEMANTIC_V1_MULTILINGUAL
+            if "eou_model" in td_data and td_data["eou_model"]:
+                try:
+                    eou_model = EouModel(td_data["eou_model"])
+                except ValueError:
+                    pass  # Use default
+            
             config.turn_detection = TurnDetectionConfig(
                 type=VadType(td_data.get("type", VadType.AZURE_SEMANTIC.value)),
                 threshold=td_data.get("threshold"),
                 prefix_padding_ms=td_data.get("prefix_padding_ms"),
                 silence_duration_ms=td_data.get("silence_duration_ms"),
-                use_eou_detection=td_data.get("use_eou_detection", True)
+                use_eou_detection=td_data.get("use_eou_detection", True),
+                eou_model=eou_model
             )
         
         # Tools

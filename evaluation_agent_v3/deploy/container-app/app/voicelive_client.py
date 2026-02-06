@@ -30,7 +30,7 @@ from azure.ai.voicelive.models import (
     EouDetection,
 )
 
-from .config import SessionConfig, VadType
+from .config import SessionConfig, VadType, EouModel
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +158,7 @@ class VoiceLiveClient:
                     threshold=config.turn_detection.threshold,
                     prefix_padding_ms=config.turn_detection.prefix_padding_ms,
                     silence_duration_ms=config.turn_detection.silence_duration_ms,
-                    end_of_utterance_detection=EouDetection(model="semantic_detection_v1_multilingual")
+                    end_of_utterance_detection=EouDetection(model=config.turn_detection.eou_model.value)
                 )
             else:
                 sdk_turn_detection = AzureSemanticVadMultilingual(
