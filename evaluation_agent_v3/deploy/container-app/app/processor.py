@@ -206,16 +206,15 @@ async def process_dataset(
         config.model = voicelive_model
         
         # Download and parse dataset
-        local_dataset_path, entries = storage.download_dataset(dataset_path)
+        local_dataset_path, entries, blob_name = storage.download_dataset(dataset_path)
         
-        # Extract base path from dataset path for resolving relative audio paths
+        # Extract base path from actual blob name for resolving relative audio paths
         # E.g., "Eiffel_Tower_Visit_1/Eiffel_Tower_Visit_1.jsonl" -> "Eiffel_Tower_Visit_1"
         dataset_base_path = ""
-        normalized_path = storage._normalize_path(dataset_path, "datasets")
-        if "/" in normalized_path:
-            dataset_base_path = "/".join(normalized_path.split("/")[:-1])
-        elif "\\" in normalized_path:
-            dataset_base_path = "\\".join(normalized_path.split("\\")[:-1])
+        if "/" in blob_name:
+            dataset_base_path = "/".join(blob_name.split("/")[:-1])
+        elif "\\" in blob_name:
+            dataset_base_path = "\\".join(blob_name.split("\\")[:-1])
         logger.info(f"Dataset base path: {dataset_base_path}")
         
         # Filter to entries with audio

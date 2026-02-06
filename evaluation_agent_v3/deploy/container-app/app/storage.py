@@ -115,7 +115,7 @@ class BlobStorageClient:
         
         return datasets
     
-    def download_dataset(self, path: str) -> Tuple[str, List[DatasetEntry]]:
+    def download_dataset(self, path: str) -> Tuple[str, List[DatasetEntry], str]:
         """
         Download a dataset JSONL file and parse entries.
         
@@ -123,7 +123,7 @@ class BlobStorageClient:
             path: Path to dataset in blob storage (flexible format)
             
         Returns:
-            Tuple of (local_path, list of DatasetEntry)
+            Tuple of (local_path, list of DatasetEntry, blob_name)
         """
         normalized = self._normalize_path(path, self.datasets_container)
         container_client = self._client.get_container_client(self.datasets_container)
@@ -158,7 +158,7 @@ class BlobStorageClient:
                         logger.warning(f"Invalid JSON line: {e}")
         
         logger.info(f"Parsed {len(entries)} entries from dataset")
-        return local_path, entries
+        return local_path, entries, blob_name
     
     def download_audio_file(self, wav_path: str, local_dir: str) -> str:
         """

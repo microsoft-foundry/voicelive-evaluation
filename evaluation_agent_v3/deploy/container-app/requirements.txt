@@ -11,6 +11,10 @@ azure-ai-voicelive>=1.2.0b2
 azure-storage-blob>=12.19.0
 azure-core>=1.36.0
 
+# Monitoring and Telemetry
+azure-monitor-opentelemetry>=1.6.4
+opentelemetry-instrumentation-fastapi>=0.49b0
+
 # Audio processing
 numpy>=1.24.0
 

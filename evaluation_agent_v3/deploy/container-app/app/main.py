@@ -17,6 +17,15 @@ from .jobs import job_manager, JobStatus
 from .processor import start_processing_job
 from .config import SessionConfig
 
+# Configure Azure Monitor OpenTelemetry (before logging setup)
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+        configure_azure_monitor()
+        print("Azure Monitor OpenTelemetry configured")
+    except ImportError:
+        print("azure-monitor-opentelemetry not installed, skipping telemetry")
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
