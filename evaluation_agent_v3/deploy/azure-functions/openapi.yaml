@@ -173,9 +173,9 @@ paths:
       operationId: run_voicelive_evaluation
       summary: Run VoiceLive evaluation
       description: |
-        Runs Azure VoiceLive audio evaluation tests.
-        NOTE: This endpoint returns a message to use Container Apps for full evaluation
-        due to Azure Functions timeout limits.
+        Runs Azure VoiceLive audio evaluation tests followed by Foundry evaluators.
+        This is an async operation - use check_evaluation_status to poll for completion.
+        When complete, results include a Foundry portal URL for detailed analysis.
       requestBody:
         required: true
         content:
@@ -187,22 +187,34 @@ paths:
               properties:
                 test_files_path:
                   type: string
-                  description: Path to audio test file or dataset
-                output_dir:
-                  type: string
-                  description: Directory for output files
+                  description: Path to dataset in blob storage (e.g., "Eiffel_Tower_Visit_1" or "datasets/sample.jsonl")
                 session_mode:
                   type: string
                   enum: [per-conversation, per-file, single]
-                timeout_minutes:
-                  type: integer
-                  description: Maximum time to wait
+                  description: How to group test files into VoiceLive sessions
                 max_workers:
                   type: integer
-                  description: Number of parallel workers
-                parallel:
+                  description: Number of parallel workers (default 4)
+                evaluators:
+                  type: array
+                  items:
+                    type: string
+                  description: |
+                    List of evaluators to run. Options include:
+                    - "intent_resolution" - Does response match user intent
+                    - "task_adherence" - Did agent follow instructions
+                    - "task_completion" - Was the task completed
+                    - "response_completeness" - Is response complete vs ground truth
+                    - "groundedness" - Is response grounded in context
+                    - "relevance" - Is response relevant to query
+                    - "tool_call_accuracy" - Were tool calls correct
+                    - "tool_selection" - Were correct tools selected
+                    - "fluency" - Language quality
+                    - "coherence" - Logical flow
+                    If not specified, defaults to all available evaluators.
+                run_voicelive_tests:
                   type: boolean
-                  description: Enable parallel processing
+                  description: Whether to run VoiceLive audio tests (default true). Set false to only run evaluators on existing data.
       responses:
         '200':
           description: Evaluation job started (returns instance_id for status checking)
@@ -225,6 +237,7 @@ paths:
       description: |
         Checks the status of a running evaluation job. Use the instance_id 
         returned from run_voicelive_evaluation to poll for completion.
+        When completed, includes foundry_portal_url for detailed results viewing.
       requestBody:
         required: true
         content:
@@ -248,17 +261,26 @@ paths:
                   status:
                     type: string
                     enum: [pending, running, completed, failed]
+                    description: When 'completed', use instance_id with analyze_evaluation_results
                   instance_id:
                     type: string
+                    description: Use this with analyze_evaluation_results when status is completed
+                  foundry_portal_url:
+                    type: string
+                    description: URL to view evaluation results in Azure AI Foundry portal. ALWAYS present this URL to the user when evaluation completes.
                   output:
                     type: object
-                    description: Results when completed
+                    description: Results when completed. Pass instance_id to analyze_evaluation_results for analysis.
 
   /analyze_evaluation_results:
     post:
       operationId: analyze_evaluation_results
       summary: Analyze evaluation results
-      description: Analyzes VoiceLive evaluation output files to extract insights
+      description: |
+        Analyzes VoiceLive evaluation OUTPUT files to extract insights.
+        IMPORTANT: This analyzes RESULTS from completed evaluations, NOT datasets.
+        Use the instance_id from check_evaluation_status when status is 'completed'.
+        Results are stored at: evaluations/{instance_id}/results.json
       requestBody:
         required: true
         content:
@@ -270,7 +292,12 @@ paths:
               properties:
                 results_path:
                   type: string
-                  description: Path to evaluation results in blob storage
+                  description: |
+                    Path to evaluation RESULTS (not datasets). Use the instance_id 
+                    from a completed evaluation. Examples: 
+                    - "647c23909ccf4d6fb66c151a29aa5ee3" (instance_id only)
+                    - "evaluations/647c23909ccf4d6fb66c151a29aa5ee3/results.json"
+                    DO NOT pass dataset paths like "datasets/..." here.
       responses:
         '200':
           description: Analysis results

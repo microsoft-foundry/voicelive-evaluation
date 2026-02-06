@@ -1,0 +1,27 @@
+# VoiceLive Audio Processor - Container App
+# Python 3.11+
+
+# Web framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Azure SDKs
+azure-identity>=1.25.1
+azure-ai-voicelive>=1.2.0b2
+azure-storage-blob>=12.19.0
+azure-core>=1.36.0
+
+# Audio processing
+numpy>=1.24.0
+
+# Async utilities
+aiofiles>=23.2.0
+aiohttp>=3.9.0
+
+# Environment and utilities
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Logging
+structlog>=24.1.0

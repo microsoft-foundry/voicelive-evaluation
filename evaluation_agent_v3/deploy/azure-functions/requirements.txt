@@ -3,5 +3,6 @@ azure-functions
 azure-functions-durable
 azure-identity
 azure-storage-blob
-azure-ai-projects
+azure-ai-projects>=2.0.0b2
 azure-ai-agents
+openai>=2.8.1

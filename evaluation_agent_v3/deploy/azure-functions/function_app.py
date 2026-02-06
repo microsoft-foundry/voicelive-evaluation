@@ -52,107 +52,211 @@ def get_blob_client():
     )
 
 
-def normalize_dataset_path(dataset_path: str) -> str:
-    """Normalize dataset path to find the actual blob.
-    
-    Handles various input formats:
-        - "Eiffel_Tower_Visit_1" (just name)
-        - "Eiffel_Tower_Visit_1/Eiffel_Tower_Visit_1.jsonl" (relative path)
-        - "datasets/Eiffel_Tower_Visit_1/Eiffel_Tower_Visit_1.jsonl" (with container)
-        - "/datasets/Eiffel_Tower_Visit_1/Eiffel_Tower_Visit_1.jsonl" (with leading slash)
-        - "3" or "number 3" (index from list)
-    
-    Returns the blob path within the container.
+# =============================================================================
+# Unified Blob Path Handling
+# =============================================================================
+
+def normalize_blob_path(blob_path: str, container_name: str) -> str:
     """
+    Normalize a blob path to handle various input formats from the agent.
+    
+    Handles:
+        - "name" (just name)
+        - "folder/file.ext" (relative path)
+        - "container/folder/file.ext" (with container prefix)
+        - "/container/folder/file.ext" (with leading slash)
+        - Whitespace and quotes
+    
+    Args:
+        blob_path: The path as received from the agent
+        container_name: The container name to strip if present
+        
+    Returns:
+        Normalized path within the container (no container prefix)
+    """
+    if not blob_path:
+        return ""
+    
     # Strip whitespace and quotes
-    dataset_path = dataset_path.strip().strip('"\'')
+    blob_path = blob_path.strip().strip('"\'')
     
     # Strip leading slashes
-    dataset_path = dataset_path.lstrip('/')
+    blob_path = blob_path.lstrip('/')
     
-    # Get container name
+    # Strip container prefix if present (e.g., "datasets/..." or "outputs/...")
+    if blob_path.startswith(f"{container_name}/"):
+        blob_path = blob_path[len(container_name) + 1:]
+    
+    return blob_path
+
+
+def find_blob_flexible(
+    container_client, 
+    search_path: str, 
+    extensions: list = None,
+    prefer_patterns: list = None
+) -> str:
+    """
+    Flexibly find a blob matching the search path.
+    
+    Tries multiple strategies:
+    1. Exact match (if path has extension)
+    2. Prefix match (list blobs starting with path)
+    3. Common patterns (path/path.ext, path.ext)
+    4. Fuzzy search (partial name match)
+    
+    Args:
+        container_client: Azure blob container client
+        search_path: Normalized path to search for
+        extensions: List of extensions to look for (e.g., [".jsonl", ".json"])
+        prefer_patterns: List of patterns to prefer (e.g., ["aggregate", "results"])
+        
+    Returns:
+        The actual blob name, or raises ValueError if not found
+    """
+    extensions = extensions or [".jsonl", ".json"]
+    prefer_patterns = prefer_patterns or []
+    
+    # Strategy 1: Exact match if has extension
+    has_extension = any(search_path.endswith(ext) for ext in extensions)
+    if has_extension:
+        try:
+            blob_client = container_client.get_blob_client(search_path)
+            blob_client.get_blob_properties()  # Check if exists
+            return search_path
+        except Exception:
+            # Remove extension and try other strategies
+            for ext in extensions:
+                if search_path.endswith(ext):
+                    search_path = search_path[:-len(ext)]
+                    break
+    
+    # Strategy 2: Prefix match - list blobs starting with path
+    matching_blobs = []
+    for blob in container_client.list_blobs(name_starts_with=search_path):
+        if any(blob.name.endswith(ext) for ext in extensions):
+            matching_blobs.append(blob.name)
+    
+    if matching_blobs:
+        # If we have preferred patterns, try to match those first
+        for pattern in prefer_patterns:
+            for blob_name in matching_blobs:
+                if pattern.lower() in blob_name.lower():
+                    return blob_name
+        # Otherwise return first match
+        return matching_blobs[0]
+    
+    # Strategy 3: Try common path patterns
+    base_name = Path(search_path).name if search_path else search_path
+    patterns_to_try = []
+    for ext in extensions:
+        patterns_to_try.extend([
+            f"{search_path}/{search_path}{ext}",
+            f"{search_path}{ext}",
+            f"{search_path}/{base_name}{ext}",
+            f"{base_name}/{base_name}{ext}",
+            f"{base_name}{ext}",
+        ])
+    
+    for pattern in patterns_to_try:
+        try:
+            blob_client = container_client.get_blob_client(pattern)
+            blob_client.get_blob_properties()
+            return pattern
+        except Exception:
+            continue
+    
+    # Strategy 4: Fuzzy search - partial name match across all blobs
+    search_term = base_name.lower() if base_name else search_path.lower()
+    for blob in container_client.list_blobs():
+        if search_term in blob.name.lower():
+            if any(blob.name.endswith(ext) for ext in extensions):
+                return blob.name
+    
+    raise ValueError(f"Blob not found: {search_path}")
+
+
+def download_blob_flexible(
+    container_name: str,
+    blob_path: str,
+    extensions: list = None,
+    prefer_patterns: list = None
+) -> tuple:
+    """
+    Download a blob with flexible path matching.
+    
+    Args:
+        container_name: Container to search in
+        blob_path: Path as received from agent
+        extensions: File extensions to look for
+        prefer_patterns: Patterns to prefer when multiple matches
+        
+    Returns:
+        Tuple of (local_file_path, actual_blob_name)
+    """
+    client = get_blob_client()
+    if not client:
+        raise ValueError("AZURE_STORAGE_ACCOUNT not configured")
+    
+    container_client = client.get_container_client(container_name)
+    
+    # Normalize and find the blob
+    normalized_path = normalize_blob_path(blob_path, container_name)
+    actual_blob = find_blob_flexible(
+        container_client, 
+        normalized_path, 
+        extensions=extensions,
+        prefer_patterns=prefer_patterns
+    )
+    
+    # Download to temp file
+    blob_client = container_client.get_blob_client(actual_blob)
+    suffix = Path(actual_blob).suffix or ".tmp"
+    
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+        download_stream = blob_client.download_blob()
+        f.write(download_stream.readall())
+        return f.name, actual_blob
+
+
+# Legacy function - now uses unified approach
+def normalize_dataset_path(dataset_path: str) -> str:
+    """Normalize dataset path. Uses unified normalize_blob_path."""
     container = os.environ.get("AZURE_STORAGE_DATASETS_CONTAINER", "datasets")
-    
-    # Strip container prefix if present
-    if dataset_path.startswith(f"{container}/"):
-        dataset_path = dataset_path[len(container) + 1:]
-    
-    return dataset_path
+    return normalize_blob_path(dataset_path, container)
 
 
 def download_dataset(dataset_path: str) -> str:
     """Download dataset from blob storage to temp file.
     
     Flexibly handles any path format the agent might send.
+    Uses unified blob path handling.
     """
-    client = get_blob_client()
-    if not client:
-        raise ValueError("AZURE_STORAGE_ACCOUNT not configured")
-    
     container = os.environ.get("AZURE_STORAGE_DATASETS_CONTAINER", "datasets")
-    container_client = client.get_container_client(container)
+    local_path, _ = download_blob_flexible(
+        container_name=container,
+        blob_path=dataset_path,
+        extensions=[".jsonl"],
+    )
+    return local_path
+
+
+def download_results(results_path: str) -> tuple:
+    """Download results from blob storage to temp file.
     
-    # Normalize the path
-    dataset_path = normalize_dataset_path(dataset_path)
+    Flexibly handles any path format the agent might send.
+    Prefers aggregate files when multiple matches.
     
-    # If it ends with .jsonl, try direct access first
-    if dataset_path.endswith(".jsonl"):
-        try:
-            blob_client = container_client.get_blob_client(dataset_path)
-            blob_client.get_blob_properties()  # Check if exists
-        except Exception:
-            # Path might be wrong, try to find it
-            dataset_path = dataset_path.rsplit('.jsonl', 1)[0]
-    
-    # If not a direct .jsonl path, search for matching blob
-    if not dataset_path.endswith(".jsonl"):
-        found = False
-        
-        # Try exact prefix match first
-        for blob in container_client.list_blobs(name_starts_with=dataset_path):
-            if blob.name.endswith(".jsonl"):
-                dataset_path = blob.name
-                found = True
-                break
-        
-        if not found:
-            # Try common patterns
-            base_name = Path(dataset_path).name  # Get just the folder/file name
-            patterns = [
-                f"{dataset_path}/{dataset_path}.jsonl",
-                f"{dataset_path}.jsonl",
-                f"{base_name}/{base_name}.jsonl",
-                f"{base_name}.jsonl",
-            ]
-            for pattern in patterns:
-                try:
-                    blob_client = container_client.get_blob_client(pattern)
-                    blob_client.get_blob_properties()
-                    dataset_path = pattern
-                    found = True
-                    break
-                except Exception:
-                    continue
-        
-        if not found:
-            # Last resort: search all blobs for partial match
-            search_term = base_name.lower()
-            for blob in container_client.list_blobs():
-                if search_term in blob.name.lower() and blob.name.endswith(".jsonl"):
-                    dataset_path = blob.name
-                    found = True
-                    break
-        
-        if not found:
-            raise ValueError(f"Dataset not found: {dataset_path}")
-    
-    blob_client = container_client.get_blob_client(dataset_path)
-    
-    suffix = Path(dataset_path).suffix or ".jsonl"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
-        download_stream = blob_client.download_blob()
-        f.write(download_stream.readall())
-        return f.name
+    Returns:
+        Tuple of (local_file_path, actual_blob_name)
+    """
+    container = os.environ.get("AZURE_STORAGE_OUTPUTS_CONTAINER", "outputs")
+    return download_blob_flexible(
+        container_name=container,
+        blob_path=results_path,
+        extensions=[".jsonl", ".json"],
+        prefer_patterns=["aggregate", "results", "overall"],
+    )
 
 
 def upload_results(local_path: str, blob_path: str) -> str:
@@ -586,6 +690,10 @@ def evaluation_orchestrator(context: df.DurableOrchestrationContext):
     dataset_path = params.get("dataset_path")
     max_workers = params.get("max_workers", 4)
     session_mode = params.get("session_mode", "per-conversation")
+    evaluators = params.get("evaluators", None)  # None means use all defaults
+    run_voicelive_tests = params.get("run_voicelive_tests", True)
+    eval_group_id = params.get("eval_group_id")  # Optional: reuse existing eval group
+    foundry_dataset_id = params.get("foundry_dataset_id")  # Optional: reuse existing dataset
     
     # Step 1: Download and prepare dataset
     prep_result = yield context.call_activity("prepare_evaluation", {
@@ -602,7 +710,11 @@ def evaluation_orchestrator(context: df.DurableOrchestrationContext):
         "output_path": prep_result["output_path"],
         "max_workers": max_workers,
         "session_mode": session_mode,
-        "instance_id": context.instance_id
+        "instance_id": context.instance_id,
+        "evaluators": evaluators,
+        "run_voicelive_tests": run_voicelive_tests,
+        "eval_group_id": eval_group_id,
+        "foundry_dataset_id": foundry_dataset_id
     })
     
     # Step 3: Upload results and cleanup
@@ -622,8 +734,14 @@ def prepare_evaluation(params: dict) -> dict:
         dataset_path = params["dataset_path"]
         instance_id = params["instance_id"]
         
-        # Download dataset
-        local_path = download_dataset(dataset_path)
+        # Detect which container the file is in based on path patterns
+        # VoiceLive results are in outputs container (voicelive_jobs/ prefix)
+        if dataset_path.startswith("voicelive_jobs/") or dataset_path.startswith("outputs/voicelive_jobs/") or "/voicelive_jobs/" in dataset_path:
+            # Download from outputs container
+            local_path, _ = download_results(dataset_path)
+        else:
+            # Download from datasets container
+            local_path = download_dataset(dataset_path)
         
         # Create output directory
         output_dir = f"/tmp/eval_{instance_id}"
@@ -639,6 +757,413 @@ def prepare_evaluation(params: dict) -> dict:
         return {"error": str(e)}
 
 
+# Default evaluators list - aligned with prototype_v1
+DEFAULT_EVALUATORS = [
+    "intent_resolution",
+    "task_adherence", 
+    "task_completion",
+    "response_completeness",
+    "groundedness",
+    "relevance",
+    "tool_call_accuracy",
+    "tool_selection",
+    "tool_input_accuracy",
+    "tool_output_utilization",
+]
+
+def get_testing_criteria(evaluators: list, model_deployment: str, reasoning_deployment: str) -> list:
+    """Build testing criteria for specified evaluators."""
+    
+    # Map evaluator names to their configurations
+    evaluator_configs = {
+        "intent_resolution": {
+            "type": "azure_ai_evaluator",
+            "name": "intent_resolution",
+            "evaluator_name": "builtin.intent_resolution",
+            "initialization_parameters": {
+                "deployment_name": reasoning_deployment,
+                "is_reasoning_model": True
+            },
+            "data_mapping": {
+                "query": "{{item.query}}",
+                "response": "{{item.response}}",
+                "tool_definitions": "{{item.tool_definitions}}",
+            },
+        },
+        "task_adherence": {
+            "type": "azure_ai_evaluator",
+            "name": "task_adherence",
+            "evaluator_name": "builtin.task_adherence",
+            "initialization_parameters": {
+                "deployment_name": reasoning_deployment,
+                "is_reasoning_model": True
+            },
+            "data_mapping": {
+                "query": "{{item.query}}",
+                "response": "{{item.response}}",
+                "tool_definitions": "{{item.tool_definitions}}",
+            },
+        },
+        "task_completion": {
+            "type": "azure_ai_evaluator",
+            "name": "task_completion",
+            "evaluator_name": "builtin.task_completion",
+            "initialization_parameters": {
+                "deployment_name": reasoning_deployment,
+                "is_reasoning_model": True
+            },
+            "data_mapping": {
+                "query": "{{item.query}}",
+                "response": "{{item.response}}",
+                "tool_definitions": "{{item.tool_definitions}}",
+            },
+        },
+        "response_completeness": {
+            "type": "azure_ai_evaluator",
+            "name": "response_completeness",
+            "evaluator_name": "builtin.response_completeness",
+            "initialization_parameters": {
+                "deployment_name": reasoning_deployment,
+                "is_reasoning_model": True
+            },
+            "data_mapping": {
+                "query": "{{item.query}}",
+                "response": "{{item.response}}",
+                "ground_truth": "{{item.ground_truth}}",
+                "tool_definitions": "{{item.tool_definitions}}",
+            },
+        },
+        "groundedness": {
+            "type": "azure_ai_evaluator",
+            "name": "groundedness",
+            "evaluator_name": "builtin.groundedness",
+            "initialization_parameters": {
+                "deployment_name": model_deployment,
+            },
+            "data_mapping": {
+                "query": "{{item.query}}",
+                "tool_definitions": "{{item.tool_definitions}}",
+                "response": "{{item.response}}",
+            },
+        },
+        "relevance": {
+            "type": "azure_ai_evaluator",
+            "name": "relevance",
+            "evaluator_name": "builtin.relevance",
+            "initialization_parameters": {
+                "deployment_name": reasoning_deployment,
+                "is_reasoning_model": True
+            },
+            "data_mapping": {
+                "query": "{{item.query}}",
+                "response": "{{item.response}}",
+            },
+        },
+        "tool_call_accuracy": {
+            "type": "azure_ai_evaluator",
+            "name": "tool_call_accuracy",
+            "evaluator_name": "builtin.tool_call_accuracy",
+            "initialization_parameters": {
+                "deployment_name": reasoning_deployment,
+                "is_reasoning_model": True
+            },
+            "data_mapping": {
+                "query": "{{item.query}}",
+                "tool_definitions": "{{item.tool_definitions}}",
+                "tool_calls": "{{item.tool_calls}}",
+                "response": "{{item.response}}",
+            },
+        },
+        "tool_selection": {
+            "type": "azure_ai_evaluator",
+            "name": "tool_selection",
+            "evaluator_name": "builtin.tool_selection",
+            "initialization_parameters": {
+                "deployment_name": reasoning_deployment,
+                "is_reasoning_model": True
+            },
+            "data_mapping": {
+                "query": "{{item.query}}",
+                "response": "{{item.response}}",
+                "tool_calls": "{{item.tool_calls}}",
+                "tool_definitions": "{{item.tool_definitions}}",
+            },
+        },
+        "tool_input_accuracy": {
+            "type": "azure_ai_evaluator",
+            "name": "tool_input_accuracy",
+            "evaluator_name": "builtin.tool_input_accuracy",
+            "initialization_parameters": {
+                "deployment_name": reasoning_deployment,
+                "is_reasoning_model": True
+            },
+            "data_mapping": {
+                "query": "{{item.query}}",
+                "response": "{{item.response}}",
+                "tool_definitions": "{{item.tool_definitions}}",
+            },
+        },
+        "tool_output_utilization": {
+            "type": "azure_ai_evaluator",
+            "name": "tool_output_utilization",
+            "evaluator_name": "builtin.tool_output_utilization",
+            "initialization_parameters": {
+                "deployment_name": reasoning_deployment,
+                "is_reasoning_model": True
+            },
+            "data_mapping": {
+                "query": "{{item.query}}",
+                "response": "{{item.response}}",
+                "tool_calls": "{{item.tool_calls}}",
+                "tool_definitions": "{{item.tool_definitions}}",
+            },
+        },
+        "fluency": {
+            "type": "azure_ai_evaluator",
+            "name": "fluency",
+            "evaluator_name": "builtin.fluency",
+            "initialization_parameters": {
+                "deployment_name": model_deployment,
+            },
+            "data_mapping": {
+                "response": "{{item.response}}",
+            },
+        },
+        "coherence": {
+            "type": "azure_ai_evaluator",
+            "name": "coherence",
+            "evaluator_name": "builtin.coherence",
+            "initialization_parameters": {
+                "deployment_name": model_deployment,
+            },
+            "data_mapping": {
+                "query": "{{item.query}}",
+                "response": "{{item.response}}",
+            },
+        },
+    }
+    
+    # Filter to requested evaluators
+    criteria = []
+    for name in evaluators:
+        if name in evaluator_configs:
+            criteria.append(evaluator_configs[name])
+        else:
+            logging.warning(f"Unknown evaluator: {name}")
+    
+    return criteria
+
+
+def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str, 
+                           evaluators: list = None, eval_group_id: str = None,
+                           foundry_dataset_id: str = None) -> dict:
+    """
+    Run Azure AI Foundry evaluation on a dataset.
+    
+    Args:
+        dataset_path: Local path to JSONL evaluation dataset
+        output_path: Directory for output files
+        instance_id: Unique identifier for this evaluation run
+        evaluators: List of evaluator names to run (None = use defaults)
+        eval_group_id: Optional existing eval group ID to reuse (skip creating new)
+        foundry_dataset_id: Optional existing Foundry dataset ID to reuse (skip uploading)
+    
+    Returns:
+        dict with eval_id, eval_run_id, portal_url, and metrics summary
+    """
+        instance_id: Unique identifier for this evaluation run
+        evaluators: List of evaluator names to run (None = use defaults)
+    
+    Returns:
+        dict with eval_id, eval_run_id, portal_url, and metrics summary
+    """
+    from azure.ai.projects import AIProjectClient
+    from azure.identity import DefaultAzureCredential
+    
+    # Get configuration from environment
+    project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT") or os.environ.get("PROJECT_ENDPOINT")
+    model_deployment = os.environ.get("AOAI_DEPLOYMENT_NAME", "gpt-4.1-mini")
+    reasoning_deployment = os.environ.get("AOAI_REASONING_DEPLOYMENT_NAME", model_deployment)
+    
+    if not project_endpoint:
+        logging.warning("No PROJECT_ENDPOINT configured - skipping Foundry evaluation")
+        return {"status": "skipped", "reason": "No PROJECT_ENDPOINT configured"}
+    
+    # Use provided evaluators or defaults
+    eval_list = evaluators if evaluators else DEFAULT_EVALUATORS
+    
+    try:
+        # Create project client
+        project_client = AIProjectClient(
+            credential=DefaultAzureCredential(),
+            endpoint=project_endpoint
+        )
+        
+        # Get OpenAI client (beta SDK uses environment variable OPENAI_API_VERSION automatically)
+        openai_client = project_client.get_openai_client()
+        
+        # Build testing criteria for selected evaluators
+        testing_criteria = get_testing_criteria(eval_list, model_deployment, reasoning_deployment)
+        
+        if not testing_criteria:
+            return {"status": "skipped", "reason": "No valid evaluators specified"}
+        
+        # Data source config for agent evaluation
+        data_source_config = {
+            "type": "custom",
+            "item_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "object"}}]},
+                    "tool_definitions": {
+                        "anyOf": [{"type": "object"}, {"type": "array", "items": {"type": "object"}}]
+                    },
+                    "tool_calls": {"anyOf": [{"type": "object"}, {"type": "array", "items": {"type": "object"}}]},
+                    "response": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "object"}}]},
+                    "ground_truth": {"type": "string"},
+                },
+                "required": ["query", "response"],
+            },
+            "include_sample_schema": True,
+        }
+        
+        # Create or reuse eval group
+        if eval_group_id:
+            # Reuse existing eval group
+            eval_id = eval_group_id
+            logging.info(f"Reusing existing eval group: {eval_id}")
+        else:
+            # Create new eval group
+            eval_name = f"voicelive-eval-{instance_id[:8]}"
+            eval_object = openai_client.evals.create(
+                name=eval_name,
+                data_source_config=data_source_config,
+                testing_criteria=testing_criteria,
+            )
+            eval_id = eval_object.id
+            logging.info(f"Created eval group: {eval_id}")
+        
+        # Upload or reuse dataset
+        if foundry_dataset_id:
+            # Reuse existing Foundry dataset
+            dataset_id = foundry_dataset_id
+            logging.info(f"Reusing existing Foundry dataset: {dataset_id}")
+        else:
+            # Upload dataset with auto-versioning (like prototype)
+            dataset_name = f"eval-dataset-{instance_id[:8]}"
+            try:
+                # Check for existing versions
+                existing = list(project_client.datasets.list())
+                existing_versions = [d for d in existing if d.name == dataset_name]
+                if existing_versions:
+                    new_version = str(max(int(d.version) for d in existing_versions) + 1)
+                else:
+                    new_version = "1"
+            except Exception:
+                new_version = "1"
+            
+            dataset = project_client.datasets.upload_file(
+                name=dataset_name,
+                version=new_version,
+                file_path=dataset_path
+            )
+            dataset_id = dataset.id
+            logging.info(f"Uploaded dataset: {dataset_id} (version {new_version})")
+        
+        # Create and run evaluation
+        from openai.types.evals.create_eval_jsonl_run_data_source_param import (
+            CreateEvalJSONLRunDataSourceParam,
+            SourceFileID,
+        )
+        
+        data_source = CreateEvalJSONLRunDataSourceParam(
+            type="jsonl",
+            source=SourceFileID(type="file_id", id=dataset_id),
+        )
+        
+        eval_run = openai_client.evals.runs.create(
+            eval_id=eval_id,
+            name=f"run-{instance_id[:8]}",
+            metadata={"instance_id": instance_id, "source": "voicelive-agent-v3"},
+            data_source=data_source
+        )
+        eval_run_id = eval_run.id
+        logging.info(f"Created eval run: {eval_run_id}")
+        
+        # Wait for completion (with timeout)
+        import time
+        max_wait = 600  # 10 minutes
+        start_time = time.time()
+        
+        while time.time() - start_time < max_wait:
+            run_status = openai_client.evals.runs.retrieve(run_id=eval_run_id, eval_id=eval_id)
+            if run_status.status in ["completed", "failed"]:
+                break
+            time.sleep(10)
+        
+        # Get portal URL from the run object
+        portal_url = getattr(run_status, 'report_url', None)
+        logging.info(f"SDK report_url: {portal_url}")
+        
+        # The SDK report_url should be correct format:
+        # https://ai.azure.com/nextgen/r/{project}/build/evaluations/{eval_id}/run/{run_id}
+        if not portal_url:
+            # Fallback: construct minimal working URL
+            portal_url = f"https://ai.azure.com/build/evaluations/{eval_id}"
+        
+        logging.info(f"Final portal URL: {portal_url}")
+        
+        # Get results
+        metrics_summary = {}
+        if run_status.status == "completed":
+            try:
+                output_items = list(openai_client.evals.runs.output_items.list(
+                    run_id=eval_run_id, eval_id=eval_id
+                ))
+                
+                # Aggregate metrics
+                metric_scores = {}
+                metric_counts = {}
+                for item in output_items:
+                    results = item.results if hasattr(item, 'results') else []
+                    for result in results:
+                        name = result.name if hasattr(result, 'name') else result.get("name", "unknown")
+                        score = result.score if hasattr(result, 'score') else result.get("score")
+                        if isinstance(score, (int, float)):
+                            if name not in metric_scores:
+                                metric_scores[name] = 0
+                                metric_counts[name] = 0
+                            metric_scores[name] += score
+                            metric_counts[name] += 1
+                
+                metrics_summary = {
+                    name: round(metric_scores[name] / metric_counts[name], 3)
+                    for name in metric_scores
+                }
+                
+                # Write detailed results to output
+                results_file = os.path.join(output_path, "eval_results.jsonl")
+                with open(results_file, 'w', encoding='utf-8') as f:
+                    for item in output_items:
+                        f.write(json.dumps(item.model_dump(), indent=None) + '\n')
+                        
+            except Exception as e:
+                logging.error(f"Error getting eval results: {e}")
+        
+        return {
+            "status": run_status.status,
+            "eval_id": eval_id,
+            "eval_run_id": eval_run_id,
+            "foundry_portal_url": portal_url,
+            "evaluators_run": eval_list,
+            "metrics_summary": metrics_summary,
+        }
+        
+    except Exception as e:
+        logging.error(f"Foundry evaluation error: {e}")
+        return {"status": "failed", "error": str(e)}
+
+
 @bp.activity_trigger(input_name="params")
 def execute_evaluation(params: dict) -> dict:
     """Execute the actual evaluation (long-running)."""
@@ -648,28 +1173,72 @@ def execute_evaluation(params: dict) -> dict:
         max_workers = params.get("max_workers", 4)
         session_mode = params.get("session_mode", "per-conversation")
         instance_id = params["instance_id"]
-        
-        # For now, run a simplified evaluation
-        # In production, this would call the actual evaluation script
+        evaluators = params.get("evaluators")  # List or None
+        run_voicelive_tests = params.get("run_voicelive_tests", True)
+        eval_group_id = params.get("eval_group_id")  # Optional: reuse existing eval group
+        foundry_dataset_id = params.get("foundry_dataset_id")  # Optional: reuse existing dataset
         
         # Count entries in dataset
         entry_count = 0
+        entries = []
         with open(local_path, 'r', encoding='utf-8') as f:
             for line in f:
-                if line.strip() and not line.startswith(('/', '#')):
+                line = line.strip()
+                if line and not line.startswith(('/', '#')):
                     entry_count += 1
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
         
-        # Create mock results (replace with actual evaluation)
+        logging.info(f"Dataset has {entry_count} entries")
+        
+        # Determine dataset type and validate format
+        # Check if this is an "evaluation-ready" dataset (has query/response)
+        # or a "raw audio" dataset (has WavPath but needs VoiceLive processing)
+        has_audio_files = any(e.get("WavPath") or e.get("audio_path") for e in entries)
+        has_eval_data = any(e.get("query") and e.get("response") for e in entries)
+        
+        voicelive_results = None
+        if run_voicelive_tests and has_audio_files and not has_eval_data:
+            # Dataset has audio files but no query/response - would need VoiceLive processing
+            # VoiceLive audio testing requires long-running connections not suitable for Functions
+            # Use prototype_v1/voice_agent_audio_input_evaluation.py for audio testing
+            logging.warning("Dataset contains raw audio files without evaluation data")
+            voicelive_results = {
+                "status": "not_supported",
+                "reason": "VoiceLive audio testing requires local execution (prototype_v1). "
+                         "Please run voice_agent_audio_input_evaluation.py first to generate "
+                         "evaluation-ready JSONL with query/response fields, then upload that dataset."
+            }
+            # We can still try to run Foundry evaluation on the raw data
+        elif has_eval_data:
+            logging.info("Dataset is evaluation-ready (has query/response fields)")
+            voicelive_results = {"status": "not_needed", "reason": "Dataset already has evaluation data"}
+        else:
+            logging.info("Dataset structure unclear - proceeding with Foundry evaluation")
+            voicelive_results = {"status": "skipped", "reason": "No audio files or existing eval data detected"}
+        
+        # Step 2: Run Foundry evaluators on the dataset
+        eval_results = run_foundry_evaluation(
+            dataset_path=local_path,
+            output_path=output_path,
+            instance_id=instance_id,
+            evaluators=evaluators,
+            eval_group_id=eval_group_id,
+            foundry_dataset_id=foundry_dataset_id
+        )
+        
+        # Combine results
         results = {
             "status": "completed",
             "entries_evaluated": entry_count,
             "instance_id": instance_id,
             "timestamp": datetime.utcnow().isoformat(),
-            "metrics": {
-                "total_entries": entry_count,
-                "processed": entry_count,
-                "errors": 0
-            }
+            "voicelive_tests": voicelive_results,
+            "foundry_evaluation": eval_results,
+            "foundry_portal_url": eval_results.get("foundry_portal_url"),
+            "metrics": eval_results.get("metrics_summary", {}),
         }
         
         # Write results to output
@@ -741,13 +1310,18 @@ async def run_voicelive_evaluation(req: func.HttpRequest, client) -> func.HttpRe
                 mimetype="application/json"
             )
         
-        # Start the orchestration
+        # Start the orchestration with all parameters
         instance_id = await client.start_new(
             "evaluation_orchestrator",
             client_input={
                 "dataset_path": dataset_path,
                 "max_workers": body.get("max_workers", 4),
-                "session_mode": body.get("session_mode", "per-conversation")
+                "session_mode": body.get("session_mode", "per-conversation"),
+                "evaluators": body.get("evaluators"),  # List of evaluator names or None for all
+                "run_voicelive_tests": body.get("run_voicelive_tests", True),
+                # Optional: reuse existing Foundry resources
+                "eval_group_id": body.get("eval_group_id"),  # Reuse existing eval group
+                "foundry_dataset_id": body.get("foundry_dataset_id"),  # Reuse existing Foundry dataset
             }
         )
         
@@ -820,6 +1394,16 @@ async def check_evaluation_status(req: func.HttpRequest, client) -> func.HttpRes
         if runtime_status == "Completed":
             response["output"] = status.output
             response["message"] = "Evaluation completed successfully."
+            # Extract and highlight portal URL for agent
+            if status.output and isinstance(status.output, dict):
+                portal_url = status.output.get("foundry_portal_url")
+                if portal_url:
+                    response["foundry_portal_url"] = portal_url
+                    response["message"] = f"Evaluation completed. View detailed results at: {portal_url}"
+                # Also include metrics summary at top level for easy access
+                metrics = status.output.get("metrics")
+                if metrics:
+                    response["metrics_summary"] = metrics
         elif runtime_status == "Failed":
             response["error"] = str(status.output) if status.output else "Unknown error"
             response["message"] = "Evaluation failed."
@@ -848,7 +1432,10 @@ app.register_blueprint(bp)
 
 @app.route(route="analyze_evaluation_results", methods=["POST"])
 def analyze_evaluation_results(req: func.HttpRequest) -> func.HttpResponse:
-    """Analyze evaluation output files."""
+    """Analyze evaluation output files.
+    
+    Uses unified flexible path handling to find results.
+    """
     logging.info("analyze_evaluation_results called")
     
     try:
@@ -862,36 +1449,26 @@ def analyze_evaluation_results(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json"
             )
         
-        # Download results from blob
-        client = get_blob_client()
-        container = os.environ.get("AZURE_STORAGE_OUTPUTS_CONTAINER", "outputs")
-        container_client = client.get_container_client(container)
-        
-        # Find aggregate file
-        blobs = list(container_client.list_blobs(name_starts_with=results_path))
-        aggregate_blob = None
-        for blob in blobs:
-            if "aggregate" in blob.name.lower() and blob.name.endswith(".jsonl"):
-                aggregate_blob = blob.name
-                break
-        
-        if not aggregate_blob and blobs:
-            # Take first JSONL
-            for blob in blobs:
-                if blob.name.endswith(".jsonl"):
-                    aggregate_blob = blob.name
-                    break
-        
-        if not aggregate_blob:
+        # Use unified flexible download
+        try:
+            local_path, actual_blob = download_results(results_path)
+        except ValueError as e:
             return func.HttpResponse(
-                json.dumps({"error": "No results files found"}),
+                json.dumps({
+                    "error": "No results files found",
+                    "search_path": results_path,
+                    "message": str(e)
+                }),
                 status_code=404,
                 mimetype="application/json"
             )
         
-        # Download and analyze
-        blob_client = container_client.get_blob_client(aggregate_blob)
-        content = blob_client.download_blob().readall().decode('utf-8')
+        # Read and analyze the file
+        with open(local_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Cleanup temp file
+        os.unlink(local_path)
         
         entries = []
         for line in content.split('\n'):
@@ -923,7 +1500,7 @@ def analyze_evaluation_results(req: func.HttpRequest) -> func.HttpResponse:
             json.dumps({
                 "action": "analyze_evaluation_results",
                 "status": "success",
-                "file": aggregate_blob,
+                "file": actual_blob,
                 "entries_analyzed": len(entries),
                 "metrics_found": len(metrics),
                 "summary": summary
