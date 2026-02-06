@@ -18,7 +18,8 @@ graph TB
     
     subgraph "Azure AI Foundry"
         Agent[VoiceLive Evaluation Agent<br/>voicelive-evaluation-agent-cloud]
-        Trace[Tracing & Observability]
+        Trace[Foundry Tracing]
+        FDS[(Foundry Data Store<br/>Evaluation Datasets)]
     end
     
     subgraph "Azure Functions"
@@ -30,9 +31,14 @@ graph TB
         VL[VoiceLive Processor<br/>ca-voicelive-processor]
     end
     
-    subgraph "Azure Blob Storage"
-        DS[(datasets/)]
-        OUT[(outputs/)]
+    subgraph "Azure Storage"
+        DS[(Blob: datasets/<br/>Audio + JSONL)]
+        OUT[(Blob: outputs/<br/>VoiceLive Results)]
+        TBL[(Table: configjournal<br/>Config History)]
+    end
+    
+    subgraph "Monitoring & Observability"
+        AI[Application Insights<br/>Unified Telemetry]
     end
     
     subgraph "Azure AI Foundry Evaluators"
@@ -45,13 +51,136 @@ graph TB
     Agent --> HTTP
     Agent --> VL
     Agent --> Trace
+    Agent -.->|OpenTelemetry| AI
     HTTP --> Durable
     HTTP --> DS
     HTTP --> OUT
+    HTTP -.->|Telemetry| AI
+    Durable --> FDS
     Durable --> EVAL
     Durable --> OUT
+    Durable --> TBL
     VL --> DS
     VL --> OUT
+    VL -.->|Telemetry| AI
+```
+
+## Monitoring & Observability
+
+All services share a single **Application Insights** resource for unified operational visibility:
+
+| Service | Telemetry Type | Purpose |
+|---------|---------------|---------|
+| **Foundry Agent** | OpenTelemetry traces | Agent conversations, tool calls, reasoning |
+| **Azure Functions** | Auto-instrumentation | HTTP requests, dependencies, exceptions |
+| **Container App** | Custom telemetry | VoiceLive processing metrics, job status |
+| **Foundry Tracing** | Built-in | Detailed agent traces in Foundry Portal |
+
+### Application Insights Benefits
+
+```mermaid
+graph LR
+    subgraph "Unified Telemetry"
+        AI[Application Insights]
+    end
+    
+    subgraph "Sources"
+        Agent[Agent<br/>OpenTelemetry]
+        Func[Functions<br/>Auto-instrumented]
+        CA[Container App<br/>Custom metrics]
+    end
+    
+    subgraph "Capabilities"
+        Dash[Dashboards]
+        Alert[Alerts]
+        Query[KQL Queries]
+        Map[App Map]
+    end
+    
+    Agent --> AI
+    Func --> AI
+    CA --> AI
+    AI --> Dash
+    AI --> Alert
+    AI --> Query
+    AI --> Map
+```
+
+**Key metrics to track:**
+- Agent response latency
+- Tool call success/failure rates
+- VoiceLive processing duration per file
+- Evaluation job completion times
+- Error rates by component
+
+### Foundry Tracing vs Application Insights
+
+| Aspect | Foundry Tracing | Application Insights |
+|--------|-----------------|----------------------|
+| Scope | Agent conversations only | All services |
+| Detail | Tool calls, reasoning | Requests, dependencies, exceptions |
+| Access | Foundry Portal | Azure Portal |
+| Retention | Project-based | Configurable (90 days default) |
+| Alerting | Limited | Full Azure Monitor integration |
+| Use for | Debugging agent behavior | Operational monitoring |
+
+**Recommendation:** Use both:
+- **Foundry Tracing** for debugging agent logic
+- **Application Insights** for operational health and cross-service visibility
+
+## Data Storage
+
+Datasets are stored in **multiple locations** with different purposes:
+
+| Storage | Content | Purpose |
+|---------|---------|---------|
+| **Blob: datasets/** | VoiceLive audio datasets (.wav + .jsonl) | Source audio for processing |
+| **Blob: outputs/** | VoiceLive processing results | Backup + debugging |
+| **Foundry Data Store** | Evaluation datasets (versioned) | Input to Foundry evaluators |
+| **Table: configjournal** | Session config history | Tracking eval group configurations |
+
+### Config Journal Storage Comparison
+
+Considered options for config journal:
+
+| Aspect | Azure Table Storage | Application Insights | CSV on Blob |
+|--------|---------------------|----------------------|-------------|
+| Purpose | Structured data | Telemetry | Simple files |
+| Retention | Permanent | 90 days (configurable) | Permanent |
+| Query | OData (simple) | KQL (powerful) | Download + parse |
+| Concurrency | Atomic operations | Eventual consistency | Race conditions |
+| Best for | **Config journal ✅** | Metrics/alerts | Quick prototypes |
+
+**Decision:** Use **Azure Table Storage** for config journal:
+- Permanent retention (configs are reference data)
+- Simple entity-based queries
+- Atomic insert operations
+- Same storage account as blob
+
+```mermaid
+graph LR
+    subgraph "1. Audio Source"
+        A[datasets/<br/>Eiffel_Tower_Visit_1/*.wav]
+    end
+    
+    subgraph "2. VoiceLive Processing"
+        B[Container App]
+    end
+    
+    subgraph "3. Evaluation Dataset"
+        C1[outputs/voicelive_jobs/<br/>results.jsonl]
+        C2[Foundry Data Store<br/>version N]
+    end
+    
+    subgraph "4. Evaluation"
+        D[Foundry Evaluators]
+    end
+    
+    A --> B
+    B --> C1
+    B -.->|Future: direct upload| C2
+    C1 -->|Current: Function uploads| C2
+    C2 --> D
 ```
 
 ## Service Separation
@@ -480,7 +609,31 @@ sequenceDiagram
 
 ## Open Work Items
 
-### High Priority
+### High Priority: Dataset Versioning & Eval Group Strategy
+
+**Goal**: Implement proper versioning and organization for datasets and evaluation groups.
+
+#### Phase 1: Versioning in Function App (Lower Risk, Recommended First)
+- [ ] **Version datasets on upload** - Before uploading to Foundry, check if dataset with same base name exists. If so, increment version number.
+- [ ] **One eval group per dataset** - Create/reuse eval group named after audio dataset. Add runs to existing group instead of creating new groups each time.
+- [ ] **Track lineage metadata** - Store source audio dataset name, processing timestamp, config hash in Foundry dataset description.
+- [ ] **Return version info** - Include dataset_id, version, eval_group_id in API responses.
+
+#### Phase 2: Move Upload to Container App (Higher Risk, Future)
+- [ ] **Add Foundry SDK to Container App** - Install azure-ai-projects, configure PROJECT_ENDPOINT
+- [ ] **Upload to Foundry after processing** - Container App uploads directly to Foundry Data Store after VoiceLive processing completes
+- [ ] **Update Function App** - Remove upload logic, use dataset_id provided by Container App
+- [ ] **Update agent workflow** - Chain: Container App (returns dataset_id) → Function App (uses dataset_id)
+
+#### Design Decisions
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Dataset naming | Use audio dataset name | Clear lineage, simple |
+| Config changes | New version (not new dataset) | Same audio input = same test |
+| Eval groups | One per audio dataset | Better organization, easy comparison |
+| Fallback | Keep blob upload working | Resilience if Foundry upload fails |
+
+### Other High Priority
 - [ ] **Add RBAC assignments to azd automation** - Currently requires manual Azure AI User role assignment
 - [ ] **Fix VoiceLive Container App progress tracking** - Shows 0/6 files even when successful
 - [ ] **Add webhook notifications** - Notify when long evaluations complete
@@ -499,6 +652,7 @@ sequenceDiagram
 1. **Metrics sometimes empty** - Foundry SDK may not return metrics immediately after completion
 2. **Container App no auth** - Currently public endpoint (add API key or MSI if needed)
 3. **eval_group_id reuse** - Only works within same Foundry project
+4. **No dataset versioning yet** - Each upload creates new dataset (to be fixed in Phase 1)
 
 ---
 
