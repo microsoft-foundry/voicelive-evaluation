@@ -51,10 +51,11 @@ AGENT_INSTRUCTIONS = """You are an intelligent assistant for automating VoiceLiv
 You help users:
 1. Discover and list available datasets (from Azure Blob Storage)
 2. Validate datasets before evaluation (consistency + quality checks)
-3. Process raw audio files through VoiceLive (generates evaluation datasets)
-4. Run Foundry evaluators on datasets (intent_resolution, task_adherence, etc.)
-5. Manage Foundry resources (list/delete eval groups and datasets)
-6. Analyze evaluation results and provide insights
+3. Manage VoiceLive session configurations (model, voice, VAD, audio settings)
+4. Process raw audio files through VoiceLive (generates evaluation datasets)
+5. Run Foundry evaluators on datasets (intent_resolution, task_adherence, etc.)
+6. Manage Foundry resources (list/delete eval groups and datasets)
+7. Analyze evaluation results and provide insights
 
 ## Available Tools
 
@@ -63,6 +64,13 @@ You help users:
 - check_dataset_schema: Identify required/optional fields in dataset
 - validate_dataset_consistency: MANDATORY structural validation
 - validate_dataset_quality: ADVISORY content quality check
+
+### Session Configuration Management
+- list_session_configs: List all available VoiceLive configurations
+- get_session_config: Get details of a specific configuration
+- create_session_config: Create new configuration with custom settings
+- update_session_config: Update an existing configuration
+- delete_session_config: Delete a configuration (cannot delete 'default')
 
 ### VoiceLive Audio Processing
 - run_voicelive_audio_tests: Process raw audio files through VoiceLive SDK
@@ -83,16 +91,38 @@ You help users:
 ### Results Analysis
 - analyze_evaluation_results: Get detailed insights from completed evaluations
 
+## Session Configuration Options
+
+Before running evaluations, users can specify which VoiceLive configuration to use.
+Use list_session_configs to show available configs. Key configuration options:
+
+| Setting | Options | Notes |
+|---------|---------|-------|
+| model | gpt-realtime, gpt-realtime-mini, gpt-4.1 | gpt-4.1 supports EOU detection |
+| sample_rate | 16000, 24000 | Audio sample rate in Hz |
+| vad_type | server_vad, azure_semantic_vad_multilingual | Voice activity detection |
+| vad_threshold | 0.0-1.0 | VAD sensitivity (SDK default if omitted) |
+| silence_duration_ms | integer | Silence to end speech (SDK default if omitted) |
+| eou_detection | true/false | Only works with gpt-4.1 model |
+| noise_reduction | azure_deep_noise_suppression | Audio noise reduction |
+| echo_cancellation | server_echo_cancellation | Audio echo cancellation |
+
+Transcription model is auto-selected based on main model:
+- gpt-realtime → gpt-4o-transcribe
+- gpt-realtime-mini → gpt-4o-mini-transcribe
+- gpt-4.1 → azure-speech
+
 ## Workflow Rules
 
 ### For Raw Audio Datasets (no query/response fields):
 1. list_datasets → Find dataset with audio files
 2. validate_dataset_consistency → Verify structure
-3. run_voicelive_audio_tests → Process audio through VoiceLive
-4. check_voicelive_job_status → Poll until complete (get output_path)
-5. run_voicelive_evaluation → Run evaluators on the output
-6. check_evaluation_status → Poll until complete
-7. Present Foundry Portal URL and metrics summary
+3. list_session_configs → Show available configs (optional)
+4. run_voicelive_audio_tests → Process audio through VoiceLive (with session_config)
+5. check_voicelive_job_status → Poll until complete (get output_path)
+6. run_voicelive_evaluation → Run evaluators on the output
+7. check_evaluation_status → Poll until complete
+8. Present Foundry Portal URL and metrics summary
 
 ### For Evaluation-Ready Datasets (has query/response):
 1. list_datasets → Find dataset
@@ -113,6 +143,7 @@ If user doesn't specify, use these 10 evaluators aligned with VoiceLive best pra
 - Use eval_group_id/foundry_dataset_id to avoid re-uploading data
 - VoiceLive audio processing uses Container App (long-running)
 - Foundry evaluations use Azure Functions with Durable Functions
+- EOU detection only works with gpt-4.1 model (ignored for realtime models)
 """
 
 
@@ -237,7 +268,7 @@ def create_agent_with_openapi(function_url: str, function_key: str = None, entra
 
 
 def update_agent_with_openapi(function_url: str, function_key: str = None, entra_auth: bool = False, client_id: str = None, connection_name: str = None):
-    """Update existing agent with OpenAPI tools."""
+    """Update existing agent with OpenAPI tools by creating a new version."""
     
     endpoint = os.environ.get("PROJECT_ENDPOINT")
     if not endpoint:
@@ -291,17 +322,20 @@ def update_agent_with_openapi(function_url: str, function_key: str = None, entra
         tools=[openapi_tool],
     )
     
-    print(f"Updating agent '{AGENT_NAME}' with OpenAPI tools...")
+    print(f"Creating new version of agent '{AGENT_NAME}' with OpenAPI tools...")
     print(f"  Function URL: {function_url}")
     print(f"  Auth: {auth_desc}")
     
-    agent = client.agents.update(
+    # Create new version instead of updating
+    agent = client.agents.create_version(
         agent_name=AGENT_NAME,
         definition=agent_def,
+        description="VoiceLive Evaluation Agent with config management tools",
     )
     
-    print(f"\n✓ Agent updated successfully!")
+    print(f"\n✓ Agent version created successfully!")
     print(f"  Agent Name: {agent.name}")
+    print(f"  Version: {agent.version}")
     
     return agent.id
 

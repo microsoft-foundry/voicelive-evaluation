@@ -168,9 +168,9 @@ class VoiceLiveClient:
                 )
         else:
             sdk_turn_detection = ServerVad(
-                threshold=config.turn_detection.threshold or 0.5,
-                prefix_padding_ms=config.turn_detection.prefix_padding_ms or 300,
-                silence_duration_ms=config.turn_detection.silence_duration_ms or 500,
+                threshold=config.turn_detection.threshold,
+                prefix_padding_ms=config.turn_detection.prefix_padding_ms,
+                silence_duration_ms=config.turn_detection.silence_duration_ms,
             )
         
         # Build noise reduction and echo cancellation

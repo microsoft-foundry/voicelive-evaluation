@@ -387,20 +387,391 @@ def get_session_configs() -> list:
         
         configs = []
         for entity in table_client.query_entities("PartitionKey eq 'voicelive'"):
-            configs.append({
+            config = {
                 "name": entity.get("Name", entity["RowKey"]),
                 "description": entity.get("Description", ""),
                 "model": entity.get("Model", "gpt-realtime"),
-                "voice": entity.get("Voice", "alloy"),
-                "vad_threshold": entity.get("VadThreshold", "0.5"),
-                "end_of_speech_timeout": entity.get("EndOfSpeechTimeout", "500"),
-                "is_default": entity.get("IsDefault", "false") == "true",
-            })
+                "sample_rate": int(entity.get("SampleRate", 24000)),
+                "voice_name": entity.get("VoiceName", "alloy"),
+                "voice_type": entity.get("VoiceType", "preset"),
+                "vad_type": entity.get("VadType", "azure_semantic_vad_multilingual"),
+                "vad_threshold": entity.get("VadThreshold"),  # None = SDK default
+                "silence_duration_ms": entity.get("SilenceDurationMs"),  # None = SDK default
+                "eou_detection": entity.get("EouDetection", "true").lower() == "true",
+                "eou_model": entity.get("EouModel", "azure_semantic_v1_multilingual"),
+                "transcription_model": entity.get("TranscriptionModel", "gpt-4o-transcribe"),
+                "noise_reduction": entity.get("NoiseReduction", "azure_deep_noise_suppression"),
+                "echo_cancellation": entity.get("EchoCancellation", "server_echo_cancellation"),
+                "is_default": entity.get("IsDefault", "false").lower() == "true",
+            }
+            # Convert threshold to float if present
+            if config["vad_threshold"]:
+                try:
+                    config["vad_threshold"] = float(config["vad_threshold"])
+                except (ValueError, TypeError):
+                    config["vad_threshold"] = None
+            # Convert silence_duration_ms to int if present
+            if config["silence_duration_ms"]:
+                try:
+                    config["silence_duration_ms"] = int(config["silence_duration_ms"])
+                except (ValueError, TypeError):
+                    config["silence_duration_ms"] = None
+            configs.append(config)
         return configs
         
     except Exception as e:
         logging.warning(f"Failed to get session configs: {e}")
         return []
+
+
+def get_session_config_by_name(name: str) -> dict:
+    """Get a specific session config by name."""
+    try:
+        table_client = get_table_client("sessionconfigs")
+        if not table_client:
+            return None
+        
+        entity = table_client.get_entity(partition_key="voicelive", row_key=name)
+        config = {
+            "name": entity.get("Name", entity["RowKey"]),
+            "description": entity.get("Description", ""),
+            "model": entity.get("Model", "gpt-realtime"),
+            "sample_rate": int(entity.get("SampleRate", 24000)),
+            "voice_name": entity.get("VoiceName", "alloy"),
+            "voice_type": entity.get("VoiceType", "preset"),
+            "vad_type": entity.get("VadType", "azure_semantic_vad_multilingual"),
+            "vad_threshold": entity.get("VadThreshold"),
+            "silence_duration_ms": entity.get("SilenceDurationMs"),
+            "eou_detection": entity.get("EouDetection", "true").lower() == "true",
+            "eou_model": entity.get("EouModel", "azure_semantic_v1_multilingual"),
+            "transcription_model": entity.get("TranscriptionModel", "gpt-4o-transcribe"),
+            "noise_reduction": entity.get("NoiseReduction", "azure_deep_noise_suppression"),
+            "echo_cancellation": entity.get("EchoCancellation", "server_echo_cancellation"),
+            "is_default": entity.get("IsDefault", "false").lower() == "true",
+        }
+        if config["vad_threshold"]:
+            try:
+                config["vad_threshold"] = float(config["vad_threshold"])
+            except (ValueError, TypeError):
+                config["vad_threshold"] = None
+        if config["silence_duration_ms"]:
+            try:
+                config["silence_duration_ms"] = int(config["silence_duration_ms"])
+            except (ValueError, TypeError):
+                config["silence_duration_ms"] = None
+        return config
+    except Exception as e:
+        logging.warning(f"Failed to get session config '{name}': {e}")
+        return None
+
+
+def upsert_session_config(config: dict) -> bool:
+    """Create or update a session config."""
+    try:
+        table_client = get_table_client("sessionconfigs")
+        if not table_client:
+            return False
+        
+        name = config.get("name")
+        if not name:
+            return False
+        
+        entity = {
+            "PartitionKey": "voicelive",
+            "RowKey": name,
+            "Name": name,
+            "Description": config.get("description", ""),
+            "Model": config.get("model", "gpt-realtime"),
+            "SampleRate": str(config.get("sample_rate", 24000)),
+            "VoiceName": config.get("voice_name", "alloy"),
+            "VoiceType": config.get("voice_type", "preset"),
+            "VadType": config.get("vad_type", "azure_semantic_vad_multilingual"),
+            "VadThreshold": str(config["vad_threshold"]) if config.get("vad_threshold") is not None else "",
+            "SilenceDurationMs": str(config["silence_duration_ms"]) if config.get("silence_duration_ms") is not None else "",
+            "EouDetection": "true" if config.get("eou_detection", True) else "false",
+            "EouModel": config.get("eou_model", "azure_semantic_v1_multilingual"),
+            "TranscriptionModel": config.get("transcription_model", "gpt-4o-transcribe"),
+            "NoiseReduction": config.get("noise_reduction", "azure_deep_noise_suppression"),
+            "EchoCancellation": config.get("echo_cancellation", "server_echo_cancellation"),
+            "IsDefault": "true" if config.get("is_default", False) else "false",
+        }
+        
+        table_client.upsert_entity(entity)
+        logging.info(f"Upserted session config: {name}")
+        return True
+    except Exception as e:
+        logging.error(f"Failed to upsert session config: {e}")
+        return False
+
+
+def delete_session_config(name: str) -> bool:
+    """Delete a session config."""
+    try:
+        table_client = get_table_client("sessionconfigs")
+        if not table_client:
+            return False
+        
+        table_client.delete_entity(partition_key="voicelive", row_key=name)
+        logging.info(f"Deleted session config: {name}")
+        return True
+    except Exception as e:
+        logging.error(f"Failed to delete session config '{name}': {e}")
+        return False
+
+
+# =============================================================================
+# Config Management Endpoints
+# =============================================================================
+
+@app.route(route="list_session_configs", methods=["POST"])
+def list_session_configs_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """List available VoiceLive session configurations."""
+    logging.info("list_session_configs called")
+    
+    try:
+        configs = get_session_configs()
+        
+        # Find default config
+        default_config = next((c for c in configs if c.get("is_default")), None)
+        
+        return func.HttpResponse(
+            json.dumps({
+                "action": "list_session_configs",
+                "status": "success",
+                "configs_found": len(configs),
+                "default_config": default_config["name"] if default_config else None,
+                "configs": configs
+            }),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"list_session_configs error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+@app.route(route="get_session_config", methods=["POST"])
+def get_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """Get a specific VoiceLive session configuration by name."""
+    logging.info("get_session_config called")
+    
+    try:
+        body = req.get_json() if req.get_body() else {}
+        name = body.get("name")
+        
+        if not name:
+            return func.HttpResponse(
+                json.dumps({"error": "Missing required parameter: name"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        config = get_session_config_by_name(name)
+        
+        if not config:
+            return func.HttpResponse(
+                json.dumps({"error": f"Config not found: {name}"}),
+                status_code=404,
+                mimetype="application/json"
+            )
+        
+        return func.HttpResponse(
+            json.dumps({
+                "action": "get_session_config",
+                "status": "success",
+                "config": config
+            }),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"get_session_config error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+@app.route(route="create_session_config", methods=["POST"])
+def create_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """Create a new VoiceLive session configuration."""
+    logging.info("create_session_config called")
+    
+    try:
+        body = req.get_json() if req.get_body() else {}
+        
+        name = body.get("name")
+        if not name:
+            return func.HttpResponse(
+                json.dumps({"error": "Missing required parameter: name"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        # Check if config already exists
+        existing = get_session_config_by_name(name)
+        if existing:
+            return func.HttpResponse(
+                json.dumps({"error": f"Config already exists: {name}. Use update_session_config to modify."}),
+                status_code=409,
+                mimetype="application/json"
+            )
+        
+        # Build config with defaults
+        config = {
+            "name": name,
+            "description": body.get("description", ""),
+            "model": body.get("model", "gpt-realtime"),
+            "sample_rate": body.get("sample_rate", 24000),
+            "voice_name": body.get("voice_name", "alloy"),
+            "voice_type": body.get("voice_type", "preset"),
+            "vad_type": body.get("vad_type", "azure_semantic_vad_multilingual"),
+            "vad_threshold": body.get("vad_threshold"),  # None = SDK default
+            "silence_duration_ms": body.get("silence_duration_ms"),  # None = SDK default
+            "eou_detection": body.get("eou_detection", True),
+            "eou_model": body.get("eou_model", "azure_semantic_v1_multilingual"),
+            "transcription_model": body.get("transcription_model", "gpt-4o-transcribe"),
+            "noise_reduction": body.get("noise_reduction", "azure_deep_noise_suppression"),
+            "echo_cancellation": body.get("echo_cancellation", "server_echo_cancellation"),
+            "is_default": body.get("is_default", False),
+        }
+        
+        success = upsert_session_config(config)
+        
+        if not success:
+            return func.HttpResponse(
+                json.dumps({"error": "Failed to create config"}),
+                status_code=500,
+                mimetype="application/json"
+            )
+        
+        return func.HttpResponse(
+            json.dumps({
+                "action": "create_session_config",
+                "status": "success",
+                "config": config
+            }),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"create_session_config error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+@app.route(route="update_session_config", methods=["POST"])
+def update_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """Update an existing VoiceLive session configuration."""
+    logging.info("update_session_config called")
+    
+    try:
+        body = req.get_json() if req.get_body() else {}
+        
+        name = body.get("name")
+        if not name:
+            return func.HttpResponse(
+                json.dumps({"error": "Missing required parameter: name"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        # Get existing config
+        existing = get_session_config_by_name(name)
+        if not existing:
+            return func.HttpResponse(
+                json.dumps({"error": f"Config not found: {name}. Use create_session_config to create new."}),
+                status_code=404,
+                mimetype="application/json"
+            )
+        
+        # Merge with existing config (only update provided fields)
+        config = existing.copy()
+        for key in ["description", "model", "sample_rate", "voice_name", "voice_type", 
+                    "vad_type", "vad_threshold", "silence_duration_ms", "eou_detection",
+                    "eou_model", "transcription_model", "noise_reduction", "echo_cancellation", "is_default"]:
+            if key in body:
+                config[key] = body[key]
+        
+        success = upsert_session_config(config)
+        
+        if not success:
+            return func.HttpResponse(
+                json.dumps({"error": "Failed to update config"}),
+                status_code=500,
+                mimetype="application/json"
+            )
+        
+        return func.HttpResponse(
+            json.dumps({
+                "action": "update_session_config",
+                "status": "success",
+                "config": config
+            }),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"update_session_config error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+@app.route(route="delete_session_config", methods=["POST"])
+def delete_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """Delete a VoiceLive session configuration."""
+    logging.info("delete_session_config called")
+    
+    try:
+        body = req.get_json() if req.get_body() else {}
+        
+        name = body.get("name")
+        if not name:
+            return func.HttpResponse(
+                json.dumps({"error": "Missing required parameter: name"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        # Prevent deletion of default config
+        if name == "default":
+            return func.HttpResponse(
+                json.dumps({"error": "Cannot delete the 'default' config"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        success = delete_session_config(name)
+        
+        if not success:
+            return func.HttpResponse(
+                json.dumps({"error": f"Failed to delete config: {name}"}),
+                status_code=500,
+                mimetype="application/json"
+            )
+        
+        return func.HttpResponse(
+            json.dumps({
+                "action": "delete_session_config",
+                "status": "success",
+                "deleted": name
+            }),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"delete_session_config error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
 
 
 # =============================================================================

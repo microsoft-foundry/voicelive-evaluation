@@ -499,6 +499,11 @@ paths:
                   type: integer
                   default: 4
                   description: Maximum parallel workers
+                session_config:
+                  type: string
+                  description: |
+                    Name of session configuration to use (e.g., "default", "conf1").
+                    Use list_session_configs to see available configurations.
       responses:
         '200':
           description: Job started
@@ -567,6 +572,152 @@ paths:
                     type: string
                     description: Error message if failed
 
+  # Session Configuration Management
+  /list_session_configs:
+    post:
+      operationId: list_session_configs
+      summary: List VoiceLive session configurations
+      description: |
+        Lists all available VoiceLive session configurations.
+        Each configuration defines model, voice, VAD settings, and audio processing options.
+      responses:
+        '200':
+          description: List of configurations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  configs_found:
+                    type: integer
+                  default_config:
+                    type: string
+                    description: Name of the default configuration
+                  configs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SessionConfig'
+
+  /get_session_config:
+    post:
+      operationId: get_session_config
+      summary: Get a session configuration by name
+      description: Gets detailed information about a specific session configuration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  description: Configuration name (e.g., "default", "conf1")
+      responses:
+        '200':
+          description: Configuration details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  config:
+                    $ref: '#/components/schemas/SessionConfig'
+        '404':
+          description: Configuration not found
+
+  /create_session_config:
+    post:
+      operationId: create_session_config
+      summary: Create a new session configuration
+      description: |
+        Creates a new VoiceLive session configuration with custom settings.
+        Use for setting up different evaluation scenarios (models, VAD types, etc).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionConfigInput'
+      responses:
+        '200':
+          description: Configuration created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  config:
+                    $ref: '#/components/schemas/SessionConfig'
+        '409':
+          description: Configuration already exists
+
+  /update_session_config:
+    post:
+      operationId: update_session_config
+      summary: Update an existing session configuration
+      description: Updates an existing configuration. Only provided fields are updated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionConfigInput'
+      responses:
+        '200':
+          description: Configuration updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  config:
+                    $ref: '#/components/schemas/SessionConfig'
+        '404':
+          description: Configuration not found
+
+  /delete_session_config:
+    post:
+      operationId: delete_session_config
+      summary: Delete a session configuration
+      description: Deletes a session configuration. Cannot delete the 'default' config.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  description: Name of configuration to delete
+      responses:
+        '200':
+          description: Configuration deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  deleted:
+                    type: string
+        '400':
+          description: Cannot delete default configuration
+
 security:
   - functionKey: []
 
@@ -577,3 +728,100 @@ components:
       in: query
       name: code
       description: Azure Function key for authentication
+  
+  schemas:
+    SessionConfig:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Unique name for the configuration
+        description:
+          type: string
+          description: Human-readable description
+        model:
+          type: string
+          enum: ["gpt-realtime", "gpt-realtime-mini", "gpt-4.1"]
+          description: VoiceLive model to use
+        sample_rate:
+          type: integer
+          enum: [16000, 24000]
+          description: Audio sample rate in Hz
+        voice_name:
+          type: string
+          description: Voice preset name (e.g., "alloy", "echo", "shimmer")
+        voice_type:
+          type: string
+          description: Voice type (default "preset")
+        vad_type:
+          type: string
+          enum: ["server_vad", "azure_semantic_vad_multilingual"]
+          description: Voice Activity Detection type
+        vad_threshold:
+          type: number
+          nullable: true
+          description: VAD sensitivity (0.0-1.0). Null = SDK default.
+        silence_duration_ms:
+          type: integer
+          nullable: true
+          description: Silence duration in ms. Null = SDK default.
+        eou_detection:
+          type: boolean
+          description: Enable End-of-Utterance detection (only for gpt-4.1)
+        eou_model:
+          type: string
+          description: EOU model to use
+        transcription_model:
+          type: string
+          description: Transcription model (auto-selected if not specified)
+        noise_reduction:
+          type: string
+          description: Noise reduction type
+        echo_cancellation:
+          type: string
+          description: Echo cancellation type
+        is_default:
+          type: boolean
+          description: Whether this is the default configuration
+    
+    SessionConfigInput:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Unique name for the configuration
+        description:
+          type: string
+        model:
+          type: string
+          enum: ["gpt-realtime", "gpt-realtime-mini", "gpt-4.1"]
+        sample_rate:
+          type: integer
+          enum: [16000, 24000]
+        voice_name:
+          type: string
+        voice_type:
+          type: string
+        vad_type:
+          type: string
+          enum: ["server_vad", "azure_semantic_vad_multilingual"]
+        vad_threshold:
+          type: number
+          nullable: true
+        silence_duration_ms:
+          type: integer
+          nullable: true
+        eou_detection:
+          type: boolean
+        eou_model:
+          type: string
+        transcription_model:
+          type: string
+        noise_reduction:
+          type: string
+        echo_cancellation:
+          type: string
+        is_default:
+          type: boolean

@@ -25,6 +25,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
+from azure.ai.projects.models import PromptAgentDefinition
 from azure.ai.agents.models import FunctionTool
 
 # Load environment
@@ -192,6 +193,154 @@ TOOL_DEFINITIONS = [
                 "required": ["results_path"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_session_configs",
+            "description": "Lists all available VoiceLive session configurations. Each config defines model, voice, VAD settings, and audio processing options for evaluation runs.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_session_config",
+            "description": "Gets detailed information about a specific VoiceLive session configuration by name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the configuration to retrieve (e.g., 'default', 'conf1', 'conf2')"
+                    }
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_session_config",
+            "description": "Creates a new VoiceLive session configuration with custom settings. Use for setting up different evaluation scenarios.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Unique name for the configuration"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Human-readable description of this config's purpose"
+                    },
+                    "model": {
+                        "type": "string",
+                        "enum": ["gpt-realtime", "gpt-realtime-mini", "gpt-4.1"],
+                        "description": "VoiceLive model to use"
+                    },
+                    "sample_rate": {
+                        "type": "integer",
+                        "enum": [16000, 24000],
+                        "description": "Audio sample rate in Hz (16000 or 24000)"
+                    },
+                    "voice_name": {
+                        "type": "string",
+                        "description": "Voice preset name (e.g., 'alloy', 'echo', 'shimmer')"
+                    },
+                    "vad_type": {
+                        "type": "string",
+                        "enum": ["server_vad", "azure_semantic_vad_multilingual"],
+                        "description": "Voice Activity Detection type"
+                    },
+                    "vad_threshold": {
+                        "type": "number",
+                        "description": "VAD sensitivity threshold (0.0-1.0). Omit to use SDK default."
+                    },
+                    "silence_duration_ms": {
+                        "type": "integer",
+                        "description": "Silence duration in ms to detect end of speech. Omit to use SDK default."
+                    },
+                    "eou_detection": {
+                        "type": "boolean",
+                        "description": "Enable End-of-Utterance detection (only for gpt-4.1 model)"
+                    },
+                    "eou_model": {
+                        "type": "string",
+                        "description": "EOU model to use (default: azure_semantic_v1_multilingual)"
+                    },
+                    "transcription_model": {
+                        "type": "string",
+                        "description": "Transcription model (auto-selected based on main model if not specified)"
+                    },
+                    "noise_reduction": {
+                        "type": "string",
+                        "description": "Noise reduction type (default: azure_deep_noise_suppression)"
+                    },
+                    "echo_cancellation": {
+                        "type": "string",
+                        "description": "Echo cancellation type (default: server_echo_cancellation)"
+                    },
+                    "is_default": {
+                        "type": "boolean",
+                        "description": "Set as the default configuration"
+                    }
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_session_config",
+            "description": "Updates an existing VoiceLive session configuration. Only provided fields are updated.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the configuration to update"
+                    },
+                    "description": {"type": "string"},
+                    "model": {"type": "string", "enum": ["gpt-realtime", "gpt-realtime-mini", "gpt-4.1"]},
+                    "sample_rate": {"type": "integer", "enum": [16000, 24000]},
+                    "voice_name": {"type": "string"},
+                    "vad_type": {"type": "string", "enum": ["server_vad", "azure_semantic_vad_multilingual"]},
+                    "vad_threshold": {"type": "number"},
+                    "silence_duration_ms": {"type": "integer"},
+                    "eou_detection": {"type": "boolean"},
+                    "eou_model": {"type": "string"},
+                    "transcription_model": {"type": "string"},
+                    "noise_reduction": {"type": "string"},
+                    "echo_cancellation": {"type": "string"},
+                    "is_default": {"type": "boolean"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_session_config",
+            "description": "Deletes a VoiceLive session configuration. Cannot delete the 'default' config.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the configuration to delete"
+                    }
+                },
+                "required": ["name"]
+            }
+        }
     }
 ]
 
@@ -202,8 +351,9 @@ You help users:
 1. Discover and list available datasets
 2. Validate datasets before evaluation (consistency + quality checks)
 3. Get recommendations for large dataset evaluations
-4. Run VoiceLive audio evaluations
+4. Run VoiceLive audio evaluations with configurable settings
 5. Analyze evaluation results and provide insights
+6. Manage VoiceLive session configurations
 
 ## Workflow Rules
 
@@ -214,6 +364,27 @@ ALWAYS follow this sequence:
 4. get_evaluation_recommendations → For large datasets (>50 entries)
 5. run_voicelive_evaluation → Execute the evaluation
 6. analyze_evaluation_results → Extract insights
+
+## Session Configuration
+
+Before running evaluations, users can specify which VoiceLive configuration to use.
+Use list_session_configs to show available configs. Key configuration options:
+
+| Setting | Options | Notes |
+|---------|---------|-------|
+| model | gpt-realtime, gpt-realtime-mini, gpt-4.1 | gpt-4.1 supports EOU detection |
+| sample_rate | 16000, 24000 | Audio sample rate in Hz |
+| vad_type | server_vad, azure_semantic_vad_multilingual | Voice activity detection |
+| vad_threshold | 0.0-1.0 | VAD sensitivity (SDK default if omitted) |
+| silence_duration_ms | integer | Silence to end speech (SDK default if omitted) |
+| eou_detection | true/false | Only works with gpt-4.1 model |
+| noise_reduction | azure_deep_noise_suppression | Audio noise reduction |
+| echo_cancellation | server_echo_cancellation | Audio echo cancellation |
+
+Transcription model is auto-selected based on main model:
+- gpt-realtime → gpt-4o-transcribe
+- gpt-realtime-mini → gpt-4o-mini-transcribe
+- gpt-4.1 → azure-speech
 
 ## Large Dataset Handling
 
@@ -229,6 +400,7 @@ For datasets with >50 entries:
 - Tool execution is handled by the runner process
 - Results are stored in the configured output directory
 - Tracing is automatic via Foundry Agent Service
+- EOU detection only works with gpt-4.1 model (ignored for realtime models)
 """
 
 
@@ -247,17 +419,22 @@ def create_agent(client: AIProjectClient) -> str:
     """Create a new agent in Foundry."""
     print(f"Creating agent '{AGENT_NAME}' with model '{AGENT_MODEL}'...")
     
-    agent = client.agents.create_agent(
+    # Build the agent definition
+    definition = PromptAgentDefinition(
         model=AGENT_MODEL,
-        name=AGENT_NAME,
         instructions=AGENT_INSTRUCTIONS,
         tools=TOOL_DEFINITIONS,
+    )
+    
+    agent = client.agents.create(
+        name=AGENT_NAME,
+        definition=definition,
+        description="VoiceLive Evaluation Agent for automating evaluation workflows"
     )
     
     print(f"✓ Agent created successfully!")
     print(f"  Agent ID: {agent.id}")
     print(f"  Name: {agent.name}")
-    print(f"  Model: {agent.model}")
     print(f"  Tools: {len(TOOL_DEFINITIONS)}")
     print(f"\nSave this Agent ID for future use:")
     print(f"  AGENT_ID={agent.id}")
@@ -272,19 +449,27 @@ def create_agent(client: AIProjectClient) -> str:
 
 
 def update_agent(client: AIProjectClient, agent_id: str) -> None:
-    """Update an existing agent."""
-    print(f"Updating agent '{agent_id}'...")
+    """Update an existing agent by creating a new version."""
+    print(f"Creating new version of agent '{agent_id}'...")
     
-    agent = client.agents.update_agent(
-        agent_id=agent_id,
+    # Build the agent definition
+    definition = PromptAgentDefinition(
         model=AGENT_MODEL,
-        name=AGENT_NAME,
         instructions=AGENT_INSTRUCTIONS,
         tools=TOOL_DEFINITIONS,
     )
     
-    print(f"✓ Agent updated successfully!")
+    # Create a new version of the agent
+    agent = client.agents.create_version(
+        agent_name=agent_id,
+        definition=definition,
+        description="VoiceLive Evaluation Agent with config management tools"
+    )
+    
+    print(f"✓ Agent version created successfully!")
     print(f"  Agent ID: {agent.id}")
+    print(f"  Name: {agent.name}")
+    print(f"  Version: {agent.version}")
     print(f"  Tools: {len(TOOL_DEFINITIONS)}")
 
 
@@ -292,15 +477,14 @@ def list_agents(client: AIProjectClient) -> None:
     """List all agents in the project."""
     print("Listing agents...")
     
-    agents = client.agents.list_agents()
+    agents = client.agents.list()
     
     agent_list = list(agents)
     print(f"\nFound {len(agent_list)} agent(s):\n")
     for agent in agent_list:
         print(f"  ID: {agent.id}")
         print(f"  Name: {agent.name}")
-        print(f"  Model: {agent.model}")
-        print(f"  Created: {agent.created_at}")
+        print(f"  Created: {getattr(agent, 'created_at', 'N/A')}")
         print()
 
 
@@ -308,7 +492,7 @@ def delete_agent(client: AIProjectClient, agent_id: str) -> None:
     """Delete an agent."""
     print(f"Deleting agent '{agent_id}'...")
     
-    client.agents.delete_agent(agent_id)
+    client.agents.delete(agent_id)
     
     print(f"✓ Agent deleted successfully!")
     

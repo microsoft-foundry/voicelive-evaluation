@@ -518,6 +518,146 @@ def analyze_evaluation_results(results_path: str) -> dict:
         return {"action": "analyze_evaluation_results", "status": "error", "error": str(e)}
 
 
+# =============================================================================
+# Config Management Tools (HTTP calls to Azure Functions)
+# =============================================================================
+
+def _call_functions_api(endpoint: str, payload: dict = None) -> dict:
+    """Call Azure Functions API endpoint."""
+    import urllib.request
+    import urllib.error
+    
+    functions_url = os.environ.get("AZURE_FUNCTIONS_URL")
+    functions_key = os.environ.get("AZURE_FUNCTIONS_KEY")
+    
+    if not functions_url:
+        return {"error": "AZURE_FUNCTIONS_URL not configured"}
+    
+    url = f"{functions_url}/api/{endpoint}"
+    headers = {"Content-Type": "application/json"}
+    if functions_key:
+        headers["x-functions-key"] = functions_key
+    
+    try:
+        data = json.dumps(payload or {}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8") if e.fp else str(e)
+        return {"error": f"HTTP {e.code}: {body}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def list_session_configs() -> dict:
+    """List available VoiceLive session configurations."""
+    print(f"\n⚙️  Listing session configs...", flush=True)
+    result = _call_functions_api("list_session_configs")
+    if "error" not in result:
+        print(f"✓ Found {result.get('configs_found', 0)} configs", flush=True)
+    return result
+
+
+def get_session_config(name: str) -> dict:
+    """Get a specific VoiceLive session configuration."""
+    print(f"\n⚙️  Getting config '{name}'...", flush=True)
+    return _call_functions_api("get_session_config", {"name": name})
+
+
+def create_session_config(
+    name: str,
+    description: str = None,
+    model: str = None,
+    sample_rate: int = None,
+    voice_name: str = None,
+    voice_type: str = None,
+    vad_type: str = None,
+    vad_threshold: float = None,
+    silence_duration_ms: int = None,
+    eou_detection: bool = None,
+    eou_model: str = None,
+    transcription_model: str = None,
+    noise_reduction: str = None,
+    echo_cancellation: str = None,
+    is_default: bool = None
+) -> dict:
+    """Create a new VoiceLive session configuration."""
+    print(f"\n⚙️  Creating config '{name}'...", flush=True)
+    
+    payload = {"name": name}
+    if description is not None: payload["description"] = description
+    if model is not None: payload["model"] = model
+    if sample_rate is not None: payload["sample_rate"] = sample_rate
+    if voice_name is not None: payload["voice_name"] = voice_name
+    if voice_type is not None: payload["voice_type"] = voice_type
+    if vad_type is not None: payload["vad_type"] = vad_type
+    if vad_threshold is not None: payload["vad_threshold"] = vad_threshold
+    if silence_duration_ms is not None: payload["silence_duration_ms"] = silence_duration_ms
+    if eou_detection is not None: payload["eou_detection"] = eou_detection
+    if eou_model is not None: payload["eou_model"] = eou_model
+    if transcription_model is not None: payload["transcription_model"] = transcription_model
+    if noise_reduction is not None: payload["noise_reduction"] = noise_reduction
+    if echo_cancellation is not None: payload["echo_cancellation"] = echo_cancellation
+    if is_default is not None: payload["is_default"] = is_default
+    
+    result = _call_functions_api("create_session_config", payload)
+    if "error" not in result:
+        print(f"✓ Config '{name}' created", flush=True)
+    return result
+
+
+def update_session_config(
+    name: str,
+    description: str = None,
+    model: str = None,
+    sample_rate: int = None,
+    voice_name: str = None,
+    voice_type: str = None,
+    vad_type: str = None,
+    vad_threshold: float = None,
+    silence_duration_ms: int = None,
+    eou_detection: bool = None,
+    eou_model: str = None,
+    transcription_model: str = None,
+    noise_reduction: str = None,
+    echo_cancellation: str = None,
+    is_default: bool = None
+) -> dict:
+    """Update an existing VoiceLive session configuration."""
+    print(f"\n⚙️  Updating config '{name}'...", flush=True)
+    
+    payload = {"name": name}
+    if description is not None: payload["description"] = description
+    if model is not None: payload["model"] = model
+    if sample_rate is not None: payload["sample_rate"] = sample_rate
+    if voice_name is not None: payload["voice_name"] = voice_name
+    if voice_type is not None: payload["voice_type"] = voice_type
+    if vad_type is not None: payload["vad_type"] = vad_type
+    if vad_threshold is not None: payload["vad_threshold"] = vad_threshold
+    if silence_duration_ms is not None: payload["silence_duration_ms"] = silence_duration_ms
+    if eou_detection is not None: payload["eou_detection"] = eou_detection
+    if eou_model is not None: payload["eou_model"] = eou_model
+    if transcription_model is not None: payload["transcription_model"] = transcription_model
+    if noise_reduction is not None: payload["noise_reduction"] = noise_reduction
+    if echo_cancellation is not None: payload["echo_cancellation"] = echo_cancellation
+    if is_default is not None: payload["is_default"] = is_default
+    
+    result = _call_functions_api("update_session_config", payload)
+    if "error" not in result:
+        print(f"✓ Config '{name}' updated", flush=True)
+    return result
+
+
+def delete_session_config(name: str) -> dict:
+    """Delete a VoiceLive session configuration."""
+    print(f"\n⚙️  Deleting config '{name}'...", flush=True)
+    result = _call_functions_api("delete_session_config", {"name": name})
+    if "error" not in result:
+        print(f"✓ Config '{name}' deleted", flush=True)
+    return result
+
+
 # Tool registry for runner
 TOOLS = {
     "check_dataset_schema": check_dataset_schema,
@@ -527,6 +667,11 @@ TOOLS = {
     "run_voicelive_evaluation": run_voicelive_evaluation,
     "list_datasets": list_datasets,
     "analyze_evaluation_results": analyze_evaluation_results,
+    "list_session_configs": list_session_configs,
+    "get_session_config": get_session_config,
+    "create_session_config": create_session_config,
+    "update_session_config": update_session_config,
+    "delete_session_config": delete_session_config,
 }
 
 
