@@ -68,14 +68,15 @@ azd env get-values
 ### Create Foundry Agent
 
 ```bash
-# Get function URL from azd output
+# Get URLs from azd output
 FUNC_URL=$(azd env get-value AZURE_FUNCTION_APP_URL)
+CA_URL=$(azd env get-value AZURE_CONTAINER_APP_URL)
 
-# Create agent with OpenAPI tools
-python setup_agent_openapi.py --function-url $FUNC_URL
+# Create agent with OpenAPI tools (includes Container App for audio processing)
+python setup_agent_openapi.py --function-url $FUNC_URL --container-app-url $CA_URL
 
 # Or update existing agent
-python setup_agent_openapi.py --function-url $FUNC_URL --update
+python setup_agent_openapi.py --function-url $FUNC_URL --container-app-url $CA_URL --update
 ```
 
 ### Configure Agent Authentication (Production)
