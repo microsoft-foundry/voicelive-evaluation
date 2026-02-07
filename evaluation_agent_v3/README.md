@@ -9,6 +9,7 @@ The v3 agent combines:
 - **VoiceLive Container App** - Long-running audio processing through VoiceLive SDK
 - **Azure Functions** - Serverless dataset validation and Foundry evaluations
 - **Azure Blob Storage** - Dataset and results storage
+- **Azure Table Storage** - Session configuration management
 
 ```mermaid
 graph LR
@@ -16,6 +17,7 @@ graph LR
     Agent -->|HTTP| Functions[Azure Functions]
     Agent -->|HTTP| CA[Container App]
     Functions -->|Blob| Storage[(Blob Storage)]
+    Functions -->|Table| Tables[(Table Storage)]
     CA -->|VoiceLive SDK| VL[VoiceLive API]
     CA -->|Blob| Storage
     Functions -->|Evaluators| Foundry[Foundry Evaluators]
@@ -29,6 +31,7 @@ graph LR
 - Azure AI Foundry project
 - Azure CLI + azd CLI installed
 - Python 3.11+
+- Docker Desktop (for Container App deployment)
 
 ### Deploy Infrastructure
 
@@ -39,36 +42,48 @@ cd evaluation_agent_v3
 az login
 azd auth login
 
-# Deploy Function App + Storage
+# Create environment and configure
+azd env new my-voicelive-eval --location eastus2
+azd env set PROJECT_ENDPOINT "https://<resource>.services.ai.azure.com/api/projects/<project>"
+azd env set AZURE_VOICE_LIVE_ENDPOINT "https://<resource>.services.ai.azure.com/"
+azd env set DEPLOY_CONTAINER_APP true  # Include Container App
+
+# Deploy everything (Functions + Container App + Storage)
 azd up
 
 # Get deployed resources
-FUNC_URL=$(azd env get-value AZURE_FUNCTION_APP_URL)
+azd env get-values
 ```
 
-### Deploy Container App (VoiceLive Processing)
+### Seed Session Configurations
 
 ```bash
-# Build and push container image
-cd deploy/container-app
-az acr build --registry acrvoicelive9976 --image voicelive-processor:latest .
-
-# Deploy Container App
-az containerapp update --name ca-voicelive-processor \
-  --resource-group rg-voicelive-eval-v3 \
-  --image acrvoicelive9976.azurecr.io/voicelive-processor:latest
+# After deployment, seed the default VoiceLive configurations
+./scripts/azd/seed-session-configs.ps1 -StorageAccountName <storage-account-name>
 ```
 
-### Configure Agent
+### Create Foundry Agent
+
+```bash
+# Get function URL from azd output
+FUNC_URL=$(azd env get-value AZURE_FUNCTION_APP_URL)
+
+# Create agent with OpenAPI tools
+python setup_agent_openapi.py --function-url $FUNC_URL
+
+# Or update existing agent
+python setup_agent_openapi.py --function-url $FUNC_URL --update
+```
+
+### Configure Agent Authentication (Production)
 
 1. **Create Function Key Connection in Foundry Portal**:
    - Go to ai.azure.com → Your Project → Management → Connections
    - Add Custom Keys connection named `voicelive-eval-api-key`
    - Add keys: `code` and `x-functions-key` (same value from Function App)
 
-2. **Create/Update Agent**:
+2. **Update Agent with Connection**:
 ```bash
-# Get full connection ID from portal or:
 CONNECTION_ID="/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/projects/<project>/connections/voicelive-eval-api-key"
 
 python setup_agent_openapi.py \
@@ -117,6 +132,16 @@ print(messages[-1].content[0].text.value)
 ```
 
 ## Available Tools
+
+### Session Configuration Management
+
+| Tool | Description |
+|------|-------------|
+| `list_session_configs` | List all VoiceLive session configurations |
+| `get_session_config` | Get details of a specific config |
+| `create_session_config` | Create new VoiceLive config |
+| `update_session_config` | Update existing config |
+| `delete_session_config` | Delete a config |
 
 ### Dataset Discovery & Validation
 
@@ -231,7 +256,7 @@ Datasets are JSONL files with one entry per line:
 evaluation_agent_v3/
 ├── deploy/
 │   ├── azure-functions/           # Azure Functions code
-│   │   ├── function_app.py        # 14 function endpoints
+│   │   ├── function_app.py        # 20+ function endpoints
 │   │   ├── openapi.yaml           # OpenAPI spec for agent
 │   │   ├── requirements.txt
 │   │   └── host.json
@@ -244,22 +269,87 @@ evaluation_agent_v3/
 │       ├── Dockerfile
 │       └── requirements.txt
 ├── infra/                         # Bicep infrastructure
+│   ├── main.bicep                 # Main deployment template
+│   ├── main.parameters.json       # Parameters with defaults
+│   └── modules/                   # Reusable modules
+│       ├── storage.bicep          # Storage + Tables
+│       ├── function-app.bicep     # Functions + App Insights
+│       └── container-app.bicep    # Container App + ACR
+├── scripts/
+│   └── azd/                       # Deployment scripts
+│       ├── seed-session-configs.ps1  # Seed default configs
+│       ├── deploy-container-app.ps1  # Build & deploy container
+│       └── setup-agent.ps1           # Create Foundry agent
 ├── setup_agent.py                 # Local runner setup
 ├── setup_agent_openapi.py         # Cloud agent setup
 ├── runner.py                      # Local tool executor
 ├── tools.py                       # Tool implementations
+├── test_agent_sdk.py              # Integration tests
+├── azure.yaml                     # azd configuration
 ├── ARCHITECTURE.md                # Design decisions
 └── README.md                      # This file
 ```
 
+## Testing
+
+### Integration Tests
+
+Run the integration tests to verify all endpoints:
+
+```bash
+# Set function key (get from Azure Portal or CLI)
+export AZURE_FUNCTION_KEY=$(az functionapp keys list --name <func-name> --resource-group <rg> --query "functionKeys.default" -o tsv)
+
+# Run tests
+python test_agent_sdk.py --function-url https://<func-name>.azurewebsites.net/api
+```
+
+Expected output:
+```
+============================================================
+VoiceLive Evaluation Agent v3 - Integration Tests
+============================================================
+[1/10] list_session_configs
+   ✓ Found 7 configs
+[2/10] get_session_config
+   ✓ Got config: default (Model: gpt-4.1)
+...
+Total: 10/10 tests passed
+```
+
+## Session Configurations
+
+The agent supports 7 pre-configured VoiceLive settings:
+
+| Config | Model | Sample Rate | VAD Type | EOU |
+|--------|-------|-------------|----------|-----|
+| default | gpt-4.1 | 24000 | azure_semantic_vad_multilingual | ✓ |
+| conf1 | gpt-realtime | 16000 | server_vad | ✗ |
+| conf2 | gpt-realtime-mini | 16000 | server_vad | ✗ |
+| conf3 | gpt-4.1 | 16000 | server_vad | ✓ |
+| conf4 | gpt-realtime | 24000 | azure_semantic_vad_multilingual | ✗ |
+| conf5 | gpt-realtime-mini | 24000 | azure_semantic_vad_multilingual | ✗ |
+| conf6 | gpt-4.1 | 24000 | azure_semantic_vad_multilingual | ✓ |
+
+Create custom configurations via the agent:
+```
+"Create a new session config named 'low-latency' with model gpt-realtime-mini, sample_rate 16000, and vad_type server_vad"
+```
+
 ## Deployed Resources
 
-| Resource | Name | URL |
-|----------|------|-----|
-| Function App | func-v3g7ywvldzjeo | https://func-v3g7ywvldzjeo.azurewebsites.net |
-| Container App | ca-voicelive-processor | https://ca-voicelive-processor.ashyisland-d1546750.eastus2.azurecontainerapps.io |
-| Storage Account | stv3g7ywvldzjeo | datasets/ + outputs/ containers |
-| Agent | voicelive-evaluation-agent-cloud | In Foundry Portal |
+After `azd up`, the following resources are created:
+
+| Resource | Purpose |
+|----------|---------|
+| Resource Group | `rg-<env-name>` |
+| Storage Account | `st<token>` - datasets/, outputs/, tables |
+| Function App | `func-<token>` - 20+ HTTP endpoints |
+| Container App | `ca-voicelive-<token>` - VoiceLive processor |
+| Container Registry | `acr<token>` - Docker images |
+| App Insights | `func-<token>-insights` - Telemetry |
+| Table: sessionconfigs | VoiceLive session configurations |
+| Table: configjournal | Evaluation group → config mapping |
 
 ## Troubleshooting
 
@@ -291,4 +381,4 @@ evaluation_agent_v3/
 
 ---
 
-*Last updated: February 6, 2026*
+*Last updated: February 7, 2026*

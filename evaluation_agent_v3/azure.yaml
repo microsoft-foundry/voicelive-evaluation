@@ -22,9 +22,6 @@ services:
     project: ./deploy/container-app
     language: python
     host: containerapp
-    docker:
-      path: ./deploy/container-app/Dockerfile
-      context: ./deploy/container-app
 
 # Hooks for deployment lifecycle
 hooks:

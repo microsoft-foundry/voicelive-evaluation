@@ -1,6 +1,6 @@
 # VoiceLive Evaluation Agent v3 - Architecture
 
-*Last updated: February 6, 2026*
+*Last updated: February 7, 2026*
 
 ## Overview
 
@@ -23,7 +23,7 @@ graph TB
     end
     
     subgraph "Azure Functions"
-        HTTP[HTTP Triggers<br/>list_datasets, validate, etc.]
+        HTTP[HTTP Triggers<br/>20+ endpoints]
         Durable[Durable Functions<br/>evaluation_orchestrator]
     end
     
@@ -34,7 +34,8 @@ graph TB
     subgraph "Azure Storage"
         DS[(Blob: datasets/<br/>Audio + JSONL)]
         OUT[(Blob: outputs/<br/>VoiceLive Results)]
-        TBL[(Table: configjournal<br/>Config History)]
+        TBL1[(Table: sessionconfigs<br/>VoiceLive Configs)]
+        TBL2[(Table: configjournal<br/>Config History)]
     end
     
     subgraph "Monitoring & Observability"
@@ -55,14 +56,57 @@ graph TB
     HTTP --> Durable
     HTTP --> DS
     HTTP --> OUT
+    HTTP --> TBL1
     HTTP -.->|Telemetry| AI
     Durable --> FDS
     Durable --> EVAL
     Durable --> OUT
-    Durable --> TBL
+    Durable --> TBL2
     VL --> DS
     VL --> OUT
     VL -.->|Telemetry| AI
+```
+
+## Deployment Architecture
+
+The system is deployed via Azure Developer CLI (azd):
+
+```mermaid
+graph TB
+    subgraph "azd up"
+        AZD[azure.yaml]
+    end
+    
+    subgraph "Infrastructure (Bicep)"
+        Main[main.bicep]
+        Storage[storage.bicep]
+        Func[function-app.bicep]
+        CA[container-app.bicep]
+    end
+    
+    subgraph "Azure Resources"
+        RG[Resource Group]
+        ST[Storage Account<br/>Blob + Tables]
+        FUNC[Function App<br/>+ App Insights]
+        ACR[Container Registry]
+        CAP[Container App]
+    end
+    
+    subgraph "Post-Deployment"
+        Seed[seed-session-configs.ps1]
+        Agent[setup_agent_openapi.py]
+    end
+    
+    AZD --> Main
+    Main --> Storage
+    Main --> Func
+    Main --> CA
+    Storage --> ST
+    Func --> FUNC
+    CA --> ACR
+    CA --> CAP
+    AZD -->|postprovision| Seed
+    AZD -->|postdeploy| Agent
 ```
 
 ## Monitoring & Observability
@@ -137,7 +181,31 @@ Datasets are stored in **multiple locations** with different purposes:
 | **Blob: datasets/** | VoiceLive audio datasets (.wav + .jsonl) | Source audio for processing |
 | **Blob: outputs/** | VoiceLive processing results | Backup + debugging |
 | **Foundry Data Store** | Evaluation datasets (versioned) | Input to Foundry evaluators |
+| **Table: sessionconfigs** | VoiceLive session configurations | Reusable config presets |
 | **Table: configjournal** | Session config history | Tracking eval group configurations |
+
+### Session Configuration Table
+
+The `sessionconfigs` table stores VoiceLive session presets:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| PartitionKey | string | Always "voicelive" |
+| RowKey | string | Config name (e.g., "default", "conf1") |
+| Name | string | Human-readable name |
+| Model | string | VoiceLive model (gpt-4.1, gpt-realtime, gpt-realtime-mini) |
+| SampleRate | string | Audio sample rate (16000, 24000) |
+| VadType | string | VAD type (server_vad, azure_semantic_vad_multilingual) |
+| VadThreshold | string | Optional VAD threshold |
+| SilenceDurationMs | string | Optional silence duration |
+| EouDetection | string | Enable end-of-utterance detection (true/false) |
+| EouModel | string | EOU model name |
+| TranscriptionModel | string | Transcription model |
+| NoiseReduction | string | Noise reduction type |
+| EchoCancellation | string | Echo cancellation type |
+| VoiceName | string | Voice preset name |
+| VoiceType | string | Voice type (preset/custom) |
+| IsDefault | string | Is this the default config (true/false) |
 
 ### Config Journal Storage Comparison
 
