@@ -755,6 +755,11 @@ sequenceDiagram
 - [ ] **Add webhook notifications** - Notify when long evaluations complete
 
 ### Medium Priority
+- [ ] **Add Foundry account/project creation to azd** - Currently requires pre-existing Foundry resources
+  - Create Cognitive Services account (kind: AIServices) via Bicep
+  - Create Foundry project via ARM/Bicep
+  - Auto-configure App Insights connection for tracing
+  - Create API key connection for Function App auth
 - [ ] **Multi-region deployment** - Deploy Functions/Container App closer to data
 - [ ] **Add retry logic** - Handle transient failures in VoiceLive SDK
 - [ ] **Implement rate limiting** - Prevent quota exhaustion on Foundry evaluators

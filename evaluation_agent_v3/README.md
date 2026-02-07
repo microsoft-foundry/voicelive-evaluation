@@ -28,7 +28,10 @@ graph LR
 ### Prerequisites
 
 - Azure subscription with Cognitive Services access
-- Azure AI Foundry project
+- **Azure AI Foundry account and project (must exist before deployment)**
+  - The azd/Bicep deployment does NOT create the Foundry account or project
+  - Create via [Azure AI Foundry Portal](https://ai.azure.com) or Azure Portal
+  - Note the PROJECT_ENDPOINT from Project Settings
 - Azure CLI + azd CLI installed
 - Python 3.11+
 - Docker Desktop (for Container App deployment)
