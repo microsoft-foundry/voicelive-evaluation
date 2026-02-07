@@ -169,7 +169,7 @@ def load_openapi_spec(function_url: str, function_key: str = None) -> dict:
     return spec
 
 
-def create_agent_with_openapi(function_url: str, function_key: str = None, entra_auth: bool = False, client_id: str = None, connection_name: str = None):
+def create_agent_with_openapi(function_url: str, function_key: str = None, entra_auth: bool = False, client_id: str = None, connection_name: str = None, model: str = None):
     """Create agent using OpenAPI tools.
     
     Authentication options:
@@ -177,6 +177,8 @@ def create_agent_with_openapi(function_url: str, function_key: str = None, entra
     2. Connection-based API Key - Use --connection-name to reference a Foundry connection
     3. Managed Identity - Use --entra-auth --client-id for Entra ID auth
     """
+    # Use provided model or fall back to env/default
+    agent_model = model or os.environ.get("MODEL_DEPLOYMENT_NAME", "gpt-4.1-mini")
     
     endpoint = os.environ.get("PROJECT_ENDPOINT")
     if not endpoint:
@@ -227,13 +229,14 @@ def create_agent_with_openapi(function_url: str, function_key: str = None, entra
     
     # Create agent definition
     agent_def = PromptAgentDefinition(
-        model=AGENT_MODEL,
+        model=agent_model,
         instructions=AGENT_INSTRUCTIONS,
         tools=[openapi_tool],
     )
     
     print(f"Creating agent '{AGENT_NAME}' with OpenAPI tools...")
     print(f"  Function URL: {function_url}")
+    print(f"  Model: {agent_model}")
     print(f"  Auth: {auth_desc}")
     
     agent = client.agents.create(
@@ -267,8 +270,10 @@ def create_agent_with_openapi(function_url: str, function_key: str = None, entra
     return agent.id
 
 
-def update_agent_with_openapi(function_url: str, function_key: str = None, entra_auth: bool = False, client_id: str = None, connection_name: str = None):
+def update_agent_with_openapi(function_url: str, function_key: str = None, entra_auth: bool = False, client_id: str = None, connection_name: str = None, model: str = None):
     """Update existing agent with OpenAPI tools by creating a new version."""
+    # Use provided model or fall back to env/default
+    agent_model = model or os.environ.get("MODEL_DEPLOYMENT_NAME", "gpt-4.1-mini")
     
     endpoint = os.environ.get("PROJECT_ENDPOINT")
     if not endpoint:
@@ -317,13 +322,14 @@ def update_agent_with_openapi(function_url: str, function_key: str = None, entra
     
     # Create agent definition
     agent_def = PromptAgentDefinition(
-        model=AGENT_MODEL,
+        model=agent_model,
         instructions=AGENT_INSTRUCTIONS,
         tools=[openapi_tool],
     )
     
     print(f"Creating new version of agent '{AGENT_NAME}' with OpenAPI tools...")
     print(f"  Function URL: {function_url}")
+    print(f"  Model: {agent_model}")
     print(f"  Auth: {auth_desc}")
     
     # Create new version instead of updating
@@ -372,21 +378,28 @@ Examples:
                         help="App Registration Client ID (required with --entra-auth)")
     parser.add_argument("--update", action="store_true",
                         help="Update existing agent instead of creating new one")
+    parser.add_argument("--model",
+                        help="Model deployment name (default from env or gpt-4.1-mini)")
     args = parser.parse_args()
+    
+    # Use provided model or fall back to env/default
+    model = args.model or os.environ.get("MODEL_DEPLOYMENT_NAME", "gpt-4.1-mini")
     
     if args.update:
         update_agent_with_openapi(
             args.function_url, 
             entra_auth=args.entra_auth, 
             client_id=args.client_id,
-            connection_name=args.connection_name
+            connection_name=args.connection_name,
+            model=model
         )
     else:
         create_agent_with_openapi(
             args.function_url, 
             entra_auth=args.entra_auth, 
             client_id=args.client_id,
-            connection_name=args.connection_name
+            connection_name=args.connection_name,
+            model=model
         )
 
 
