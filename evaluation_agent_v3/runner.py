@@ -30,6 +30,9 @@ from azure.ai.agents.models import (
 SCRIPT_DIR = Path(__file__).parent
 load_dotenv(SCRIPT_DIR / ".env")
 
+# Import tracing module and initialize
+from tracing import setup_tracing, get_logger, get_tracer, log_tool_execution, trace_tool_function
+
 # Import tool implementations
 from tools import execute_tool, TOOLS
 
@@ -51,6 +54,11 @@ def get_agent_id() -> str:
     return None
 
 
+# Get module logger
+logger = get_logger(__name__)
+tracer = get_tracer(__name__)
+
+
 def handle_tool_calls(client: AIProjectClient, thread_id: str, run) -> None:
     """Handle tool calls from the agent."""
     if not isinstance(run.required_action, SubmitToolOutputsAction):
@@ -69,8 +77,20 @@ def handle_tool_calls(client: AIProjectClient, thread_id: str, run) -> None:
             print(f"\n📞 Tool call: {tool_name}")
             print(f"   Arguments: {json.dumps(arguments, indent=2)[:200]}...")
             
-            # Execute the tool
-            result = execute_tool(tool_name, arguments)
+            # Log tool execution start
+            log_tool_execution(tool_name, "started", {"arguments": str(arguments)[:200]})
+            
+            # Execute the tool with tracing
+            with tracer.start_as_current_span(f"tool.{tool_name}") as span:
+                span.set_attribute("tool.name", tool_name)
+                span.set_attribute("tool.arguments", str(arguments)[:500])
+                
+                result = execute_tool(tool_name, arguments)
+                
+                # Log result
+                status = result.get("status", "unknown") if isinstance(result, dict) else "completed"
+                span.set_attribute("tool.result.status", status)
+                log_tool_execution(tool_name, "completed", {"status": status})
             
             tool_outputs.append(ToolOutput(
                 tool_call_id=tool_call.id,
@@ -170,11 +190,27 @@ def main():
     parser.add_argument("--agent-id", help="Agent ID (or set AGENT_ID env var)")
     parser.add_argument("--cloud", action="store_true", help="Run in cloud mode")
     parser.add_argument("--endpoint", help="Project endpoint (or set PROJECT_ENDPOINT env var)")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
     
     # Set cloud mode
     if args.cloud:
         os.environ["EVAL_AGENT_MODE"] = "cloud"
+    
+    # Set debug mode
+    if args.debug:
+        os.environ["EVAL_AGENT_LOG_LEVEL"] = "DEBUG"
+    
+    # Initialize tracing (automatically detects App Insights connection string)
+    is_cloud = setup_tracing(
+        service_name="voicelive-evaluation-agent",
+        service_version="3.0.0",
+    )
+    
+    if is_cloud:
+        logger.info("Azure Monitor tracing enabled")
+    else:
+        logger.info("Local file tracing enabled")
     
     # Get endpoint
     endpoint = args.endpoint or os.environ.get("PROJECT_ENDPOINT")
@@ -192,23 +228,28 @@ def main():
         sys.exit(1)
     
     # Create client
+    logger.info("Connecting to Azure AI Foundry...")
     print("Connecting to Azure AI Foundry...")
     credential = DefaultAzureCredential()
     client = AIProjectClient(endpoint=endpoint, credential=credential)
     
     # Verify agent exists
     try:
-        agent = client.agents.get_agent(agent_id)
+        agent = client.agents.get(agent_id)
+        logger.info(f"Connected to agent: {agent.name}")
         print(f"Connected to agent: {agent.name} ({agent.id})")
     except Exception as e:
+        logger.error(f"Could not find agent '{agent_id}': {e}")
         print(f"ERROR: Could not find agent '{agent_id}': {e}")
         print("Run 'python setup_agent.py' to create the agent")
         sys.exit(1)
     
     # Run mode
     if args.message:
-        response = run_conversation(client, agent_id, args.message)
-        print(response)
+        with tracer.start_as_current_span("conversation.single") as span:
+            span.set_attribute("input.message", args.message[:200])
+            response = run_conversation(client, agent_id, args.message)
+            print(response)
     else:
         interactive_mode(client, agent_id)
 
