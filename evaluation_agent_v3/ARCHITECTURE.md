@@ -569,7 +569,16 @@ sequenceDiagram
 3. **Blob Storage**: Functions and Container App use managed identity
 4. **No secrets in OpenAPI spec**: Auth handled via connection reference
 5. **HTTPS only**: All endpoints require HTTPS
-6. **RBAC**: Azure AI User role required for Foundry evaluations
+
+### Required RBAC Assignments
+
+| Principal | Role | Scope | Purpose |
+|-----------|------|-------|---------|
+| Function App MI | Azure AI Developer | Cognitive Services account | Evaluations data plane access |
+| Function App MI | Cognitive Services User | Cognitive Services account | General API access |
+| Function App MI | Storage Blob Data Contributor | Storage account | Dataset/output read/write |
+| Container App MI | Storage Blob Data Contributor | Storage account | Dataset/output read/write |
+| Foundry Project MI | Azure AI User | Cognitive Services account | Agent tracing (optional) |
 
 ---
 

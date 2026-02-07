@@ -118,6 +118,26 @@ azd up
 
 **Note**: Recently granted permissions may take several minutes to propagate.
 
+### Function App RBAC (for Foundry Access)
+
+The Function App needs access to Foundry for listing evaluation groups and running evaluations:
+
+```powershell
+# Get Function App managed identity principal ID
+$principalId = az functionapp identity show --name <func-name> --resource-group <rg> --query principalId -o tsv
+
+# Assign Azure AI Developer role (required for evaluations data actions)
+az role assignment create `
+  --assignee-object-id $principalId `
+  --assignee-principal-type ServicePrincipal `
+  --role "Azure AI Developer" `
+  --scope "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>"
+```
+
+**Required roles for full functionality**:
+- **Azure AI Developer** - For evaluations read/write (data plane actions)
+- **Cognitive Services User** - For general Cognitive Services access
+
 ## Usage
 
 ### Via Foundry Portal
@@ -138,24 +158,39 @@ azd up
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
 
-client = AIProjectClient(
-    endpoint="https://<resource>.services.ai.azure.com/api/projects/<project>",
-    credential=DefaultAzureCredential()
-)
-
-# Get agent
-agent = client.agents.get(name="voicelive-evaluation-agent-cloud")
-
-# Create thread and run
-thread = client.agents.threads.create()
-client.agents.messages.create(thread_id=thread.id, role="user", 
-    content="List available datasets")
-run = client.agents.runs.create_and_process(thread_id=thread.id, agent_id=agent.id)
-
-# Get response
-messages = client.agents.messages.list(thread_id=thread.id)
-print(messages[-1].content[0].text.value)
+# SDK 2.0+ pattern with context managers
+with (
+    DefaultAzureCredential() as credential,
+    AIProjectClient(
+        endpoint="https://<resource>.services.ai.azure.com/api/projects/<project>",
+        credential=credential
+    ) as client,
+    client.get_openai_client() as openai_client,
+):
+    # Use Responses API with agent reference
+    response = openai_client.responses.create(
+        input=[{"role": "user", "content": "List available datasets"}],
+        extra_body={"agent": {"name": "voicelive-evaluation-agent-cloud", "type": "agent_reference"}},
+    )
+    print(response.output_text)
 ```
+
+### Testing the Agent
+
+Run the included test script to verify all agent capabilities:
+
+```bash
+# Test a single capability
+python test_agent_cloud.py --test list_datasets
+
+# Run all tests
+python test_agent_cloud.py --test all
+
+# List available tests
+python test_agent_cloud.py --list-tests
+```
+
+**Available tests**: `list_datasets`, `list_evaluators`, `list_session_configs`, `check_dataset_schema`, `validate_dataset`, `list_evaluation_groups`, `streaming`
 
 ## Available Tools
 
