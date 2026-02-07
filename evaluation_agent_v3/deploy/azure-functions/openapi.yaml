@@ -462,7 +462,7 @@ paths:
                     items:
                       type: object
 
-  # VoiceLive Container App endpoints (different server)
+  # VoiceLive Container App endpoints (proxied through Function App)
   /run_voicelive_audio_tests:
     post:
       operationId: run_voicelive_audio_tests
@@ -472,9 +472,7 @@ paths:
         This is the first step in a full evaluation: audio → VoiceLive → evaluation dataset.
         The resulting dataset can then be evaluated using run_voicelive_evaluation.
         
-        NOTE: This endpoint is served by the VoiceLive Container App, not the Function App.
-      servers:
-        - url: https://ca-voicelive-processor.ashyisland-d1546750.eastus2.azurecontainerapps.io
+        This endpoint proxies to the VoiceLive Container App via the Function App.
       requestBody:
         required: true
         content:
@@ -520,7 +518,7 @@ paths:
                   message:
                     type: string
 
-  /check_job_status:
+  /check_voicelive_job_status:
     post:
       operationId: check_voicelive_job_status
       summary: Check VoiceLive audio processing job status
@@ -528,9 +526,7 @@ paths:
         Check the status of a VoiceLive audio processing job.
         When status is 'completed', the output_path contains the evaluation dataset.
         
-        NOTE: This endpoint is served by the VoiceLive Container App.
-      servers:
-        - url: https://ca-voicelive-processor.ashyisland-d1546750.eastus2.azurecontainerapps.io
+        This endpoint proxies to the VoiceLive Container App via the Function App.
       requestBody:
         required: true
         content:

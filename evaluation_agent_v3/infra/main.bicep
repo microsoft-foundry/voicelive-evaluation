@@ -45,6 +45,12 @@ param foundryProjectPrincipalId string = ''
 @description('AI Foundry account name (Cognitive Services account) - must be in same RG for Bicep RBAC')
 param foundryAccountName string = ''
 
+@description('Enable Entra ID auth on Container App (requires App Registration)')
+param enableContainerAppAuth bool = false
+
+@description('App Registration Client ID for Container App Easy Auth')
+param containerAppEntraClientId string = ''
+
 // Generate unique suffix for resources
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = { 'azd-env-name': environmentName }
@@ -89,6 +95,9 @@ module functionApp 'modules/function-app.bicep' = {
       AZURE_VOICE_LIVE_API_VERSION: voiceLiveApiVersion
       AOAI_DEPLOYMENT_NAME: aoaiDeploymentName
       AOAI_REASONING_DEPLOYMENT_NAME: aoaiReasoningDeploymentName
+      // Container App proxy settings (URL set post-deployment via script)
+      CONTAINER_APP_AUTH_ENABLED: enableContainerAppAuth ? 'true' : 'false'
+      CONTAINER_APP_CLIENT_ID: containerAppEntraClientId
     }
   }
 }
@@ -103,6 +112,8 @@ module containerApp 'modules/container-app.bicep' = if (deployContainerApp) {
     tags: tags
     storageAccountName: storage.outputs.name
     appInsightsConnectionString: functionApp.outputs.appInsightsConnectionString
+    enableEntraAuth: enableContainerAppAuth
+    entraClientId: containerAppEntraClientId
     appSettings: {
       AZURE_STORAGE_ACCOUNT: storage.outputs.name
       AZURE_STORAGE_DATASETS_CONTAINER: 'datasets'

@@ -22,6 +22,12 @@ param acrName string = ''
 @description('Container image to deploy')
 param containerImage string = ''
 
+@description('Enable Entra ID authentication (Easy Auth)')
+param enableEntraAuth bool = false
+
+@description('App Registration Client ID for Container App Easy Auth')
+param entraClientId string = ''
+
 // Generate ACR name if not provided
 var effectiveAcrName = !empty(acrName) ? acrName : 'acr${uniqueString(resourceGroup().id)}'
 
@@ -187,6 +193,37 @@ resource storageTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
+// Easy Auth configuration for Container App
+// Requires an App Registration to be created first (via Azure Portal or script)
+// The entraClientId should be the Application (client) ID of the App Registration
+resource authConfig 'Microsoft.App/containerApps/authConfigs@2023-05-01' = if (enableEntraAuth && !empty(entraClientId)) {
+  name: 'current'
+  parent: containerApp
+  properties: {
+    platform: {
+      enabled: true
+    }
+    globalValidation: {
+      unauthenticatedClientAction: 'Return401'
+    }
+    identityProviders: {
+      azureActiveDirectory: {
+        enabled: true
+        registration: {
+          openIdIssuer: 'https://sts.windows.net/${subscription().tenantId}/v2.0'
+          clientId: entraClientId
+        }
+        validation: {
+          allowedAudiences: [
+            'api://${entraClientId}'
+            entraClientId
+          ]
+        }
+      }
+    }
+  }
+}
+
 // Outputs
 output name string = containerApp.name
 output url string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
@@ -194,3 +231,5 @@ output principalId string = containerApp.identity.principalId
 output acrName string = acr.name
 output acrLoginServer string = acr.properties.loginServer
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
+output entraAuthEnabled bool = enableEntraAuth && !empty(entraClientId)
+output entraClientId string = entraClientId

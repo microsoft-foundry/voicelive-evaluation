@@ -760,6 +760,11 @@ sequenceDiagram
   - Create Foundry project via ARM/Bicep
   - Auto-configure App Insights connection for tracing
   - Create API key connection for Function App auth
+- [ ] **Private VNet architecture** - Move all backend services to private endpoints
+  - Deploy Container App with internal-only ingress
+  - Add VNet integration to Function App
+  - Remove public endpoints for Container App
+  - Function App → Container App communication over private network
 - [ ] **Multi-region deployment** - Deploy Functions/Container App closer to data
 - [ ] **Add retry logic** - Handle transient failures in VoiceLive SDK
 - [ ] **Implement rate limiting** - Prevent quota exhaustion on Foundry evaluators
@@ -771,7 +776,7 @@ sequenceDiagram
 
 ### Known Limitations
 1. **Metrics sometimes empty** - Foundry SDK may not return metrics immediately after completion
-2. **Container App no auth** - Currently public endpoint (add API key or MSI if needed)
+2. **Container App auth** - Uses Easy Auth with managed identity when enabled
 3. **eval_group_id reuse** - Only works within same Foundry project
 4. **No dataset versioning yet** - Each upload creates new dataset (to be fixed in Phase 1)
 

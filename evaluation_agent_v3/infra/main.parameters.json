@@ -43,6 +43,12 @@
     },
     "foundryAccountName": {
       "value": "${FOUNDRY_ACCOUNT_NAME=}"
+    },
+    "enableContainerAppAuth": {
+      "value": "${ENABLE_CONTAINER_APP_AUTH=false}"
+    },
+    "containerAppEntraClientId": {
+      "value": "${CONTAINER_APP_ENTRA_CLIENT_ID=}"
     }
   }
 }

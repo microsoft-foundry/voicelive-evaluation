@@ -68,16 +68,18 @@ azd env get-values
 ### Create Foundry Agent
 
 ```bash
-# Get URLs from azd output
+# Get function URL from azd output
 FUNC_URL=$(azd env get-value AZURE_FUNCTION_APP_URL)
-CA_URL=$(azd env get-value AZURE_CONTAINER_APP_URL)
 
-# Create agent with OpenAPI tools (includes Container App for audio processing)
-python setup_agent_openapi.py --function-url $FUNC_URL --container-app-url $CA_URL
+# Create agent with OpenAPI tools
+python setup_agent_openapi.py --function-url $FUNC_URL
 
 # Or update existing agent
-python setup_agent_openapi.py --function-url $FUNC_URL --container-app-url $CA_URL --update
+python setup_agent_openapi.py --function-url $FUNC_URL --update
 ```
+
+> **Note**: VoiceLive audio processing endpoints are proxied through the Function App,
+> so you only need the Function URL. The agent doesn't need separate Container App access.
 
 ### Configure Agent Authentication (Production)
 

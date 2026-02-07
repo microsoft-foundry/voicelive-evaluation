@@ -147,13 +147,13 @@ If user doesn't specify, use these 10 evaluators aligned with VoiceLive best pra
 """
 
 
-def load_openapi_spec(function_url: str, function_key: str = None, container_app_url: str = None) -> dict:
-    """Load OpenAPI spec as dict and update server URLs.
+def load_openapi_spec(function_url: str) -> dict:
+    """Load OpenAPI spec as dict and update server URL.
     
     Args:
         function_url: Base URL for Azure Functions endpoints
-        function_key: Optional function key (not used, auth via connection)
-        container_app_url: Base URL for Container App endpoints (VoiceLive audio processing)
+        
+    All endpoints (including Container App proxies) now use the same Function App URL.
     """
     import yaml
     
@@ -164,24 +164,13 @@ def load_openapi_spec(function_url: str, function_key: str = None, container_app
     with open(OPENAPI_SPEC_PATH, 'r') as f:
         spec = yaml.safe_load(f)
     
-    # Update main server URL for Function App endpoints
-    server_url = function_url
-    spec['servers'] = [{'url': server_url}]
-    
-    # Update per-endpoint server URLs for Container App endpoints
-    if container_app_url and 'paths' in spec:
-        container_app_endpoints = ['/run_voicelive_audio_tests', '/check_job_status']
-        for path in container_app_endpoints:
-            if path in spec['paths']:
-                for method in spec['paths'][path]:
-                    if isinstance(spec['paths'][path][method], dict):
-                        # Update the servers override for this endpoint
-                        spec['paths'][path][method]['servers'] = [{'url': container_app_url}]
+    # Update server URL - all endpoints go through Function App
+    spec['servers'] = [{'url': function_url}]
     
     return spec
 
 
-def create_agent_with_openapi(function_url: str, function_key: str = None, entra_auth: bool = False, client_id: str = None, connection_name: str = None, model: str = None, container_app_url: str = None):
+def create_agent_with_openapi(function_url: str, function_key: str = None, entra_auth: bool = False, client_id: str = None, connection_name: str = None, model: str = None):
     """Create agent using OpenAPI tools.
     
     Authentication options:
@@ -204,8 +193,8 @@ def create_agent_with_openapi(function_url: str, function_key: str = None, entra
     credential = DefaultAzureCredential()
     client = AIProjectClient(endpoint=endpoint, credential=credential)
     
-    # Load OpenAPI spec with Container App URL if provided
-    spec = load_openapi_spec(function_url, None, container_app_url)
+    # Load OpenAPI spec
+    spec = load_openapi_spec(function_url)
     
     # Configure authentication
     if connection_name:
@@ -248,8 +237,6 @@ def create_agent_with_openapi(function_url: str, function_key: str = None, entra
     
     print(f"Creating agent '{AGENT_NAME}' with OpenAPI tools...")
     print(f"  Function URL: {function_url}")
-    if container_app_url:
-        print(f"  Container App URL: {container_app_url}")
     print(f"  Model: {agent_model}")
     print(f"  Auth: {auth_desc}")
     
@@ -284,7 +271,7 @@ def create_agent_with_openapi(function_url: str, function_key: str = None, entra
     return agent.id
 
 
-def update_agent_with_openapi(function_url: str, function_key: str = None, entra_auth: bool = False, client_id: str = None, connection_name: str = None, model: str = None, container_app_url: str = None):
+def update_agent_with_openapi(function_url: str, function_key: str = None, entra_auth: bool = False, client_id: str = None, connection_name: str = None, model: str = None):
     """Update existing agent with OpenAPI tools by creating a new version."""
     # Use provided model or fall back to env/default
     agent_model = model or os.environ.get("MODEL_DEPLOYMENT_NAME", "gpt-4.1-mini")
@@ -301,8 +288,8 @@ def update_agent_with_openapi(function_url: str, function_key: str = None, entra
     credential = DefaultAzureCredential()
     client = AIProjectClient(endpoint=endpoint, credential=credential)
     
-    # Load OpenAPI spec with Container App URL if provided
-    spec = load_openapi_spec(function_url, None, container_app_url)
+    # Load OpenAPI spec
+    spec = load_openapi_spec(function_url)
     
     # Configure authentication
     if connection_name:
@@ -343,8 +330,6 @@ def update_agent_with_openapi(function_url: str, function_key: str = None, entra
     
     print(f"Creating new version of agent '{AGENT_NAME}' with OpenAPI tools...")
     print(f"  Function URL: {function_url}")
-    if container_app_url:
-        print(f"  Container App URL: {container_app_url}")
     print(f"  Model: {agent_model}")
     print(f"  Auth: {auth_desc}")
     
@@ -382,16 +367,10 @@ Examples:
 
   # Update existing agent
   python setup_agent_openapi.py --function-url https://func-xxx.azurewebsites.net/api --update
-  
-  # Include Container App URL for VoiceLive audio processing
-  python setup_agent_openapi.py --function-url https://func-xxx.azurewebsites.net/api \\
-    --container-app-url https://ca-voicelive-xxx.azurecontainerapps.io
         """
     )
     parser.add_argument("--function-url", required=True, 
                         help="Azure Functions base URL (e.g., https://myapp.azurewebsites.net/api)")
-    parser.add_argument("--container-app-url",
-                        help="Container App URL for VoiceLive audio processing (e.g., https://ca-xxx.azurecontainerapps.io)")
     parser.add_argument("--connection-name",
                         help="Foundry connection name for API key auth (create in Foundry portal first)")
     parser.add_argument("--entra-auth", action="store_true",
@@ -407,17 +386,13 @@ Examples:
     # Use provided model or fall back to env/default
     model = args.model or os.environ.get("MODEL_DEPLOYMENT_NAME", "gpt-4.1-mini")
     
-    # Get Container App URL from args or environment
-    container_app_url = args.container_app_url or os.environ.get("AZURE_CONTAINER_APP_URL")
-    
     if args.update:
         update_agent_with_openapi(
             args.function_url, 
             entra_auth=args.entra_auth, 
             client_id=args.client_id,
             connection_name=args.connection_name,
-            model=model,
-            container_app_url=container_app_url
+            model=model
         )
     else:
         create_agent_with_openapi(
@@ -425,8 +400,7 @@ Examples:
             entra_auth=args.entra_auth, 
             client_id=args.client_id,
             connection_name=args.connection_name,
-            model=model,
-            container_app_url=container_app_url
+            model=model
         )
 
 

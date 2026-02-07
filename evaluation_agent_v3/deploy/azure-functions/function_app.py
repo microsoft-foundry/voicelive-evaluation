@@ -2342,3 +2342,113 @@ def delete_foundry_datasets(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
             mimetype="application/json"
         )
+
+
+# =============================================================================
+# Container App Proxy Endpoints
+# =============================================================================
+# These endpoints proxy requests to the VoiceLive Container App.
+# Authentication is handled via managed identity when CONTAINER_APP_AUTH_ENABLED=true
+
+async def get_container_app_token():
+    """Get access token for Container App using managed identity."""
+    container_app_client_id = os.environ.get("CONTAINER_APP_CLIENT_ID")
+    if not container_app_client_id:
+        return None
+    
+    from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
+    credential = AsyncDefaultAzureCredential()
+    
+    # Get token for the Container App's App Registration
+    audience = f"api://{container_app_client_id}"
+    token = await credential.get_token(audience)
+    await credential.close()
+    return token.token
+
+
+async def proxy_to_container_app(endpoint: str, body: dict) -> func.HttpResponse:
+    """Proxy request to Container App with optional authentication."""
+    import httpx
+    
+    container_app_url = os.environ.get("CONTAINER_APP_URL")
+    if not container_app_url:
+        return func.HttpResponse(
+            json.dumps({"error": "CONTAINER_APP_URL not configured"}),
+            status_code=500,
+            mimetype="application/json"
+        )
+    
+    # Build request
+    url = f"{container_app_url.rstrip('/')}/{endpoint.lstrip('/')}"
+    headers = {"Content-Type": "application/json"}
+    
+    # Add auth header if enabled
+    auth_enabled = os.environ.get("CONTAINER_APP_AUTH_ENABLED", "false").lower() == "true"
+    if auth_enabled:
+        token = await get_container_app_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        else:
+            logging.warning("Container App auth enabled but no token obtained")
+    
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(url, json=body, headers=headers)
+            return func.HttpResponse(
+                response.text,
+                status_code=response.status_code,
+                mimetype="application/json"
+            )
+    except httpx.TimeoutException:
+        return func.HttpResponse(
+            json.dumps({"error": "Container App request timed out"}),
+            status_code=504,
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"Container App proxy error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": f"Container App proxy error: {str(e)}"}),
+            status_code=502,
+            mimetype="application/json"
+        )
+
+
+@app.route(route="run_voicelive_audio_tests", methods=["POST"])
+async def run_voicelive_audio_tests(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Proxy to Container App: Start VoiceLive audio processing job.
+    
+    Starts a job to process audio files through the VoiceLive SDK.
+    Returns a job_id to poll with check_voicelive_job_status.
+    """
+    try:
+        body = req.get_json()
+        return await proxy_to_container_app("/run_voicelive_audio_tests", body)
+    except Exception as e:
+        logging.error(f"run_voicelive_audio_tests error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+@app.route(route="check_voicelive_job_status", methods=["POST"])
+async def check_voicelive_job_status(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Proxy to Container App: Check VoiceLive audio processing job status.
+    
+    Returns the status of a VoiceLive audio processing job.
+    When status is 'completed', output_path contains the evaluation dataset.
+    """
+    try:
+        body = req.get_json()
+        return await proxy_to_container_app("/check_job_status", body)
+    except Exception as e:
+        logging.error(f"check_voicelive_job_status error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
