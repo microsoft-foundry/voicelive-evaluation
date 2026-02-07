@@ -373,6 +373,33 @@ After `azd up`, the following resources are created:
 - Verify connection ID is the full resource path
 - Check Function App is running and healthy
 
+### Agent tool calls return 401
+- The Foundry connection has an old/invalid function key
+- Get the current function key: `az functionapp keys list --name <func-name> --resource-group <rg> --query "functionKeys.default" -o tsv`
+- Update the connection in Foundry Portal → Management → Connections → Edit
+
+## SDK Limitations
+
+The following operations require **manual configuration** in the Foundry Portal or via Terraform/ARM - they cannot be done via the Python SDK:
+
+| Operation | SDK Support | Alternative |
+|-----------|-------------|-------------|
+| Create/update connections | ❌ No | Foundry Portal, Terraform (azapi_resource), ARM |
+| Configure agent App Insights | ❌ No | Foundry Portal → Tracing → Connect App Insights |
+| Delete connections | ❌ No | Foundry Portal, Terraform, ARM |
+
+**Client-side tracing** (your code calling the agent) is fully supported via SDK:
+```python
+from azure.monitor.opentelemetry import configure_azure_monitor
+configure_azure_monitor(connection_string="InstrumentationKey=...")
+```
+
+For **agent-side tracing** (traces appearing in Foundry portal):
+1. Go to ai.azure.com → Your Project → Tracing
+2. Click "Connect Application Insights"
+3. Select or create App Insights resource
+4. This is a one-time setup per project
+
 ## See Also
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Design decisions and diagrams

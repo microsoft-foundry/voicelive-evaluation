@@ -770,6 +770,42 @@ sequenceDiagram
 3. **eval_group_id reuse** - Only works within same Foundry project
 4. **No dataset versioning yet** - Each upload creates new dataset (to be fixed in Phase 1)
 
+### SDK Limitations (Confirmed via Source Review)
+
+The `azure-ai-projects` SDK has the following limitations that require manual configuration:
+
+| Operation | SDK Support | Alternative |
+|-----------|-------------|-------------|
+| Create Foundry connections | ❌ No | Portal, CLI, Terraform (azapi_resource), ARM |
+| Update connection credentials | ❌ No | Portal manual edit |
+| Configure agent App Insights | ❌ No | Portal → Tracing → Connect App Insights |
+| Delete connections | ❌ No | Portal, Terraform, ARM |
+
+**Connections SDK**: `ConnectionsOperations` only supports `list`, `get`, `get_default` - no create/update/delete methods.
+
+**Workaround for Terraform/IaC**:
+```hcl
+resource "azapi_resource" "voicelive_connection" {
+  type      = "Microsoft.MachineLearningServices/workspaces/connections@2025-01-01-preview"
+  name      = "voicelive-eval-api-key"
+  parent_id = azurerm_ai_foundry_project.example.id
+  body = {
+    properties = {
+      category = "ApiKey"
+      target   = var.function_app_url
+      authType = "CustomKeys"
+      credentials = { key = var.function_key }
+    }
+  }
+}
+```
+
+**Client-side tracing** (calling the agent from your code) is fully supported via `azure-monitor-opentelemetry`:
+```python
+from azure.monitor.opentelemetry import configure_azure_monitor
+configure_azure_monitor(connection_string="InstrumentationKey=...")
+```
+
 ---
 
 ## Version Comparison
