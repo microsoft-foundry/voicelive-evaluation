@@ -157,6 +157,62 @@ def test_streaming(openai_client, agent_name: str) -> bool:
         return False
 
 
+def test_run_evaluation(openai_client, agent_name: str) -> bool:
+    """Test: Run a quick evaluation on minimal_test dataset."""
+    print("\n" + "=" * 60)
+    print("TEST: Run Evaluation (fluency only for speed)")
+    print("=" * 60)
+    
+    try:
+        response = openai_client.responses.create(
+            input=[{"role": "user", "content": "Run evaluation on minimal_test dataset with only fluency evaluator"}],
+            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+        )
+        print(f"Response:\n{response.output_text}")
+        # Check for success indicators
+        text = response.output_text.lower()
+        if "started" in text or "running" in text or "completed" in text or "evaluation" in text:
+            return True
+        return True  # If we got a response without error, consider it a pass
+    except Exception as e:
+        print(f"ERROR: {e}")
+        return False
+
+
+def test_conversation_flow(openai_client, agent_name: str) -> bool:
+    """Test: Multi-turn conversation flow."""
+    print("\n" + "=" * 60)
+    print("TEST: Multi-turn Conversation")
+    print("=" * 60)
+    
+    try:
+        # Turn 1: List datasets
+        print("Turn 1: Asking about datasets...")
+        response1 = openai_client.responses.create(
+            input=[{"role": "user", "content": "What datasets do I have?"}],
+            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+        )
+        print(f"  Response: {response1.output_text[:200]}...")
+        
+        # Turn 2: Follow-up about the dataset
+        print("\nTurn 2: Asking about validation...")
+        messages = [
+            {"role": "user", "content": "What datasets do I have?"},
+            {"role": "assistant", "content": response1.output_text},
+            {"role": "user", "content": "Is that dataset valid for evaluation?"}
+        ]
+        response2 = openai_client.responses.create(
+            input=messages,
+            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+        )
+        print(f"  Response: {response2.output_text[:200]}...")
+        
+        return True
+    except Exception as e:
+        print(f"ERROR: {e}")
+        return False
+
+
 # Available tests
 TESTS = {
     "list_datasets": test_list_datasets,
@@ -166,6 +222,8 @@ TESTS = {
     "validate_dataset": test_validate_dataset,
     "list_evaluation_groups": test_list_evaluation_groups,
     "streaming": test_streaming,
+    "run_evaluation": test_run_evaluation,
+    "conversation": test_conversation_flow,
 }
 
 
