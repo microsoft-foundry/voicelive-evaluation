@@ -7,6 +7,9 @@ param location string = resourceGroup().location
 @description('Tags for the resources')
 param tags object = {}
 
+@description('Create Azure Tables for config management')
+param createTables bool = true
+
 // Storage Account
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   name: name
@@ -48,7 +51,26 @@ resource outputsContainer 'Microsoft.Storage/storageAccounts/blobServices/contai
   }
 }
 
+// Table service
+resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2023-01-01' = if (createTables) {
+  parent: storageAccount
+  name: 'default'
+}
+
+// Session configs table
+resource sessionConfigsTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-01-01' = if (createTables) {
+  parent: tableService
+  name: 'sessionconfigs'
+}
+
+// Config journal table
+resource configJournalTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-01-01' = if (createTables) {
+  parent: tableService
+  name: 'configjournal'
+}
+
 // Outputs
 output name string = storageAccount.name
 output id string = storageAccount.id
 output primaryEndpoint string = storageAccount.properties.primaryEndpoints.blob
+output tableEndpoint string = storageAccount.properties.primaryEndpoints.table

@@ -8,8 +8,8 @@
     "location": {
       "value": "${AZURE_LOCATION}"
     },
-    "deployRunner": {
-      "value": "${DEPLOY_RUNNER=false}"
+    "deployContainerApp": {
+      "value": "${DEPLOY_CONTAINER_APP=true}"
     },
     "enableEntraAuth": {
       "value": "${ENABLE_ENTRA_AUTH=false}"
@@ -30,10 +30,10 @@
       "value": "${AZURE_VOICE_LIVE_API_VERSION=2025-10-01}"
     },
     "modelDeploymentName": {
-      "value": "${MODEL_DEPLOYMENT_NAME=gpt-4o-mini}"
+      "value": "${MODEL_DEPLOYMENT_NAME=gpt-4.1-mini}"
     },
     "aoaiDeploymentName": {
-      "value": "${AOAI_DEPLOYMENT_NAME=gpt-4o-mini}"
+      "value": "${AOAI_DEPLOYMENT_NAME=gpt-4.1-mini}"
     },
     "aoaiReasoningDeploymentName": {
       "value": "${AOAI_REASONING_DEPLOYMENT_NAME=o4-mini}"

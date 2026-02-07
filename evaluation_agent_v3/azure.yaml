@@ -11,47 +11,112 @@ infra:
 
 # Services to deploy
 services:
-  # Option A: Azure Functions (default) - tools as HTTP API
+  # Azure Functions - evaluation tools API
   tools-api:
     project: ./deploy/azure-functions
     language: python
     host: function
 
-  # Option B: Container App runner (optional) - for full evaluations
-  # Uncomment below to deploy the runner container
-  # runner:
-  #   project: .
-  #   language: python
-  #   host: containerapp
-  #   docker:
-  #     path: ./Dockerfile
+  # VoiceLive Container App - audio processing
+  voicelive-processor:
+    project: ./deploy/container-app
+    language: python
+    host: containerapp
+    docker:
+      path: ./deploy/container-app/Dockerfile
+      context: ./deploy/container-app
 
-# Hooks for post-deployment
+# Hooks for deployment lifecycle
 hooks:
+  # After infrastructure is created - seed tables
   postprovision:
     windows:
       shell: pwsh
       run: |
-        Write-Host "Deployment complete!"
-        Write-Host ""
-        Write-Host "Function App URL: $env:AZURE_FUNCTION_APP_URL"
-        Write-Host ""
-        Write-Host "Next steps:"
-        Write-Host "1. Create the agent with OpenAPI tools:"
-        Write-Host "   python setup_agent_openapi.py --function-url $env:AZURE_FUNCTION_APP_URL"
-        Write-Host ""
-        Write-Host "2. Upload datasets to blob storage:"
-        Write-Host "   az storage blob upload --account-name $env:AZURE_STORAGE_ACCOUNT --container datasets --file <your-dataset.jsonl>"
+        Write-Host "===== Post-Provision: Seeding Tables ====="
+        
+        $storageAccount = $env:AZURE_STORAGE_ACCOUNT_NAME
+        if (-not $storageAccount) {
+          $storageAccount = $env:AZURE_STORAGE_ACCOUNT
+        }
+        
+        if (-not $storageAccount) {
+          Write-Host "Storage account not found in outputs, skipping table seeding"
+          Write-Host "Run manually: scripts/azd/seed-session-configs.ps1 -StorageAccountName <name>"
+          exit 0
+        }
+        
+        Write-Host "Storage Account: $storageAccount"
+        
+        # Find the script relative to azure.yaml
+        $scriptPath = Join-Path $PSScriptRoot "scripts\azd\seed-session-configs.ps1"
+        if (-not (Test-Path $scriptPath)) {
+          # Try current directory
+          $scriptPath = ".\scripts\azd\seed-session-configs.ps1"
+        }
+        
+        if (Test-Path $scriptPath) {
+          & $scriptPath -StorageAccountName $storageAccount
+        } else {
+          Write-Host "Seed script not found. Run manually after deployment:"
+          Write-Host "  .\scripts\azd\seed-session-configs.ps1 -StorageAccountName $storageAccount"
+        }
     posix:
       shell: bash
       run: |
-        echo "Deployment complete!"
+        echo "===== Post-Provision: Seeding Tables ====="
+        
+        STORAGE=${AZURE_STORAGE_ACCOUNT_NAME:-$AZURE_STORAGE_ACCOUNT}
+        
+        if [ -z "$STORAGE" ]; then
+          echo "Storage account not found in outputs, skipping table seeding"
+          echo "Run manually: scripts/azd/seed-session-configs.ps1 -StorageAccountName <name>"
+          exit 0
+        fi
+        
+        # Table seeding requires PowerShell for now
+        echo "Run table seeding manually:"
+        echo "  pwsh scripts/azd/seed-session-configs.ps1 -StorageAccountName $STORAGE"
+
+  # After code is deployed - setup agent
+  postdeploy:
+    windows:
+      shell: pwsh
+      run: |
+        Write-Host "===== Post-Deploy: Setup Complete ====="
+        Write-Host ""
+        Write-Host "Deployed Resources:"
+        Write-Host "  Function App URL: $env:AZURE_FUNCTION_APP_URL"
+        Write-Host "  Storage Account:  $env:AZURE_STORAGE_ACCOUNT"
+        Write-Host "  Container App:    $env:AZURE_CONTAINER_APP_URL"
+        Write-Host "  ACR:              $env:AZURE_ACR_LOGIN_SERVER"
+        Write-Host ""
+        Write-Host "Next Steps:"
+        Write-Host "1. Create/update the Foundry agent:"
+        Write-Host "   python setup_agent_openapi.py --function-url $env:AZURE_FUNCTION_APP_URL"
+        Write-Host ""
+        Write-Host "2. Upload datasets to blob storage:"
+        Write-Host "   az storage blob upload-batch --account-name $env:AZURE_STORAGE_ACCOUNT --destination datasets --source ./data"
+        Write-Host ""
+        Write-Host "3. Test the agent in Foundry Portal:"
+        Write-Host "   https://ai.azure.com"
+    posix:
+      shell: bash
+      run: |
+        echo "===== Post-Deploy: Setup Complete ====="
         echo ""
-        echo "Function App URL: $AZURE_FUNCTION_APP_URL"
+        echo "Deployed Resources:"
+        echo "  Function App URL: $AZURE_FUNCTION_APP_URL"
+        echo "  Storage Account:  $AZURE_STORAGE_ACCOUNT"
+        echo "  Container App:    $AZURE_CONTAINER_APP_URL"
+        echo "  ACR:              $AZURE_ACR_LOGIN_SERVER"
         echo ""
-        echo "Next steps:"
-        echo "1. Create the agent with OpenAPI tools:"
+        echo "Next Steps:"
+        echo "1. Create/update the Foundry agent:"
         echo "   python setup_agent_openapi.py --function-url $AZURE_FUNCTION_APP_URL"
         echo ""
         echo "2. Upload datasets to blob storage:"
-        echo "   az storage blob upload --account-name $AZURE_STORAGE_ACCOUNT --container datasets --file <your-dataset.jsonl>"
+        echo "   az storage blob upload-batch --account-name $AZURE_STORAGE_ACCOUNT --destination datasets --source ./data"
+        echo ""
+        echo "3. Test the agent in Foundry Portal:"
+        echo "   https://ai.azure.com"

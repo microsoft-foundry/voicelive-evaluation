@@ -166,6 +166,17 @@ resource storageBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
+// Storage Table Data Contributor role for Function App (for session configs)
+resource storageTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, functionApp.id, 'Storage Table Data Contributor')
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // RBAC: Website Contributor role for allowed callers (allows invoking the function)
 resource websiteContributorRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for principalId in allowedCallerPrincipalIds: {
   name: guid(functionApp.id, principalId, 'Website Contributor')
@@ -184,3 +195,4 @@ output hostname string = functionApp.properties.defaultHostName
 output principalId string = functionApp.identity.principalId
 output resourceId string = functionApp.id
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
+output appInsightsInstrumentationKey string = appInsights.properties.InstrumentationKey

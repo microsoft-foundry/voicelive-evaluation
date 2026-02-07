@@ -13,6 +13,18 @@ param storageAccountName string
 @description('App settings for the Container App')
 param appSettings object = {}
 
+@description('Application Insights connection string')
+param appInsightsConnectionString string = ''
+
+@description('Container Registry name (will create if not exists)')
+param acrName string = ''
+
+@description('Container image to deploy')
+param containerImage string = ''
+
+// Generate ACR name if not provided
+var effectiveAcrName = !empty(acrName) ? acrName : 'acr${uniqueString(resourceGroup().id)}'
+
 // Log Analytics Workspace
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   name: '${name}-logs'
@@ -23,6 +35,31 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
       name: 'PerGB2018'
     }
     retentionInDays: 30
+  }
+}
+
+// Application Insights for Container App
+resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: '${name}-insights'
+  location: location
+  tags: tags
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logAnalytics.id
+  }
+}
+
+// Container Registry
+resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
+  name: effectiveAcrName
+  location: location
+  tags: tags
+  sku: {
+    name: 'Basic'
+  }
+  properties: {
+    adminUserEnabled: true
   }
 }
 
@@ -47,11 +84,31 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' existing 
   name: storageAccountName
 }
 
+// Build environment variables with App Insights
+var baseEnvVars = [for setting in items(appSettings): {
+  name: setting.key
+  value: setting.value
+}]
+
+var appInsightsEnvVar = !empty(appInsightsConnectionString) ? [
+  {
+    name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+    value: appInsightsConnectionString
+  }
+] : [
+  {
+    name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+    value: appInsights.properties.ConnectionString
+  }
+]
+
+var allEnvVars = concat(baseEnvVars, appInsightsEnvVar)
+
 // Container App
 resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
   name: name
   location: location
-  tags: union(tags, { 'azd-service-name': 'runner' })
+  tags: union(tags, { 'azd-service-name': 'voicelive-processor' })  // Match service name in azure.yaml
   identity: {
     type: 'SystemAssigned'
   }
@@ -63,27 +120,36 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
         targetPort: 8000
         transport: 'auto'
       }
-      registries: []
+      registries: [
+        {
+          server: acr.properties.loginServer
+          username: acr.listCredentials().username
+          passwordSecretRef: 'acr-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'acr-password'
+          value: acr.listCredentials().passwords[0].value
+        }
+      ]
     }
     template: {
       containers: [
         {
-          name: 'runner'
-          // Placeholder image - azd deploy will update this
-          image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+          name: 'voicelive-processor'
+          // Use provided image or placeholder
+          image: !empty(containerImage) ? containerImage : 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
           resources: {
             cpu: json('1.0')
             memory: '2Gi'
           }
-          env: [for setting in items(appSettings): {
-            name: setting.key
-            value: setting.value
-          }]
+          env: allEnvVars
         }
       ]
       scale: {
         minReplicas: 0
-        maxReplicas: 3
+        maxReplicas: 5
         rules: [
           {
             name: 'http-rule'
@@ -110,7 +176,21 @@ resource storageBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
+// Storage Table Data Contributor role for Container App
+resource storageTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, containerApp.id, 'Storage Table Data Contributor')
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')
+    principalId: containerApp.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // Outputs
 output name string = containerApp.name
 output url string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
 output principalId string = containerApp.identity.principalId
+output acrName string = acr.name
+output acrLoginServer string = acr.properties.loginServer
+output appInsightsConnectionString string = appInsights.properties.ConnectionString
