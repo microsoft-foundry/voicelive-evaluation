@@ -2348,26 +2348,10 @@ def delete_foundry_datasets(req: func.HttpRequest) -> func.HttpResponse:
 # Container App Proxy Endpoints
 # =============================================================================
 # These endpoints proxy requests to the VoiceLive Container App.
-# Authentication is handled via managed identity when CONTAINER_APP_AUTH_ENABLED=true
-
-async def get_container_app_token():
-    """Get access token for Container App using managed identity."""
-    container_app_client_id = os.environ.get("CONTAINER_APP_CLIENT_ID")
-    if not container_app_client_id:
-        return None
-    
-    from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
-    credential = AsyncDefaultAzureCredential()
-    
-    # Get token for the Container App's App Registration
-    audience = f"api://{container_app_client_id}"
-    token = await credential.get_token(audience)
-    await credential.close()
-    return token.token
-
+# Authentication is via shared API key (CONTAINER_APP_API_KEY)
 
 async def proxy_to_container_app(endpoint: str, body: dict) -> func.HttpResponse:
-    """Proxy request to Container App with optional authentication."""
+    """Proxy request to Container App with API key authentication."""
     import httpx
     
     container_app_url = os.environ.get("CONTAINER_APP_URL")
@@ -2382,14 +2366,10 @@ async def proxy_to_container_app(endpoint: str, body: dict) -> func.HttpResponse
     url = f"{container_app_url.rstrip('/')}/{endpoint.lstrip('/')}"
     headers = {"Content-Type": "application/json"}
     
-    # Add auth header if enabled
-    auth_enabled = os.environ.get("CONTAINER_APP_AUTH_ENABLED", "false").lower() == "true"
-    if auth_enabled:
-        token = await get_container_app_token()
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        else:
-            logging.warning("Container App auth enabled but no token obtained")
+    # Add API key if configured
+    api_key = os.environ.get("CONTAINER_APP_API_KEY")
+    if api_key:
+        headers["X-API-Key"] = api_key
     
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:

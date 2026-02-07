@@ -51,6 +51,10 @@ param enableContainerAppAuth bool = false
 @description('App Registration Client ID for Container App Easy Auth')
 param containerAppEntraClientId string = ''
 
+@description('Shared API key for Container App authentication (alternative to Entra)')
+@secure()
+param containerAppApiKey string = ''
+
 // Generate unique suffix for resources
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = { 'azd-env-name': environmentName }
@@ -96,8 +100,7 @@ module functionApp 'modules/function-app.bicep' = {
       AOAI_DEPLOYMENT_NAME: aoaiDeploymentName
       AOAI_REASONING_DEPLOYMENT_NAME: aoaiReasoningDeploymentName
       // Container App proxy settings (URL set post-deployment via script)
-      CONTAINER_APP_AUTH_ENABLED: enableContainerAppAuth ? 'true' : 'false'
-      CONTAINER_APP_CLIENT_ID: containerAppEntraClientId
+      CONTAINER_APP_API_KEY: containerAppApiKey
     }
   }
 }
@@ -114,6 +117,7 @@ module containerApp 'modules/container-app.bicep' = if (deployContainerApp) {
     appInsightsConnectionString: functionApp.outputs.appInsightsConnectionString
     enableEntraAuth: enableContainerAppAuth
     entraClientId: containerAppEntraClientId
+    containerAppApiKey: containerAppApiKey
     appSettings: {
       AZURE_STORAGE_ACCOUNT: storage.outputs.name
       AZURE_STORAGE_DATASETS_CONTAINER: 'datasets'

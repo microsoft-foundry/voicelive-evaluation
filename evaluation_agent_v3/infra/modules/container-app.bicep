@@ -28,6 +28,10 @@ param enableEntraAuth bool = false
 @description('App Registration Client ID for Container App Easy Auth')
 param entraClientId string = ''
 
+@description('Shared API key for Container App authentication')
+@secure()
+param containerAppApiKey string = ''
+
 // Generate ACR name if not provided
 var effectiveAcrName = !empty(acrName) ? acrName : 'acr${uniqueString(resourceGroup().id)}'
 
@@ -108,7 +112,12 @@ var appInsightsEnvVar = !empty(appInsightsConnectionString) ? [
   }
 ]
 
-var allEnvVars = concat(baseEnvVars, appInsightsEnvVar)
+var allEnvVars = concat(baseEnvVars, appInsightsEnvVar, !empty(containerAppApiKey) ? [
+  {
+    name: 'API_KEY'
+    secretRef: 'api-key'
+  }
+] : [])
 
 // Container App
 resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
@@ -133,12 +142,17 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           passwordSecretRef: 'acr-password'
         }
       ]
-      secrets: [
+      secrets: concat([
         {
           name: 'acr-password'
           value: acr.listCredentials().passwords[0].value
         }
-      ]
+      ], !empty(containerAppApiKey) ? [
+        {
+          name: 'api-key'
+          value: containerAppApiKey
+        }
+      ] : [])
     }
     template: {
       containers: [

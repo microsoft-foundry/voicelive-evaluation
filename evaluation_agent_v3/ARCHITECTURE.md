@@ -539,11 +539,37 @@ stv3g7ywvldzjeo/
 
 ## Security Considerations
 
+### Authentication Flow
+
+```mermaid
+sequenceDiagram
+    participant User as User/Portal
+    participant Agent as Foundry Agent
+    participant Func as Function App
+    participant CA as Container App
+    
+    User->>Agent: Request via Portal/SDK
+    Agent->>Func: POST /api/endpoint<br/>+ Function Key (via Connection)
+    Note over Func: Validates Function Key
+    
+    alt VoiceLive Proxy Endpoints
+        Func->>CA: POST /endpoint<br/>+ X-API-Key header
+        Note over CA: Validates API Key
+        CA-->>Func: Response
+    end
+    
+    Func-->>Agent: Response
+    Agent-->>User: Natural language response
+```
+
+### Security Layers
+
 1. **Function Keys**: Stored in Foundry Connection, not in code
-2. **Blob Storage**: Functions and Container App use managed identity
-3. **No secrets in OpenAPI spec**: Auth handled via connection reference
-4. **HTTPS only**: All endpoints require HTTPS
-5. **RBAC**: Azure AI User role required for Foundry evaluations
+2. **Container App API Key**: Shared secret for internal service-to-service auth
+3. **Blob Storage**: Functions and Container App use managed identity
+4. **No secrets in OpenAPI spec**: Auth handled via connection reference
+5. **HTTPS only**: All endpoints require HTTPS
+6. **RBAC**: Azure AI User role required for Foundry evaluations
 
 ---
 
@@ -776,9 +802,13 @@ sequenceDiagram
 
 ### Known Limitations
 1. **Metrics sometimes empty** - Foundry SDK may not return metrics immediately after completion
-2. **Container App auth** - Uses Easy Auth with managed identity when enabled
+2. **Container App auth** - Uses shared API key (future: Managed Identity + Easy Auth)
 3. **eval_group_id reuse** - Only works within same Foundry project
 4. **No dataset versioning yet** - Each upload creates new dataset (to be fixed in Phase 1)
+
+### Future Improvements
+1. **Managed Identity auth for Container App** - Replace shared API key with Entra ID app-to-app auth for zero-credential architecture
+2. **Private VNet architecture** - All backend services (Functions, Container App, Storage) on private endpoints for enhanced security
 
 ### SDK Limitations (Confirmed via Source Review)
 
