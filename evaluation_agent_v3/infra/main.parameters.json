@@ -37,6 +37,12 @@
     },
     "aoaiReasoningDeploymentName": {
       "value": "${AOAI_REASONING_DEPLOYMENT_NAME=o4-mini}"
+    },
+    "foundryProjectPrincipalId": {
+      "value": "${FOUNDRY_PROJECT_PRINCIPAL_ID=}"
+    },
+    "foundryAccountName": {
+      "value": "${FOUNDRY_ACCOUNT_NAME=}"
     }
   }
 }

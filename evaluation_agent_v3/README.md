@@ -92,6 +92,26 @@ python setup_agent_openapi.py \
   --update
 ```
 
+### Enable Agent Tracing (RBAC)
+
+For agent tracing to work in Application Insights, the Foundry project's managed identity needs the Azure AI User role:
+
+```powershell
+# Option 1: Via azd environment (if Foundry account in same RG)
+azd env set FOUNDRY_PROJECT_PRINCIPAL_ID "<project-managed-identity-object-id>"
+azd env set FOUNDRY_ACCOUNT_NAME "<cognitive-services-account-name>"
+azd up
+
+# Option 2: Cross-resource-group (most common)
+./scripts/azd/configure-foundry-rbac.ps1 `
+  -FoundryAccountResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>" `
+  -FoundryProjectPrincipalId "<project-managed-identity-object-id>"
+```
+
+**Finding the Principal ID**: Foundry Portal → Project Settings → Identity → Object (Principal) ID
+
+**Note**: Recently granted permissions may take several minutes to propagate.
+
 ## Usage
 
 ### Via Foundry Portal

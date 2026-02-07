@@ -39,6 +39,12 @@ param aoaiDeploymentName string = 'gpt-4.1-mini'
 @description('AOAI reasoning deployment name')
 param aoaiReasoningDeploymentName string = 'o4-mini'
 
+@description('AI Foundry project principal ID (managed identity) for tracing RBAC')
+param foundryProjectPrincipalId string = ''
+
+@description('AI Foundry account name (Cognitive Services account) - must be in same RG for Bicep RBAC')
+param foundryAccountName string = ''
+
 // Generate unique suffix for resources
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = { 'azd-env-name': environmentName }
@@ -108,6 +114,19 @@ module containerApp 'modules/container-app.bicep' = if (deployContainerApp) {
       AZURE_VOICELIVE_API_VERSION: voiceLiveApiVersion
       EVAL_AGENT_MODE: 'cloud'
     }
+  }
+}
+
+// RBAC: Assign Azure AI User role to Foundry project for tracing
+// This enables the project's managed identity to access telemetry
+// NOTE: Only works if Foundry account is in the SAME resource group
+// For cross-RG scenarios, use scripts/azd/configure-foundry-rbac.ps1
+module foundryRbac 'modules/foundry-rbac.bicep' = if (!empty(foundryProjectPrincipalId) && !empty(foundryAccountName)) {
+  name: 'foundry-rbac'
+  scope: rg
+  params: {
+    foundryProjectPrincipalId: foundryProjectPrincipalId
+    foundryAccountName: foundryAccountName
   }
 }
 
