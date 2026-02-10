@@ -12,7 +12,7 @@ import wave
 import numpy as np
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from itertools import groupby
 from operator import attrgetter
 
@@ -74,7 +74,8 @@ async def process_conversation(
     temp_dir: str,
     job_id: str,
     conversation_id: str,
-    dataset_base_path: str = ""
+    dataset_base_path: str = "",
+    on_file_complete: Optional[Callable] = None
 ) -> List[Dict[str, Any]]:
     """
     Process a single conversation (multiple audio turns).
@@ -88,6 +89,7 @@ async def process_conversation(
         job_id: Job ID for progress updates
         conversation_id: Conversation identifier
         dataset_base_path: Base path for resolving relative audio paths
+        on_file_complete: Callback(success: bool) called after each file for progress tracking
         
     Returns:
         List of evaluation-ready result entries
@@ -154,6 +156,8 @@ async def process_conversation(
             results.append(result)
             
             logger.info(f"Processed turn {turn_number}: {entry.wav_path[:50]}...")
+            if on_file_complete:
+                await on_file_complete(success=True)
             
         except Exception as e:
             logger.error(f"Error processing {entry.wav_path}: {e}")
@@ -163,6 +167,8 @@ async def process_conversation(
                 "error": str(e),
                 "turn_number": turn_number
             })
+            if on_file_complete:
+                await on_file_complete(success=False)
     
     return results
 
@@ -249,6 +255,19 @@ async def process_dataset(
         files_processed = 0
         files_failed = 0
         
+        async def on_file_complete(success: bool):
+            """Update progress after each file is processed."""
+            nonlocal files_processed, files_failed
+            if success:
+                files_processed += 1
+            else:
+                files_failed += 1
+            await job_manager.update_job_progress(
+                job_id,
+                files_processed=files_processed,
+                files_failed=files_failed
+            )
+        
         # Process conversations (with concurrency limit for future parallel support)
         # Currently processing sequentially to maintain conversation context
         for conversation_id, conversation_entries in groups:
@@ -265,23 +284,11 @@ async def process_dataset(
                         temp_dir=temp_dir,
                         job_id=job_id,
                         conversation_id=conversation_id,
-                        dataset_base_path=dataset_base_path
+                        dataset_base_path=dataset_base_path,
+                        on_file_complete=on_file_complete
                     )
                     
                     all_results.extend(results)
-                    
-                    # Count successes and failures
-                    for r in results:
-                        if "error" in r:
-                            files_failed += 1
-                        else:
-                            files_processed += 1
-                    
-                    await job_manager.update_job_progress(
-                        job_id,
-                        files_processed=files_processed,
-                        files_failed=files_failed
-                    )
                     
             except Exception as e:
                 logger.error(f"Error processing conversation {conversation_id}: {e}")

@@ -167,3 +167,6 @@ output AZURE_CONTAINER_APP_NAME string = deployContainerApp ? containerApp.outpu
 output AZURE_CONTAINER_APP_URL string = deployContainerApp ? containerApp.outputs.url : ''
 output AZURE_ACR_NAME string = deployContainerApp ? containerApp.outputs.acrName : ''
 output AZURE_ACR_LOGIN_SERVER string = deployContainerApp ? containerApp.outputs.acrLoginServer : ''
+
+// Foundry outputs (pass-through for post-provision scripts)
+output PROJECT_ENDPOINT string = projectEndpoint

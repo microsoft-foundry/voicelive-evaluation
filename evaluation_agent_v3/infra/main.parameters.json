@@ -49,6 +49,9 @@
     },
     "containerAppEntraClientId": {
       "value": "${CONTAINER_APP_ENTRA_CLIENT_ID=}"
+    },
+    "containerAppApiKey": {
+      "value": "${CONTAINER_APP_API_KEY=}"
     }
   }
 }

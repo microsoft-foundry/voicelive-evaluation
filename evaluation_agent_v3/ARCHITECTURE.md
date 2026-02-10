@@ -785,8 +785,9 @@ sequenceDiagram
 | Fallback | Keep blob upload working | Resilience if Foundry upload fails |
 
 ### Other High Priority
-- [ ] **Add RBAC assignments to azd automation** - Currently requires manual Azure AI User role assignment
-- [ ] **Fix VoiceLive Container App progress tracking** - Shows 0/6 files even when successful
+- [x] **Add RBAC assignments to azd automation** - Post-provision hook assigns Azure AI Developer + Cognitive Services User roles
+- [x] **Fix VoiceLive Container App progress tracking** - Per-file progress updates via callback in process_conversation
+- [x] **Add Foundry connection creation to azd** - Post-provision hook creates CustomKeys connection via ARM
 - [ ] **Add webhook notifications** - Notify when long evaluations complete
 
 ### Medium Priority

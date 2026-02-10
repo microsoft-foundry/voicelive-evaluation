@@ -120,7 +120,14 @@ azd up
 
 ### Function App RBAC (for Foundry Access)
 
-The Function App needs access to Foundry for listing evaluation groups and running evaluations:
+The Function App needs access to Foundry for listing evaluation groups and running evaluations. This is **automated** by the post-provision hook when `FOUNDRY_ACCOUNT_RESOURCE_ID` is set:
+
+```powershell
+# Set before azd up to enable automated RBAC
+azd env set FOUNDRY_ACCOUNT_RESOURCE_ID "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>"
+```
+
+Or assign manually:
 
 ```powershell
 # Get Function App managed identity principal ID
@@ -137,6 +144,15 @@ az role assignment create `
 **Required roles for full functionality**:
 - **Azure AI Developer** - For evaluations read/write (data plane actions)
 - **Cognitive Services User** - For general Cognitive Services access
+
+### Post-Provision Automation
+
+The `scripts/azd/postprovision.ps1` hook runs after `azd provision` and handles:
+
+1. **Seed session configs** - Populates Azure Table Storage with 7 default VoiceLive configurations
+2. **Set Container App URL** - Configures the Function App with the Container App endpoint
+3. **Assign RBAC roles** - Grants Azure AI Developer + Cognitive Services User to Function App MI (requires `FOUNDRY_ACCOUNT_RESOURCE_ID`)
+4. **Create Foundry connection** - Creates CustomKeys connection with Function App key (requires `PROJECT_ENDPOINT` + `FOUNDRY_ACCOUNT_RESOURCE_ID`)
 
 ## Usage
 
