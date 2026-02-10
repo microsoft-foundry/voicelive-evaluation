@@ -2404,6 +2404,29 @@ async def run_voicelive_audio_tests(req: func.HttpRequest) -> func.HttpResponse:
     """
     try:
         body = req.get_json()
+        
+        # Resolve session_config name to config dict if it's a string
+        config_value = body.get("session_config")
+        if isinstance(config_value, str):
+            try:
+                from azure.data.tables import TableServiceClient
+                from azure.identity import DefaultAzureCredential
+                storage_account = os.environ.get("AZURE_STORAGE_ACCOUNT", "")
+                table_url = f"https://{storage_account}.table.core.windows.net"
+                table_client = TableServiceClient(
+                    endpoint=table_url,
+                    credential=DefaultAzureCredential()
+                ).get_table_client("sessionconfigs")
+                entity = table_client.get_entity(partition_key="config", row_key=config_value)
+                # Build session config dict from table entity
+                config_dict = {k: v for k, v in entity.items() 
+                             if k not in ("PartitionKey", "RowKey", "Timestamp", "odata.etag")}
+                body["session_config"] = config_dict
+                logging.info(f"Resolved session config '{config_value}' to dict")
+            except Exception as e:
+                logging.warning(f"Could not resolve session config '{config_value}': {e}, passing as-is")
+                body.pop("session_config", None)
+        
         return await proxy_to_container_app("/run_voicelive_audio_tests", body)
     except Exception as e:
         logging.error(f"run_voicelive_audio_tests error: {e}")
