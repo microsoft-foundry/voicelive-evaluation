@@ -8,6 +8,18 @@
     "location": {
       "value": "${AZURE_LOCATION}"
     },
+    "createFoundry": {
+      "value": "${CREATE_FOUNDRY=true}"
+    },
+    "projectEndpoint": {
+      "value": "${PROJECT_ENDPOINT=}"
+    },
+    "foundryAccountName": {
+      "value": "${FOUNDRY_ACCOUNT_NAME=}"
+    },
+    "foundryProjectName": {
+      "value": "${FOUNDRY_PROJECT_NAME=}"
+    },
     "deployContainerApp": {
       "value": "${DEPLOY_CONTAINER_APP=true}"
     },
@@ -17,11 +29,8 @@
     "entraClientId": {
       "value": "${ENTRA_CLIENT_ID=}"
     },
-    "projectEndpoint": {
-      "value": "${PROJECT_ENDPOINT}"
-    },
     "voiceLiveEndpoint": {
-      "value": "${AZURE_VOICE_LIVE_ENDPOINT}"
+      "value": "${AZURE_VOICE_LIVE_ENDPOINT=}"
     },
     "voiceLiveModel": {
       "value": "${AZURE_VOICE_LIVE_MODEL=gpt-realtime}"
@@ -40,9 +49,6 @@
     },
     "foundryProjectPrincipalId": {
       "value": "${FOUNDRY_PROJECT_PRINCIPAL_ID=}"
-    },
-    "foundryAccountName": {
-      "value": "${FOUNDRY_ACCOUNT_NAME=}"
     },
     "enableContainerAppAuth": {
       "value": "${ENABLE_CONTAINER_APP_AUTH=false}"

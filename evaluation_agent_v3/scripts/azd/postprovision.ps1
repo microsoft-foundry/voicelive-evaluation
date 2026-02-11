@@ -21,6 +21,7 @@ $resourceGroup = $env:AZURE_RESOURCE_GROUP
 $functionAppName = $env:AZURE_FUNCTION_APP_NAME
 $functionAppUrl = $env:AZURE_FUNCTION_APP_URL
 $functionAppPrincipalId = $env:AZURE_FUNCTION_APP_PRINCIPAL_ID
+$containerAppName = $env:AZURE_CONTAINER_APP_NAME
 $containerAppUrl = $env:AZURE_CONTAINER_APP_URL
 $foundryAccountResourceId = $env:FOUNDRY_ACCOUNT_RESOURCE_ID
 $foundryProjectEndpoint = $env:PROJECT_ENDPOINT
@@ -93,6 +94,49 @@ if ($foundryAccountResourceId -and $functionAppPrincipalId) {
     }
 
     Write-Host "  NOTE: Role propagation may take several minutes" -ForegroundColor Yellow
+
+    # Container App RBAC (if deployed)
+    if ($containerAppName) {
+        $caPrincipalId = az containerapp identity show --name $containerAppName --resource-group $resourceGroup --query "principalId" -o tsv 2>$null
+        if ($caPrincipalId) {
+            Write-Host "`n  Container App Principal: $caPrincipalId"
+
+            # Container App → Foundry: Cognitive Services User (VoiceLive access)
+            $existing = az role assignment list --scope $foundryAccountResourceId --assignee $caPrincipalId --role $csUserRole --output json 2>$null | ConvertFrom-Json
+            if (-not $existing -or $existing.Count -eq 0) {
+                Write-Host "  Assigning Cognitive Services User to Container App..."
+                az role assignment create --scope $foundryAccountResourceId --assignee-object-id $caPrincipalId --assignee-principal-type ServicePrincipal --role $csUserRole --output none 2>$null
+                Write-Host "  Cognitive Services User assigned to Container App" -ForegroundColor Green
+            } else {
+                Write-Host "  Cognitive Services User already assigned to Container App" -ForegroundColor DarkGray
+            }
+
+            # Container App → Storage: Blob Data Contributor + Table Data Contributor
+            $storageId = az storage account show --name $storageAccountName --resource-group $resourceGroup --query "id" -o tsv 2>$null
+            if ($storageId) {
+                $blobRole = "ba92f5b4-2d11-453d-a403-e96b0029c9fe"
+                $tableRole = "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3"
+
+                $existing = az role assignment list --scope $storageId --assignee $caPrincipalId --role $blobRole --output json 2>$null | ConvertFrom-Json
+                if (-not $existing -or $existing.Count -eq 0) {
+                    Write-Host "  Assigning Storage Blob Data Contributor to Container App..."
+                    az role assignment create --scope $storageId --assignee-object-id $caPrincipalId --assignee-principal-type ServicePrincipal --role $blobRole --output none 2>$null
+                    Write-Host "  Storage Blob Data Contributor assigned" -ForegroundColor Green
+                } else {
+                    Write-Host "  Storage Blob Data Contributor already assigned" -ForegroundColor DarkGray
+                }
+
+                $existing = az role assignment list --scope $storageId --assignee $caPrincipalId --role $tableRole --output json 2>$null | ConvertFrom-Json
+                if (-not $existing -or $existing.Count -eq 0) {
+                    Write-Host "  Assigning Storage Table Data Contributor to Container App..."
+                    az role assignment create --scope $storageId --assignee-object-id $caPrincipalId --assignee-principal-type ServicePrincipal --role $tableRole --output none 2>$null
+                    Write-Host "  Storage Table Data Contributor assigned" -ForegroundColor Green
+                } else {
+                    Write-Host "  Storage Table Data Contributor already assigned" -ForegroundColor DarkGray
+                }
+            }
+        }
+    }
 } else {
     Write-Host "`n----- 3. Skipping RBAC (FOUNDRY_ACCOUNT_RESOURCE_ID not set) -----" -ForegroundColor DarkGray
     Write-Host "  Set FOUNDRY_ACCOUNT_RESOURCE_ID to enable automatic RBAC assignment"

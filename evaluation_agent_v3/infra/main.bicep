@@ -21,6 +21,15 @@ param entraClientId string = ''
 @description('AI Foundry project endpoint')
 param projectEndpoint string = ''
 
+@description('Create a new Foundry account and project (default: true). Set to false to use an existing project via projectEndpoint.')
+param createFoundry bool = true
+
+@description('Foundry account name (used when createFoundry=true, or for RBAC when using existing)')
+param foundryAccountName string = ''
+
+@description('Foundry project name (used when createFoundry=true)')
+param foundryProjectName string = ''
+
 @description('Voice Live API endpoint')
 param voiceLiveEndpoint string = ''
 
@@ -39,11 +48,8 @@ param aoaiDeploymentName string = 'gpt-4.1-mini'
 @description('AOAI reasoning deployment name')
 param aoaiReasoningDeploymentName string = 'o4-mini'
 
-@description('AI Foundry project principal ID (managed identity) for tracing RBAC')
+@description('AI Foundry project principal ID for tracing RBAC (auto-detected when createFoundry=true)')
 param foundryProjectPrincipalId string = ''
-
-@description('AI Foundry account name (Cognitive Services account) - must be in same RG for Bicep RBAC')
-param foundryAccountName string = ''
 
 @description('Enable Entra ID auth on Container App (requires App Registration)')
 param enableContainerAppAuth bool = false
@@ -78,6 +84,29 @@ module storage 'modules/storage.bicep' = {
   }
 }
 
+// Azure AI Foundry account + project (optional - can use existing)
+module foundry 'modules/foundry.bicep' = if (createFoundry) {
+  name: 'foundry'
+  scope: rg
+  params: {
+    accountName: !empty(foundryAccountName) ? foundryAccountName : 'ai-${resourceToken}'
+    projectName: !empty(foundryProjectName) ? foundryProjectName : environmentName
+    location: location
+    tags: tags
+    modelDeployments: [
+      { name: modelDeploymentName, model: 'gpt-4.1-mini' }
+      { name: aoaiReasoningDeploymentName, model: 'o4-mini' }
+    ]
+  }
+}
+
+// Resolve project endpoint: use Foundry module output if created, otherwise use parameter
+var resolvedProjectEndpoint = createFoundry ? foundry.outputs.projectEndpoint : projectEndpoint
+var resolvedVoiceLiveEndpoint = createFoundry && empty(voiceLiveEndpoint) ? foundry.outputs.accountEndpoint : voiceLiveEndpoint
+var resolvedFoundryAccountId = createFoundry ? foundry.outputs.accountId : ''
+var resolvedFoundryProjectPrincipalId = createFoundry ? foundry.outputs.projectPrincipalId : foundryProjectPrincipalId
+var resolvedFoundryAccountName = createFoundry ? foundry.outputs.accountName : foundryAccountName
+
 // Function App for tools API
 module functionApp 'modules/function-app.bicep' = {
   name: 'function-app'
@@ -93,8 +122,8 @@ module functionApp 'modules/function-app.bicep' = {
       AZURE_STORAGE_ACCOUNT: storage.outputs.name
       AZURE_STORAGE_DATASETS_CONTAINER: 'datasets'
       AZURE_STORAGE_OUTPUTS_CONTAINER: 'outputs'
-      PROJECT_ENDPOINT: projectEndpoint
-      AZURE_VOICE_LIVE_ENDPOINT: voiceLiveEndpoint
+      PROJECT_ENDPOINT: resolvedProjectEndpoint
+      AZURE_VOICE_LIVE_ENDPOINT: resolvedVoiceLiveEndpoint
       AZURE_VOICE_LIVE_MODEL: voiceLiveModel
       AZURE_VOICE_LIVE_API_VERSION: voiceLiveApiVersion
       AOAI_DEPLOYMENT_NAME: aoaiDeploymentName
@@ -122,9 +151,9 @@ module containerApp 'modules/container-app.bicep' = if (deployContainerApp) {
       AZURE_STORAGE_ACCOUNT: storage.outputs.name
       AZURE_STORAGE_DATASETS_CONTAINER: 'datasets'
       AZURE_STORAGE_OUTPUTS_CONTAINER: 'outputs'
-      PROJECT_ENDPOINT: projectEndpoint
+      PROJECT_ENDPOINT: resolvedProjectEndpoint
       MODEL_DEPLOYMENT_NAME: modelDeploymentName
-      AZURE_VOICELIVE_ENDPOINT: voiceLiveEndpoint
+      AZURE_VOICELIVE_ENDPOINT: resolvedVoiceLiveEndpoint
       AZURE_VOICELIVE_MODEL: voiceLiveModel
       AZURE_VOICELIVE_API_VERSION: voiceLiveApiVersion
       EVAL_AGENT_MODE: 'cloud'
@@ -133,17 +162,20 @@ module containerApp 'modules/container-app.bicep' = if (deployContainerApp) {
 }
 
 // RBAC: Assign Azure AI User role to Foundry project for tracing
-// This enables the project's managed identity to access telemetry
-// NOTE: Only works if Foundry account is in the SAME resource group
-// For cross-RG scenarios, use scripts/azd/configure-foundry-rbac.ps1
-module foundryRbac 'modules/foundry-rbac.bicep' = if (!empty(foundryProjectPrincipalId) && !empty(foundryAccountName)) {
+// When createFoundry=true, use the created project's principal ID
+// When using existing, use the manually provided principal ID + account name
+module foundryRbac 'modules/foundry-rbac.bicep' = if (createFoundry || (!empty(foundryProjectPrincipalId) && !empty(foundryAccountName))) {
   name: 'foundry-rbac'
   scope: rg
   params: {
-    foundryProjectPrincipalId: foundryProjectPrincipalId
-    foundryAccountName: foundryAccountName
+    foundryProjectPrincipalId: createFoundry ? foundry.outputs.projectPrincipalId : foundryProjectPrincipalId
+    foundryAccountName: createFoundry ? foundry.outputs.accountName : foundryAccountName
   }
 }
+
+// NOTE: Function App and Container App RBAC (AI Developer, CS User, Storage roles)
+// is handled by scripts/azd/postprovision.ps1 for idempotency.
+// ARM role assignments fail on re-provision if they already exist.
 
 // Outputs for azd
 output AZURE_LOCATION string = location
@@ -168,5 +200,8 @@ output AZURE_CONTAINER_APP_URL string = deployContainerApp ? containerApp.output
 output AZURE_ACR_NAME string = deployContainerApp ? containerApp.outputs.acrName : ''
 output AZURE_ACR_LOGIN_SERVER string = deployContainerApp ? containerApp.outputs.acrLoginServer : ''
 
-// Foundry outputs (pass-through for post-provision scripts)
-output PROJECT_ENDPOINT string = projectEndpoint
+// Foundry outputs
+output PROJECT_ENDPOINT string = resolvedProjectEndpoint
+output FOUNDRY_ACCOUNT_RESOURCE_ID string = resolvedFoundryAccountId
+output FOUNDRY_ACCOUNT_NAME string = resolvedFoundryAccountName
+output AZURE_VOICE_LIVE_ENDPOINT string = resolvedVoiceLiveEndpoint
