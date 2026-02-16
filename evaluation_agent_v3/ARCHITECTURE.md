@@ -1,6 +1,6 @@
 # VoiceLive Evaluation Agent v3 - Architecture
 
-*Last updated: February 7, 2026*
+*Last updated: February 16, 2026*
 
 ## Overview
 
@@ -79,6 +79,7 @@ graph TB
     
     subgraph "Infrastructure (Bicep)"
         Main[main.bicep]
+        Foundry[foundry.bicep<br/>Account + Project + Models]
         Storage[storage.bicep]
         Func[function-app.bicep]
         CA[container-app.bicep]
@@ -86,27 +87,60 @@ graph TB
     
     subgraph "Azure Resources"
         RG[Resource Group]
+        AIF[AI Services Account<br/>+ Foundry Project]
         ST[Storage Account<br/>Blob + Tables]
         FUNC[Function App<br/>+ App Insights]
         ACR[Container Registry]
         CAP[Container App]
     end
     
-    subgraph "Post-Deployment"
-        Seed[seed-session-configs.ps1]
+    subgraph "Post-Provision Automation"
+        Seed[Seed session configs]
+        RBAC[Assign RBAC roles]
+        Conn[Create Foundry connection]
+    end
+    
+    subgraph "Post-Deploy"
         Agent[setup_agent_openapi.py]
     end
     
     AZD --> Main
+    Main --> Foundry
     Main --> Storage
     Main --> Func
     Main --> CA
+    Foundry --> AIF
     Storage --> ST
     Func --> FUNC
     CA --> ACR
     CA --> CAP
-    AZD -->|postprovision| Seed
+    AZD -->|postprovision.ps1| Seed
+    AZD -->|postprovision.ps1| RBAC
+    AZD -->|postprovision.ps1| Conn
     AZD -->|postdeploy| Agent
+```
+
+### Deployment Modes
+
+The infrastructure supports two deployment modes controlled by the `CREATE_FOUNDRY` parameter:
+
+| Mode | `CREATE_FOUNDRY` | Use Case |
+|------|-----------------|----------|
+| **Create New** (default) | `true` | Fresh deployment — creates AI Services account, Foundry project, and model deployments |
+| **Use Existing** | `false` | Bring your own Foundry project — provide `PROJECT_ENDPOINT` and `AZURE_VOICE_LIVE_ENDPOINT` |
+
+**Create New mode** provisions:
+- `Microsoft.CognitiveServices/accounts` (kind: AIServices, `allowProjectManagement: true`)
+- `Microsoft.CognitiveServices/accounts/projects` (child resource)
+- Model deployments: `gpt-4.1-mini` (GlobalStandard) and `o4-mini` (GlobalStandard)
+- Deployments use `@batchSize(1)` to avoid ARM `RequestConflict` errors
+
+**Use Existing mode** requires these azd env vars:
+```bash
+azd env set CREATE_FOUNDRY false
+azd env set PROJECT_ENDPOINT "https://<account>.services.ai.azure.com/api/projects/<project>"
+azd env set AZURE_VOICE_LIVE_ENDPOINT "https://<account>.services.ai.azure.com/"
+azd env set FOUNDRY_ACCOUNT_RESOURCE_ID "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>"
 ```
 
 ## Monitoring & Observability
@@ -577,8 +611,12 @@ sequenceDiagram
 | Function App MI | Azure AI Developer | Cognitive Services account | Evaluations data plane access |
 | Function App MI | Cognitive Services User | Cognitive Services account | General API access |
 | Function App MI | Storage Blob Data Contributor | Storage account | Dataset/output read/write |
+| Container App MI | Cognitive Services User | Cognitive Services account | VoiceLive SDK access |
 | Container App MI | Storage Blob Data Contributor | Storage account | Dataset/output read/write |
+| Container App MI | Storage Table Data Contributor | Storage account | Config journal writes |
 | Foundry Project MI | Azure AI User | Cognitive Services account | Agent tracing (optional) |
+
+All service RBAC is assigned automatically by `postprovision.ps1` using idempotent check-then-create logic.
 
 ---
 
@@ -791,11 +829,11 @@ sequenceDiagram
 - [ ] **Add webhook notifications** - Notify when long evaluations complete
 
 ### Medium Priority
-- [ ] **Add Foundry account/project creation to azd** - Currently requires pre-existing Foundry resources
-  - Create Cognitive Services account (kind: AIServices) via Bicep
-  - Create Foundry project via ARM/Bicep
-  - Auto-configure App Insights connection for tracing
-  - Create API key connection for Function App auth
+- [x] **Add Foundry account/project creation to azd** - Creates AI Services account, Foundry project, and model deployments via Bicep
+  - `foundry.bicep` module with `@batchSize(1)` deployments
+  - `createFoundry` parameter (default: true) with existing-project fallback
+  - Resolved variables pattern for endpoint auto-detection
+  - All RBAC in `postprovision.ps1` for ARM idempotency
 - [ ] **Private VNet architecture** - Move all backend services to private endpoints
   - Deploy Container App with internal-only ingress
   - Add VNet integration to Function App
@@ -815,6 +853,9 @@ sequenceDiagram
 2. **Container App auth** - Uses shared API key (future: Managed Identity + Easy Auth)
 3. **eval_group_id reuse** - Only works within same Foundry project
 4. **No dataset versioning yet** - Each upload creates new dataset (to be fixed in Phase 1)
+5. **azd Container App push** - `azd deploy` may get stuck pushing Container App image to ACR; workaround: `docker build` → `docker push` → `az containerapp update` manually
+6. **Cognitive Services soft-delete** - Deleting an AI Services account soft-deletes it; recreating with same name requires `az cognitiveservices account purge` first
+7. **ARM role assignment idempotency** - `Microsoft.Authorization/roleAssignments` in Bicep can throw `RoleAssignmentExists` on re-provision; all service RBAC is done via PowerShell scripts instead
 
 ### Future Improvements
 1. **Managed Identity auth for Container App** - Replace shared API key with Entra ID app-to-app auth for zero-credential architecture

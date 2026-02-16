@@ -28,40 +28,56 @@ graph LR
 ### Prerequisites
 
 - Azure subscription with Cognitive Services access
-- **Azure AI Foundry account and project (must exist before deployment)**
-  - The azd/Bicep deployment does NOT create the Foundry account or project
-  - Create via [Azure AI Foundry Portal](https://ai.azure.com) or Azure Portal
-  - Note the PROJECT_ENDPOINT from Project Settings
 - Azure CLI + azd CLI installed
 - Python 3.11+
 - Docker Desktop (for Container App deployment)
 
 ### Deploy Infrastructure
 
+Two deployment modes are supported:
+
+#### Option A: Create New Foundry Project (Default)
+
 ```bash
 cd evaluation_agent_v3
 
-# Login and set subscription
+# Login
 az login
 azd auth login
 
-# Create environment and configure
+# Create environment — Foundry account + project created automatically
 azd env new my-voicelive-eval --location eastus2
-azd env set PROJECT_ENDPOINT "https://<resource>.services.ai.azure.com/api/projects/<project>"
-azd env set AZURE_VOICE_LIVE_ENDPOINT "https://<resource>.services.ai.azure.com/"
-azd env set DEPLOY_CONTAINER_APP true  # Include Container App
+azd env set DEPLOY_CONTAINER_APP true
 
-# Deploy everything (Functions + Container App + Storage)
+# Deploy everything (Foundry + Functions + Container App + Storage)
 azd up
-
-# Get deployed resources
-azd env get-values
 ```
 
-### Seed Session Configurations
+This creates an AI Services account, Foundry project, model deployments (gpt-4.1-mini, o4-mini), and all infrastructure. Post-provision hooks automatically seed session configs, assign RBAC, and create the Foundry connection.
+
+#### Option B: Use Existing Foundry Project
 
 ```bash
-# After deployment, seed the default VoiceLive configurations
+cd evaluation_agent_v3
+
+az login
+azd auth login
+
+azd env new my-voicelive-eval --location eastus2
+azd env set CREATE_FOUNDRY false
+azd env set PROJECT_ENDPOINT "https://<resource>.services.ai.azure.com/api/projects/<project>"
+azd env set AZURE_VOICE_LIVE_ENDPOINT "https://<resource>.services.ai.azure.com/"
+azd env set FOUNDRY_ACCOUNT_RESOURCE_ID "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>"
+azd env set DEPLOY_CONTAINER_APP true
+
+azd up
+```
+
+### Session Configurations (Auto-Seeded)
+
+Session configs are automatically seeded by the post-provision hook. To re-seed manually:
+
+```bash
 ./scripts/azd/seed-session-configs.ps1 -StorageAccountName <storage-account-name>
 ```
 
@@ -151,8 +167,9 @@ The `scripts/azd/postprovision.ps1` hook runs after `azd provision` and handles:
 
 1. **Seed session configs** - Populates Azure Table Storage with 7 default VoiceLive configurations
 2. **Set Container App URL** - Configures the Function App with the Container App endpoint
-3. **Assign RBAC roles** - Grants Azure AI Developer + Cognitive Services User to Function App MI (requires `FOUNDRY_ACCOUNT_RESOURCE_ID`)
-4. **Create Foundry connection** - Creates CustomKeys connection with Function App key (requires `PROJECT_ENDPOINT` + `FOUNDRY_ACCOUNT_RESOURCE_ID`)
+3. **Assign Function App RBAC** - Grants Azure AI Developer + Cognitive Services User to Function App MI
+4. **Assign Container App RBAC** - Grants Cognitive Services User + Storage Blob/Table Contributor to Container App MI
+5. **Create Foundry connection** - Creates CustomKeys connection with Function App key (requires `PROJECT_ENDPOINT` + `FOUNDRY_ACCOUNT_RESOURCE_ID`)
 
 ## Usage
 
@@ -349,6 +366,7 @@ evaluation_agent_v3/
 │   ├── main.bicep                 # Main deployment template
 │   ├── main.parameters.json       # Parameters with defaults
 │   └── modules/                   # Reusable modules
+│       ├── foundry.bicep          # AI Services + Project + Models
 │       ├── storage.bicep          # Storage + Tables
 │       ├── function-app.bicep     # Functions + App Insights
 │       └── container-app.bicep    # Container App + ACR
@@ -420,6 +438,8 @@ After `azd up`, the following resources are created:
 | Resource | Purpose |
 |----------|---------|
 | Resource Group | `rg-<env-name>` |
+| AI Services Account | `ai-<token>` - Foundry account (if CREATE_FOUNDRY=true) |
+| Foundry Project | `<env-name>` - AI project with model deployments |
 | Storage Account | `st<token>` - datasets/, outputs/, tables |
 | Function App | `func-<token>` - 20+ HTTP endpoints |
 | Container App | `ca-voicelive-<token>` - VoiceLive processor |
@@ -455,6 +475,21 @@ After `azd up`, the following resources are created:
 - Get the current function key: `az functionapp keys list --name <func-name> --resource-group <rg> --query "functionKeys.default" -o tsv`
 - Update the connection in Foundry Portal → Management → Connections → Edit
 
+### azd deploy gets stuck on Container App
+- Known issue: `azd deploy` may hang pushing the Container App image to ACR
+- Workaround: deploy Container App manually:
+```bash
+cd deploy/container-app
+docker build -t <acr>.azurecr.io/voicelive-processor:latest .
+az acr login --name <acr>
+docker push <acr>.azurecr.io/voicelive-processor:latest
+az containerapp update --name <ca-name> --resource-group <rg> --image <acr>.azurecr.io/voicelive-processor:latest
+```
+
+### Cognitive Services account recreation fails
+- Deleting an AI Services account soft-deletes it; recreating with the same name in the same region fails
+- Purge the soft-deleted account first: `az cognitiveservices account purge --name <name> --resource-group <rg> --location <location>`
+
 ## SDK Limitations
 
 The following operations require **manual configuration** in the Foundry Portal or via Terraform/ARM - they cannot be done via the Python SDK:
@@ -485,4 +520,4 @@ For **agent-side tracing** (traces appearing in Foundry portal):
 
 ---
 
-*Last updated: February 7, 2026*
+*Last updated: February 16, 2026*
