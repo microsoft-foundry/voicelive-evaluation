@@ -13,7 +13,9 @@ Write-Host "===== Post-Deploy Hook ====="
 
 # Get outputs from azd
 $functionAppUrl = $env:AZURE_FUNCTION_APP_URL
-$connectionName = $env:AZURE_AGENT_CONNECTION_NAME
+$connectionName = $env:AZURE_AGENT_CONNECTION_ID  # Full ARM ID from postprovision
+if (-not $connectionName) { $connectionName = $env:AZURE_AGENT_CONNECTION_NAME }
+$modelName = $env:MODEL_DEPLOYMENT_NAME
 
 if (-not $functionAppUrl) {
     Write-Host "ERROR: AZURE_FUNCTION_APP_URL not set" -ForegroundColor Red
@@ -22,15 +24,25 @@ if (-not $functionAppUrl) {
 
 Write-Host "Function App URL: $functionAppUrl"
 Write-Host "Connection Name: $connectionName"
+Write-Host "Model: $modelName"
 
 # Setup agent (update if exists)
 $scriptDir = $PSScriptRoot
 $agentScript = "$scriptDir\setup-agent.ps1"
 
-if ($connectionName) {
-    & $agentScript -FunctionAppUrl $functionAppUrl -ConnectionName $connectionName -Update
-} else {
-    & $agentScript -FunctionAppUrl $functionAppUrl -Update
+$agentArgs = @{
+    FunctionAppUrl = $functionAppUrl
+    Update = $true
 }
+
+if ($connectionName) {
+    $agentArgs["ConnectionName"] = $connectionName
+}
+
+if ($modelName) {
+    $agentArgs["Model"] = $modelName
+}
+
+& $agentScript @agentArgs
 
 Write-Host "`n===== Post-Deploy Complete ====="

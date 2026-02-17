@@ -15,6 +15,9 @@ param(
     [string]$ConnectionName = "",
     
     [Parameter(Mandatory=$false)]
+    [string]$Model = "",
+    
+    [Parameter(Mandatory=$false)]
     [switch]$Update
 )
 
@@ -34,6 +37,12 @@ try {
         $args += "--connection-name"
         $args += $ConnectionName
         Write-Host "  Connection: $ConnectionName"
+    }
+    
+    if ($Model) {
+        $args += "--model"
+        $args += $Model
+        Write-Host "  Model: $Model"
     }
     
     if ($Update) {
