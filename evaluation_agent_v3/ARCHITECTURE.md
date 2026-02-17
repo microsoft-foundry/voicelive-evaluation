@@ -208,15 +208,52 @@ graph LR
 
 ## Data Storage
 
-Datasets are stored in **multiple locations** with different purposes:
+Datasets are stored in **two distinct stores** based on type:
 
 | Storage | Content | Purpose |
 |---------|---------|---------|
-| **Blob: datasets/** | VoiceLive audio datasets (.wav + .jsonl) | Source audio for processing |
-| **Blob: outputs/** | VoiceLive processing results | Backup + debugging |
-| **Foundry Data Store** | Evaluation datasets (versioned) | Input to Foundry evaluators |
+| **Blob: datasets/** | VoiceLive audio datasets (.wav + .jsonl) | Source audio for VoiceLive processing |
+| **Foundry Data Store** | Evaluation datasets (query/response JSONL, versioned) | Input to Foundry evaluators |
+| **Blob: outputs/** | VoiceLive processing results | Intermediate results (auto-registered to Foundry on completion) |
 | **Table: sessionconfigs** | VoiceLive session configurations | Reusable config presets |
 | **Table: configjournal** | Session config history | Tracking eval group configurations |
+
+### Dataset Type Architecture
+
+| Aspect | VoiceLive Audio | Evaluation-Ready |
+|--------|----------------|-----------------|
+| **Store** | Blob `datasets/` | Foundry Data Store |
+| **Format** | Zip (.wav + .jsonl) or .jsonl with WavPath | .jsonl with query/response |
+| **Required fields** | `WavPath` or `audio` | `query`, `response` |
+| **Validation** | `validate_voicelive_dataset` | `validate_eval_dataset` |
+| **Upload via** | SAS URL → blob extraction | SAS URL → staging → Foundry upload |
+| **Versioning** | Folder-based (manual) | Foundry native (auto-increment on same name) |
+| **Discovery** | `list_datasets(type=voicelive)` | `list_datasets(type=evaluation)` |
+| **Future** | Migrate to Foundry when audio supported | Already in Foundry |
+
+### Upload Flow (SAS URL Pattern)
+
+```mermaid
+sequenceDiagram
+    participant U as User/Agent
+    participant F as Function App
+    participant B as Blob Storage
+    participant FD as Foundry Data Store
+    
+    U->>F: get_upload_url(name, type)
+    F->>B: Generate SAS URL for staging/
+    F-->>U: upload_url, upload_id
+    U->>B: PUT file to SAS URL
+    U->>F: finalize_upload(upload_id, type)
+    alt voicelive
+        F->>B: Extract zip to datasets/{name}/
+        F-->>U: blob_path, files_uploaded
+    else evaluation
+        F->>F: Validate query/response fields
+        F->>FD: Upload to Foundry (native versioning)
+        F-->>U: foundry_dataset_id, version
+    end
+```
 
 ### Session Configuration Table
 
@@ -518,14 +555,18 @@ Fields: EvalGroupId, Model, Voice, VadThreshold, EndOfSpeechTimeout, CreatedAt
 
 ## Component Details
 
-### Azure Functions (14 Endpoints)
+### Azure Functions (23 Endpoints)
 
 | Function | Type | Purpose |
 |----------|------|---------|
-| `list_datasets` | HTTP | List datasets in blob storage |
-| `check_dataset_schema` | HTTP | Validate required/optional fields |
-| `validate_dataset_consistency` | HTTP | Check structural consistency |
-| `validate_dataset_quality` | HTTP | Assess content quality |
+| `list_datasets` | HTTP | List datasets from both stores (voicelive/evaluation/all) |
+| `check_dataset_schema` | HTTP | Detect dataset type and list fields |
+| `get_upload_url` | HTTP | Generate SAS URL for dataset upload |
+| `finalize_upload` | HTTP | Validate and route uploaded dataset to correct store |
+| `validate_voicelive_dataset` | HTTP | Validate VoiceLive audio dataset (WavPath required) |
+| `validate_eval_dataset` | HTTP | Validate evaluation dataset (query/response required) |
+| `validate_dataset_consistency` | HTTP | Backward-compat alias for validate_voicelive_dataset |
+| `validate_dataset_quality` | HTTP | Assess content quality (either type) |
 | `get_evaluation_recommendations` | HTTP | Suggest settings for large datasets |
 | `run_voicelive_evaluation` | HTTP+Durable | Start async Foundry evaluation |
 | `check_evaluation_status` | HTTP | Poll evaluation status |

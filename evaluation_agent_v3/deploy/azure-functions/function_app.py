@@ -26,12 +26,13 @@ import logging
 import tempfile
 import secrets
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
+import uuid
 
 import azure.functions as func
 import azure.durable_functions as df
 from azure.identity import DefaultAzureCredential
-from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
 from azure.data.tables import TableServiceClient, TableClient
 
 # Use FUNCTION auth level - requires x-functions-key header or ?code= query param
@@ -780,40 +781,73 @@ def delete_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="list_datasets", methods=["POST"])
 def list_datasets(req: func.HttpRequest) -> func.HttpResponse:
-    """List available datasets in blob storage."""
+    """List available datasets. Combines VoiceLive (blob) and evaluation (Foundry) datasets."""
     logging.info("list_datasets called")
     
     try:
         body = req.get_json() if req.get_body() else {}
         prefix = body.get("folder_path", "")
+        dataset_type = body.get("dataset_type", "all")  # voicelive, evaluation, all
         
-        client = get_blob_client()
-        if not client:
-            return func.HttpResponse(
-                json.dumps({"error": "AZURE_STORAGE_ACCOUNT not configured"}),
-                status_code=500,
-                mimetype="application/json"
-            )
+        all_datasets = []
         
-        container = os.environ.get("AZURE_STORAGE_DATASETS_CONTAINER", "datasets")
-        container_client = client.get_container_client(container)
+        # List VoiceLive datasets from blob storage
+        if dataset_type in ("voicelive", "all"):
+            client = get_blob_client()
+            if client:
+                container = os.environ.get("AZURE_STORAGE_DATASETS_CONTAINER", "datasets")
+                container_client = client.get_container_client(container)
+                
+                for blob in container_client.list_blobs(name_starts_with=prefix):
+                    if blob.name.endswith(".jsonl"):
+                        all_datasets.append({
+                            "path": f"{container}/{blob.name}",
+                            "name": Path(blob.name).stem,
+                            "type": "voicelive",
+                            "store": "blob",
+                            "size_bytes": blob.size,
+                            "last_modified": str(blob.last_modified),
+                        })
         
-        datasets = []
-        for blob in container_client.list_blobs(name_starts_with=prefix):
-            if blob.name.endswith(".jsonl"):
-                datasets.append({
-                    "path": f"{container}/{blob.name}",
-                    "name": Path(blob.name).stem,
-                    "size_bytes": blob.size,
-                    "last_modified": str(blob.last_modified),
-                })
+        # List evaluation datasets from Foundry
+        if dataset_type in ("evaluation", "all"):
+            try:
+                from azure.ai.projects import AIProjectClient
+                
+                project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT") or os.environ.get("PROJECT_ENDPOINT")
+                if project_endpoint:
+                    project_client = AIProjectClient(
+                        credential=DefaultAzureCredential(),
+                        endpoint=project_endpoint
+                    )
+                    
+                    for dataset in project_client.datasets.list():
+                        try:
+                            versions = list(project_client.datasets.list_versions(name=dataset.name))
+                            version_count = len(versions)
+                            latest_version = max(int(v.version) for v in versions) if versions else 0
+                        except Exception:
+                            version_count = 0
+                            latest_version = 0
+                        
+                        all_datasets.append({
+                            "path": dataset.id,
+                            "name": dataset.name,
+                            "type": "evaluation",
+                            "store": "foundry",
+                            "version_count": version_count,
+                            "latest_version": latest_version,
+                        })
+            except Exception as e:
+                logging.warning(f"Could not list Foundry datasets: {e}")
         
         return func.HttpResponse(
             json.dumps({
                 "action": "list_datasets",
                 "status": "success",
-                "datasets_found": len(datasets),
-                "datasets": datasets
+                "dataset_type_filter": dataset_type,
+                "datasets_found": len(all_datasets),
+                "datasets": all_datasets
             }),
             mimetype="application/json"
         )
@@ -826,9 +860,289 @@ def list_datasets(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
+@app.route(route="get_upload_url", methods=["POST"])
+def get_upload_url(req: func.HttpRequest) -> func.HttpResponse:
+    """Generate a SAS URL for uploading a dataset file.
+    
+    Returns a time-limited write-only URL for direct upload to blob staging.
+    After upload, call finalize_upload to validate and route the file.
+    """
+    logging.info("get_upload_url called")
+    
+    try:
+        body = req.get_json()
+        dataset_name = body.get("dataset_name")
+        dataset_type = body.get("dataset_type")  # voicelive or evaluation
+        file_extension = body.get("file_extension", ".jsonl")
+        
+        if not dataset_name:
+            return func.HttpResponse(
+                json.dumps({"error": "dataset_name required"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        if dataset_type not in ("voicelive", "evaluation"):
+            return func.HttpResponse(
+                json.dumps({"error": "dataset_type must be 'voicelive' or 'evaluation'"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        account_name = os.environ.get("AZURE_STORAGE_ACCOUNT")
+        if not account_name:
+            return func.HttpResponse(
+                json.dumps({"error": "AZURE_STORAGE_ACCOUNT not configured"}),
+                status_code=500,
+                mimetype="application/json"
+            )
+        
+        upload_id = str(uuid.uuid4())
+        container = os.environ.get("AZURE_STORAGE_DATASETS_CONTAINER", "datasets")
+        staging_blob = f"staging/{upload_id}/{dataset_name}{file_extension}"
+        
+        # Generate user delegation SAS using managed identity
+        credential = DefaultAzureCredential()
+        blob_client = BlobServiceClient(
+            account_url=f"https://{account_name}.blob.core.windows.net",
+            credential=credential
+        )
+        
+        # Get user delegation key for SAS
+        from datetime import timezone
+        start_time = datetime.now(timezone.utc)
+        expiry_time = start_time + timedelta(minutes=30)
+        
+        delegation_key = blob_client.get_user_delegation_key(
+            key_start_time=start_time,
+            key_expiry_time=expiry_time
+        )
+        
+        sas_token = generate_blob_sas(
+            account_name=account_name,
+            container_name=container,
+            blob_name=staging_blob,
+            user_delegation_key=delegation_key,
+            permission=BlobSasPermissions(write=True, create=True),
+            expiry=expiry_time,
+            start=start_time,
+        )
+        
+        upload_url = f"https://{account_name}.blob.core.windows.net/{container}/{staging_blob}?{sas_token}"
+        
+        return func.HttpResponse(
+            json.dumps({
+                "action": "get_upload_url",
+                "upload_id": upload_id,
+                "upload_url": upload_url,
+                "staging_path": staging_blob,
+                "dataset_name": dataset_name,
+                "dataset_type": dataset_type,
+                "expires_in_minutes": 30,
+                "instructions": "Upload your file to the upload_url using a PUT request with x-ms-blob-type: BlockBlob header. Then call finalize_upload with the upload_id."
+            }),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"get_upload_url error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+@app.route(route="finalize_upload", methods=["POST"])
+def finalize_upload(req: func.HttpRequest) -> func.HttpResponse:
+    """Finalize a dataset upload: validate and route to the correct store.
+    
+    For voicelive: extracts zip to datasets/{name}/, validates audio+JSONL.
+    For evaluation: validates JSONL (query/response), uploads to Foundry datasets.
+    """
+    logging.info("finalize_upload called")
+    
+    try:
+        body = req.get_json()
+        upload_id = body.get("upload_id")
+        dataset_name = body.get("dataset_name")
+        dataset_type = body.get("dataset_type")  # voicelive or evaluation
+        
+        if not upload_id or not dataset_name or not dataset_type:
+            return func.HttpResponse(
+                json.dumps({"error": "upload_id, dataset_name, and dataset_type required"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        client = get_blob_client()
+        if not client:
+            return func.HttpResponse(
+                json.dumps({"error": "AZURE_STORAGE_ACCOUNT not configured"}),
+                status_code=500,
+                mimetype="application/json"
+            )
+        
+        container = os.environ.get("AZURE_STORAGE_DATASETS_CONTAINER", "datasets")
+        container_client = client.get_container_client(container)
+        
+        # Find the staged file
+        staging_prefix = f"staging/{upload_id}/"
+        staged_blobs = list(container_client.list_blobs(name_starts_with=staging_prefix))
+        if not staged_blobs:
+            return func.HttpResponse(
+                json.dumps({"error": f"No staged file found for upload_id: {upload_id}"}),
+                status_code=404,
+                mimetype="application/json"
+            )
+        
+        staged_blob = staged_blobs[0]
+        
+        # Download staged file to temp
+        blob_data = container_client.get_blob_client(staged_blob.name).download_blob()
+        suffix = Path(staged_blob.name).suffix
+        
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(blob_data.readall())
+            tmp_path = tmp.name
+        
+        result = {}
+        
+        if dataset_type == "voicelive":
+            result = _finalize_voicelive_upload(tmp_path, dataset_name, container_client, suffix)
+        elif dataset_type == "evaluation":
+            result = _finalize_eval_upload(tmp_path, dataset_name)
+        else:
+            result = {"error": f"Unknown dataset_type: {dataset_type}"}
+        
+        # Cleanup temp file and staging blob
+        os.unlink(tmp_path)
+        try:
+            container_client.get_blob_client(staged_blob.name).delete_blob()
+        except Exception:
+            pass
+        
+        if "error" in result:
+            return func.HttpResponse(
+                json.dumps(result),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        return func.HttpResponse(
+            json.dumps({
+                "action": "finalize_upload",
+                "status": "success",
+                "dataset_name": dataset_name,
+                "dataset_type": dataset_type,
+                **result
+            }),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"finalize_upload error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+def _finalize_voicelive_upload(tmp_path: str, dataset_name: str, container_client, suffix: str) -> dict:
+    """Extract and validate a VoiceLive dataset upload (zip or JSONL)."""
+    import zipfile
+    
+    dest_prefix = f"{dataset_name}/"
+    files_uploaded = []
+    
+    if suffix == ".zip":
+        # Extract zip to datasets/{name}/
+        with zipfile.ZipFile(tmp_path, 'r') as zf:
+            jsonl_files = [f for f in zf.namelist() if f.endswith(".jsonl")]
+            wav_files = [f for f in zf.namelist() if f.endswith(".wav")]
+            
+            if not jsonl_files:
+                return {"error": "Zip must contain at least one .jsonl manifest file"}
+            
+            for name in zf.namelist():
+                if name.endswith('/'):
+                    continue
+                blob_name = f"{dest_prefix}{Path(name).name}"
+                data = zf.read(name)
+                container_client.get_blob_client(blob_name).upload_blob(data, overwrite=True)
+                files_uploaded.append(blob_name)
+        
+        return {
+            "files_uploaded": len(files_uploaded),
+            "jsonl_files": len(jsonl_files),
+            "wav_files": len(wav_files),
+            "blob_prefix": dest_prefix,
+        }
+    elif suffix == ".jsonl":
+        # Upload JSONL directly
+        blob_name = f"{dest_prefix}{dataset_name}.jsonl"
+        with open(tmp_path, 'rb') as f:
+            container_client.get_blob_client(blob_name).upload_blob(f, overwrite=True)
+        return {"files_uploaded": 1, "blob_path": blob_name}
+    else:
+        return {"error": f"Unsupported file type: {suffix}. Expected .zip or .jsonl"}
+
+
+def _finalize_eval_upload(tmp_path: str, dataset_name: str) -> dict:
+    """Validate and upload an evaluation dataset to Foundry."""
+    # Validate JSONL structure first
+    errors = []
+    entry_count = 0
+    with open(tmp_path, 'r', encoding='utf-8') as f:
+        for line_num, line in enumerate(f, 1):
+            line = line.strip()
+            if not line or line.startswith('//') or line.startswith('#'):
+                continue
+            try:
+                entry = json.loads(line)
+                entry_count += 1
+                if not entry.get("query"):
+                    errors.append(f"Line {line_num}: Missing 'query'")
+                if not entry.get("response"):
+                    errors.append(f"Line {line_num}: Missing 'response'")
+            except json.JSONDecodeError as e:
+                errors.append(f"Line {line_num}: Invalid JSON - {e}")
+    
+    if errors:
+        return {"error": "Validation failed", "validation_errors": errors[:20], "error_count": len(errors)}
+    
+    if entry_count == 0:
+        return {"error": "Dataset is empty"}
+    
+    # Upload to Foundry datasets
+    from azure.ai.projects import AIProjectClient
+    
+    project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT") or os.environ.get("PROJECT_ENDPOINT")
+    if not project_endpoint:
+        return {"error": "PROJECT_ENDPOINT not configured"}
+    
+    project_client = AIProjectClient(
+        credential=DefaultAzureCredential(),
+        endpoint=project_endpoint
+    )
+    
+    # Foundry handles versioning natively — same name = new version
+    dataset = project_client.datasets.upload_file(
+        name=dataset_name,
+        file_path=tmp_path,
+        description=f"Evaluation dataset: {entry_count} entries",
+    )
+    
+    return {
+        "foundry_dataset_id": dataset.id,
+        "name": dataset.name,
+        "version": dataset.version,
+        "entries": entry_count,
+        "message": f"Uploaded to Foundry as '{dataset_name}' (version auto-assigned)"
+    }
+
+
 @app.route(route="check_dataset_schema", methods=["POST"])
 def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
-    """Check dataset schema for required and optional fields."""
+    """Check dataset schema and detect dataset type (voicelive or evaluation)."""
     logging.info("check_dataset_schema called")
     
     try:
@@ -845,23 +1159,12 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
         # Download from blob if needed
         local_path = download_dataset(dataset_path)
         
-        # Analyze schema - matches validators/check_dataset_schema.py
-        # Required: audio_path (WavPath or audio)
-        # Optional: question, answer, tool_definitions, conversation_id, system_prompt
-        required_field_aliases = {
-            "audio_path": ["WavPath", "audio"],
-        }
-        optional_field_aliases = {
-            "question": ["Question", "question"],
-            "answer": ["Answer", "answer"],
-            "tool_definitions": ["tool_definitions"],
-            "conversation_id": ["conversationID", "conversation_id"],
-            "system_prompt": ["system_prompt"],
-        }
-        
-        found_required = {}
-        found_optional = {}
-        missing_required = set()
+        # Field groups for type detection
+        voicelive_fields = {"WavPath": 0, "audio": 0, "Question": 0, "Answer": 0,
+                           "conversationID": 0, "conversation_id": 0, "system_prompt": 0}
+        eval_fields = {"query": 0, "response": 0, "ground_truth": 0, "context": 0,
+                      "tool_calls": 0, "tool_definitions": 0}
+        all_field_names = set()
         entry_count = 0
         
         with open(local_path, 'r', encoding='utf-8') as f:
@@ -872,49 +1175,45 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
                 try:
                     entry = json.loads(line)
                     entry_count += 1
+                    all_field_names.update(entry.keys())
                     
-                    # Check required fields (any alias counts)
-                    for field_name, aliases in required_field_aliases.items():
-                        for alias in aliases:
-                            if alias in entry:
-                                found_required[field_name] = alias
-                                break
-                        else:
-                            if entry_count == 1:  # Only track missing on first entry
-                                missing_required.add(field_name)
-                    
-                    # Check optional fields
-                    for field_name, aliases in optional_field_aliases.items():
-                        for alias in aliases:
-                            if alias in entry:
-                                found_optional[field_name] = alias
-                                break
+                    for field in voicelive_fields:
+                        if field in entry:
+                            voicelive_fields[field] += 1
+                    for field in eval_fields:
+                        if field in entry:
+                            eval_fields[field] += 1
                 except json.JSONDecodeError:
                     pass
         
-        # Cleanup temp file
         os.unlink(local_path)
         
-        # Can proceed if required field (audio_path) is present
-        status = "passed" if not missing_required else "failed"
+        # Detect dataset type
+        has_audio = (voicelive_fields["WavPath"] + voicelive_fields["audio"]) > 0
+        has_eval = eval_fields["query"] > 0 and eval_fields["response"] > 0
+        
+        if has_audio and not has_eval:
+            dataset_type = "voicelive"
+            recommendation = "VoiceLive audio dataset. Use validate_voicelive_dataset to validate, then run_voicelive_audio_tests to process."
+        elif has_eval and not has_audio:
+            dataset_type = "evaluation"
+            recommendation = "Evaluation-ready dataset. Use validate_eval_dataset to validate, then run_voicelive_evaluation to evaluate."
+        elif has_audio and has_eval:
+            dataset_type = "hybrid"
+            recommendation = "Dataset has both audio and evaluation fields. Can be used for either workflow."
+        else:
+            dataset_type = "unknown"
+            recommendation = "Dataset type unclear. Expected either WavPath/audio (VoiceLive) or query/response (evaluation) fields."
         
         return func.HttpResponse(
             json.dumps({
                 "action": "check_dataset_schema",
-                "status": status,
-                "can_proceed": True,  # Always allow proceeding - optional fields use defaults
+                "dataset_type": dataset_type,
                 "entries_analyzed": entry_count,
-                "required_fields": {
-                    "found": list(found_required.keys()),
-                    "field_names_used": found_required,
-                    "missing": list(missing_required)
-                },
-                "optional_fields": {
-                    "found": list(found_optional.keys()),
-                    "field_names_used": found_optional,
-                    "missing": [f for f in optional_field_aliases.keys() if f not in found_optional]
-                },
-                "recommendation": "Dataset is valid for evaluation. Missing optional fields will use defaults."
+                "fields_found": sorted(list(all_field_names)),
+                "voicelive_fields": {k: v for k, v in voicelive_fields.items() if v > 0},
+                "evaluation_fields": {k: v for k, v in eval_fields.items() if v > 0},
+                "recommendation": recommendation,
             }),
             mimetype="application/json"
         )
@@ -936,10 +1235,10 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="validate_dataset_consistency", methods=["POST"])
-def validate_dataset_consistency(req: func.HttpRequest) -> func.HttpResponse:
-    """Validate dataset structural integrity."""
-    logging.info("validate_dataset_consistency called")
+@app.route(route="validate_voicelive_dataset", methods=["POST"])
+def validate_voicelive_dataset(req: func.HttpRequest) -> func.HttpResponse:
+    """Validate a VoiceLive audio dataset (requires WavPath/audio fields)."""
+    logging.info("validate_voicelive_dataset called")
     
     try:
         body = req.get_json()
@@ -991,7 +1290,7 @@ def validate_dataset_consistency(req: func.HttpRequest) -> func.HttpResponse:
         
         return func.HttpResponse(
             json.dumps({
-                "action": "validate_dataset_consistency",
+                "action": "validate_voicelive_dataset",
                 "status": status,
                 "can_proceed": len(errors) == 0,
                 "entries_validated": entry_count,
@@ -1005,7 +1304,7 @@ def validate_dataset_consistency(req: func.HttpRequest) -> func.HttpResponse:
         )
     except ValueError as e:
         error_msg = str(e)
-        logging.warning(f"validate_dataset_consistency not found: {error_msg}")
+        logging.warning(f"validate_voicelive_dataset not found: {error_msg}")
         status_code = 404 if "not found" in error_msg.lower() else 400
         return func.HttpResponse(
             json.dumps({"error": error_msg}),
@@ -1013,12 +1312,18 @@ def validate_dataset_consistency(req: func.HttpRequest) -> func.HttpResponse:
             mimetype="application/json"
         )
     except Exception as e:
-        logging.error(f"validate_dataset_consistency error: {e}")
+        logging.error(f"validate_voicelive_dataset error: {e}")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             status_code=500,
             mimetype="application/json"
         )
+
+
+@app.route(route="validate_dataset_consistency", methods=["POST"])
+def validate_dataset_consistency(req: func.HttpRequest) -> func.HttpResponse:
+    """Backward-compat alias for validate_voicelive_dataset."""
+    return validate_voicelive_dataset(req)
 
 
 @app.route(route="validate_dataset_quality", methods=["POST"])
@@ -1112,6 +1417,124 @@ def validate_dataset_quality(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logging.error(f"validate_dataset_quality error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+@app.route(route="validate_eval_dataset", methods=["POST"])
+def validate_eval_dataset(req: func.HttpRequest) -> func.HttpResponse:
+    """Validate an evaluation-ready dataset (query/response JSONL).
+    
+    This validates datasets intended for direct Foundry evaluation,
+    NOT VoiceLive audio datasets. Use validate_voicelive_dataset for audio.
+    """
+    logging.info("validate_eval_dataset called")
+    
+    try:
+        body = req.get_json()
+        dataset_path = body.get("dataset_path")
+        
+        if not dataset_path:
+            return func.HttpResponse(
+                json.dumps({"error": "dataset_path required"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        local_path = download_dataset(dataset_path)
+        
+        errors = []
+        warnings = []
+        entry_count = 0
+        
+        # Field presence counters
+        has_query = 0
+        has_response = 0
+        has_ground_truth = 0
+        has_context = 0
+        has_tool_calls = 0
+        has_tool_definitions = 0
+        
+        with open(local_path, 'r', encoding='utf-8') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line or line.startswith('//') or line.startswith('#'):
+                    continue
+                
+                try:
+                    entry = json.loads(line)
+                    entry_count += 1
+                    
+                    # Required: query and response
+                    if entry.get("query"):
+                        has_query += 1
+                    else:
+                        errors.append(f"Line {line_num}: Missing required field 'query'")
+                    
+                    if entry.get("response"):
+                        has_response += 1
+                    else:
+                        errors.append(f"Line {line_num}: Missing required field 'response'")
+                    
+                    # Optional enrichment fields
+                    if entry.get("ground_truth"):
+                        has_ground_truth += 1
+                    if entry.get("context"):
+                        has_context += 1
+                    if entry.get("tool_calls"):
+                        has_tool_calls += 1
+                    if entry.get("tool_definitions"):
+                        has_tool_definitions += 1
+                    
+                    # Warn if entry has audio fields (wrong dataset type)
+                    if entry.get("WavPath") or entry.get("audio"):
+                        warnings.append(f"Line {line_num}: Contains audio path — use validate_voicelive_dataset instead")
+                    
+                except json.JSONDecodeError as e:
+                    errors.append(f"Line {line_num}: Invalid JSON - {e}")
+        
+        os.unlink(local_path)
+        
+        status = "passed" if not errors else "failed"
+        
+        return func.HttpResponse(
+            json.dumps({
+                "action": "validate_eval_dataset",
+                "dataset_type": "evaluation",
+                "status": status,
+                "can_proceed": len(errors) == 0,
+                "entries_validated": entry_count,
+                "required_fields": {
+                    "query": f"{has_query}/{entry_count}",
+                    "response": f"{has_response}/{entry_count}",
+                },
+                "optional_fields": {
+                    "ground_truth": f"{has_ground_truth}/{entry_count}",
+                    "context": f"{has_context}/{entry_count}",
+                    "tool_calls": f"{has_tool_calls}/{entry_count}",
+                    "tool_definitions": f"{has_tool_definitions}/{entry_count}",
+                },
+                "errors": errors[:20],
+                "warnings": warnings[:10],
+                "error_count": len(errors),
+                "warning_count": len(warnings),
+            }),
+            mimetype="application/json"
+        )
+    except ValueError as e:
+        error_msg = str(e)
+        logging.warning(f"validate_eval_dataset not found: {error_msg}")
+        status_code = 404 if "not found" in error_msg.lower() else 400
+        return func.HttpResponse(
+            json.dumps({"error": error_msg}),
+            status_code=status_code,
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"validate_eval_dataset error: {e}")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             status_code=500,
@@ -2501,11 +2924,33 @@ async def check_voicelive_job_status(req: func.HttpRequest) -> func.HttpResponse
     Proxy to Container App: Check VoiceLive audio processing job status.
     
     Returns the status of a VoiceLive audio processing job.
-    When status is 'completed', output_path contains the evaluation dataset.
+    When status is 'completed', auto-registers output as Foundry dataset
+    and includes foundry_dataset_id in the response.
     """
     try:
         body = req.get_json()
-        return await proxy_to_container_app("/check_job_status", body)
+        response = await proxy_to_container_app("/check_job_status", body)
+        
+        # Auto-register completed output as Foundry dataset
+        if response.status_code == 200:
+            try:
+                result = json.loads(response.get_body())
+                if result.get("status") == "completed" and result.get("output_path"):
+                    foundry_info = _register_voicelive_output_as_foundry_dataset(
+                        output_path=result["output_path"],
+                        job_id=body.get("job_id", "unknown"),
+                    )
+                    if foundry_info:
+                        result["foundry_dataset"] = foundry_info
+                        return func.HttpResponse(
+                            json.dumps(result),
+                            status_code=200,
+                            mimetype="application/json"
+                        )
+            except Exception as e:
+                logging.warning(f"Auto-register to Foundry failed (non-blocking): {e}")
+        
+        return response
     except Exception as e:
         logging.error(f"check_voicelive_job_status error: {e}")
         return func.HttpResponse(
@@ -2513,3 +2958,42 @@ async def check_voicelive_job_status(req: func.HttpRequest) -> func.HttpResponse
             status_code=500,
             mimetype="application/json"
         )
+
+
+def _register_voicelive_output_as_foundry_dataset(output_path: str, job_id: str) -> dict:
+    """Register a VoiceLive output as a Foundry dataset for discovery."""
+    from azure.ai.projects import AIProjectClient
+    
+    project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT") or os.environ.get("PROJECT_ENDPOINT")
+    if not project_endpoint:
+        return None
+    
+    try:
+        # Download the output file from blob
+        local_path, actual_blob = download_results(output_path)
+        
+        # Generate a dataset name from the output
+        short_id = job_id[:8] if len(job_id) > 8 else job_id
+        dataset_name = f"voicelive_output_{short_id}"
+        
+        project_client = AIProjectClient(
+            credential=DefaultAzureCredential(),
+            endpoint=project_endpoint
+        )
+        
+        dataset = project_client.datasets.upload_file(
+            name=dataset_name,
+            file_path=local_path,
+            description=f"VoiceLive processing output (job: {job_id})",
+        )
+        
+        os.unlink(local_path)
+        
+        return {
+            "foundry_dataset_id": dataset.id,
+            "name": dataset.name,
+            "version": dataset.version,
+        }
+    except Exception as e:
+        logging.warning(f"Failed to register VoiceLive output as Foundry dataset: {e}")
+        return None

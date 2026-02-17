@@ -29,7 +29,9 @@ paths:
     post:
       operationId: list_datasets
       summary: List available datasets
-      description: Lists ALL available JSONL datasets for evaluation from blob storage
+      description: |
+        Lists datasets from both VoiceLive (blob storage) and evaluation (Foundry) stores.
+        Use dataset_type to filter: "all" (default), "voicelive", or "evaluation".
       requestBody:
         content:
           application/json:
@@ -38,16 +40,24 @@ paths:
               properties:
                 folder_path:
                   type: string
-                  description: Optional prefix to filter datasets
+                  description: Optional prefix to filter blob storage datasets
+                dataset_type:
+                  type: string
+                  enum: [all, voicelive, evaluation]
+                  description: >
+                    Filter by dataset type. "voicelive" = audio datasets in blob storage.
+                    "evaluation" = query/response datasets in Foundry. "all" = both (default).
       responses:
         '200':
-          description: List of datasets
+          description: List of datasets with type labels
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   status:
+                    type: string
+                  dataset_type_filter:
                     type: string
                   datasets_found:
                     type: integer
@@ -59,8 +69,124 @@ paths:
   /check_dataset_schema:
     post:
       operationId: check_dataset_schema
-      summary: Check dataset schema
-      description: Analyzes a JSONL dataset to check for required and optional fields
+      summary: Check dataset schema and detect type
+      description: |
+        Analyzes a JSONL dataset to detect its type (voicelive or evaluation)
+        and list all fields found. Use this to determine which validation
+        and workflow to use.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: Path to dataset in blob storage
+      responses:
+        '200':
+          description: Schema analysis with type detection
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /get_upload_url:
+    post:
+      operationId: get_upload_url
+      summary: Get upload URL for a new dataset
+      description: |
+        Generates a time-limited SAS URL for uploading a dataset file directly
+        to blob storage. After uploading, call finalize_upload to validate
+        and route the file to the correct store.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_name
+                - dataset_type
+              properties:
+                dataset_name:
+                  type: string
+                  description: Name for the dataset
+                dataset_type:
+                  type: string
+                  enum: [voicelive, evaluation]
+                  description: >
+                    "voicelive" for audio datasets (.zip with .wav + .jsonl).
+                    "evaluation" for eval-ready datasets (.jsonl with query/response).
+                file_extension:
+                  type: string
+                  description: File extension (.zip or .jsonl). Default .jsonl
+      responses:
+        '200':
+          description: Upload URL and instructions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upload_id:
+                    type: string
+                    description: Use this with finalize_upload after uploading
+                  upload_url:
+                    type: string
+                    description: SAS URL for direct file upload (PUT with x-ms-blob-type BlockBlob header)
+                  expires_in_minutes:
+                    type: integer
+
+  /finalize_upload:
+    post:
+      operationId: finalize_upload
+      summary: Finalize a dataset upload
+      description: |
+        After uploading a file to the SAS URL from get_upload_url, call this
+        to validate and route the dataset to the correct store.
+        For voicelive: extracts zip to blob datasets/{name}/.
+        For evaluation: validates JSONL then uploads to Foundry Data Store
+        (uses native versioning if dataset name already exists).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - upload_id
+                - dataset_name
+                - dataset_type
+              properties:
+                upload_id:
+                  type: string
+                  description: The upload_id from get_upload_url
+                dataset_name:
+                  type: string
+                  description: Name for the dataset
+                dataset_type:
+                  type: string
+                  enum: [voicelive, evaluation]
+      responses:
+        '200':
+          description: Upload finalized with dataset details
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /validate_voicelive_dataset:
+    post:
+      operationId: validate_voicelive_dataset
+      summary: Validate VoiceLive audio dataset
+      description: |
+        Validates a VoiceLive audio dataset for structural integrity.
+        Requires WavPath or audio field in every entry.
+        Use this for datasets with audio files, NOT for evaluation-ready datasets.
       requestBody:
         required: true
         content:
@@ -75,7 +201,35 @@ paths:
                   description: Path to JSONL file in blob storage
       responses:
         '200':
-          description: Schema analysis results
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /validate_eval_dataset:
+    post:
+      operationId: validate_eval_dataset
+      summary: Validate evaluation-ready dataset
+      description: |
+        Validates an evaluation-ready dataset (query/response JSONL).
+        Requires query and response fields in every entry.
+        Use this for Foundry evaluation datasets, NOT for VoiceLive audio datasets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: Path to dataset (blob path or Foundry dataset name)
+      responses:
+        '200':
+          description: Validation results
           content:
             application/json:
               schema:
