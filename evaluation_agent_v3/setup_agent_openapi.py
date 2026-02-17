@@ -141,7 +141,7 @@ There are two distinct dataset types with different stores and workflows:
 3. list_session_configs → Show available configs (optional)
 4. run_voicelive_audio_tests → Process audio through VoiceLive
 5. check_voicelive_job_status → Poll until complete (auto-registers to Foundry)
-6. run_voicelive_evaluation → Run evaluators on the output
+6. run_voicelive_evaluation → Use the foundry_dataset_id from step 5 to avoid re-upload
 7. check_evaluation_status → Poll until complete
 8. Present Foundry Portal URL and metrics summary
 
