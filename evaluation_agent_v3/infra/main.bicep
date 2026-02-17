@@ -202,6 +202,7 @@ output AZURE_ACR_LOGIN_SERVER string = deployContainerApp ? containerApp.outputs
 output CONTAINER_APP_ENTRA_CLIENT_ID string = containerAppEntraClientId
 
 // Foundry outputs
+output MODEL_DEPLOYMENT_NAME string = modelDeploymentName
 output PROJECT_ENDPOINT string = resolvedProjectEndpoint
 output FOUNDRY_ACCOUNT_RESOURCE_ID string = resolvedFoundryAccountId
 output FOUNDRY_ACCOUNT_NAME string = resolvedFoundryAccountName
