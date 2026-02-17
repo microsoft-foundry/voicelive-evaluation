@@ -52,14 +52,13 @@ param aoaiReasoningDeploymentName string = 'o4-mini'
 param foundryProjectPrincipalId string = ''
 
 @description('Enable Entra ID auth on Container App (requires App Registration)')
-param enableContainerAppAuth bool = false
+param enableContainerAppAuth bool = true
 
 @description('App Registration Client ID for Container App Easy Auth')
 param containerAppEntraClientId string = ''
 
-@description('Shared API key for Container App authentication (alternative to Entra)')
-@secure()
-param containerAppApiKey string = ''
+@description('Function App MI appId for Container App EasyAuth allowedApplications (auto-set by postprovision)')
+param functionAppMiAppId string = ''
 
 // Generate unique suffix for resources
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
@@ -129,7 +128,7 @@ module functionApp 'modules/function-app.bicep' = {
       AOAI_DEPLOYMENT_NAME: aoaiDeploymentName
       AOAI_REASONING_DEPLOYMENT_NAME: aoaiReasoningDeploymentName
       // Container App proxy settings (URL set post-deployment via script)
-      CONTAINER_APP_API_KEY: containerAppApiKey
+      CONTAINER_APP_ENTRA_CLIENT_ID: containerAppEntraClientId
     }
   }
 }
@@ -146,7 +145,7 @@ module containerApp 'modules/container-app.bicep' = if (deployContainerApp) {
     appInsightsConnectionString: functionApp.outputs.appInsightsConnectionString
     enableEntraAuth: enableContainerAppAuth
     entraClientId: containerAppEntraClientId
-    containerAppApiKey: containerAppApiKey
+    functionAppMiAppId: functionAppMiAppId
     appSettings: {
       AZURE_STORAGE_ACCOUNT: storage.outputs.name
       AZURE_STORAGE_DATASETS_CONTAINER: 'datasets'
@@ -197,8 +196,10 @@ output AZURE_APPINSIGHTS_CONNECTION_STRING string = functionApp.outputs.appInsig
 // Container App outputs (if deployed)
 output AZURE_CONTAINER_APP_NAME string = deployContainerApp ? containerApp.outputs.name : ''
 output AZURE_CONTAINER_APP_URL string = deployContainerApp ? containerApp.outputs.url : ''
+output AZURE_CONTAINER_APP_PRINCIPAL_ID string = deployContainerApp ? containerApp.outputs.principalId : ''
 output AZURE_ACR_NAME string = deployContainerApp ? containerApp.outputs.acrName : ''
 output AZURE_ACR_LOGIN_SERVER string = deployContainerApp ? containerApp.outputs.acrLoginServer : ''
+output CONTAINER_APP_ENTRA_CLIENT_ID string = containerAppEntraClientId
 
 // Foundry outputs
 output PROJECT_ENDPOINT string = resolvedProjectEndpoint

@@ -51,13 +51,13 @@
       "value": "${FOUNDRY_PROJECT_PRINCIPAL_ID=}"
     },
     "enableContainerAppAuth": {
-      "value": "${ENABLE_CONTAINER_APP_AUTH=false}"
+      "value": "${ENABLE_CONTAINER_APP_AUTH=true}"
     },
     "containerAppEntraClientId": {
       "value": "${CONTAINER_APP_ENTRA_CLIENT_ID=}"
     },
-    "containerAppApiKey": {
-      "value": "${CONTAINER_APP_API_KEY=}"
+    "functionAppMiAppId": {
+      "value": "${FUNCTION_APP_MI_APP_ID=}"
     }
   }
 }

@@ -23,6 +23,8 @@ $functionAppUrl = $env:AZURE_FUNCTION_APP_URL
 $functionAppPrincipalId = $env:AZURE_FUNCTION_APP_PRINCIPAL_ID
 $containerAppName = $env:AZURE_CONTAINER_APP_NAME
 $containerAppUrl = $env:AZURE_CONTAINER_APP_URL
+$containerAppPrincipalId = $env:AZURE_CONTAINER_APP_PRINCIPAL_ID
+$containerAppEntraClientId = $env:CONTAINER_APP_ENTRA_CLIENT_ID
 $foundryAccountResourceId = $env:FOUNDRY_ACCOUNT_RESOURCE_ID
 $foundryProjectEndpoint = $env:PROJECT_ENDPOINT
 
@@ -41,18 +43,76 @@ $scriptDir = $PSScriptRoot
 Write-Host "`n----- 1. Seeding Session Configs -----" -ForegroundColor Yellow
 & "$scriptDir\seed-session-configs.ps1" -StorageAccountName $storageAccountName
 
-# ===== 2. Set Container App URL on Function App =====
+# ===== 2. Set Container App URL and Entra Client ID on Function App =====
 if ($containerAppUrl) {
-    Write-Host "`n----- 2. Setting Container App URL -----" -ForegroundColor Yellow
+    Write-Host "`n----- 2. Setting Container App URL & Entra Auth -----" -ForegroundColor Yellow
     Write-Host "Container App URL: $containerAppUrl"
     az functionapp config appsettings set `
         --name $functionAppName `
         --resource-group $resourceGroup `
         --settings "CONTAINER_APP_URL=$containerAppUrl" `
         --output none 2>$null
-    Write-Host "  CONTAINER_APP_URL set on Function App" -ForegroundColor Green
+    if ($containerAppEntraClientId) {
+        Write-Host "Container App Entra Client ID: $containerAppEntraClientId"
+        az functionapp config appsettings set `
+            --name $functionAppName `
+            --resource-group $resourceGroup `
+            --settings "CONTAINER_APP_ENTRA_CLIENT_ID=$containerAppEntraClientId" `
+            --output none 2>$null
+    }
+    Write-Host "  App settings configured on Function App" -ForegroundColor Green
+
+    # Assign ContainerApp.Access app role to Function App MI
+    if ($containerAppEntraClientId -and $functionAppPrincipalId) {
+        Write-Host "`n  Assigning ContainerApp.Access app role to Function App MI..."
+        
+        # Get the service principal for the app registration
+        $appSpId = az ad sp list --filter "appId eq '$containerAppEntraClientId'" --query "[0].id" -o tsv 2>$null
+        if ($appSpId) {
+            # Get the app role ID
+            $appRoleId = az ad sp show --id $appSpId --query "appRoles[?value=='ContainerApp.Access'].id | [0]" -o tsv 2>$null
+            
+            if ($appRoleId) {
+                # Check if assignment already exists
+                $existingAssignment = az rest --method GET `
+                    --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$appSpId/appRoleAssignedTo" `
+                    --query "value[?principalId=='$functionAppPrincipalId' && appRoleId=='$appRoleId'] | [0]" `
+                    2>$null | ConvertFrom-Json
+                
+                if (-not $existingAssignment) {
+                    $body = @{
+                        principalId = $functionAppPrincipalId
+                        resourceId = $appSpId
+                        appRoleId = $appRoleId
+                    } | ConvertTo-Json
+
+                    $tempFile = [System.IO.Path]::GetTempFileName()
+                    $body | Out-File -FilePath $tempFile -Encoding utf8
+                    
+                    az rest --method POST `
+                        --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$appSpId/appRoleAssignedTo" `
+                        --body "@$tempFile" `
+                        --headers "Content-Type=application/json" `
+                        --output none 2>$null
+                    Remove-Item $tempFile -ErrorAction SilentlyContinue
+                    
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "  ContainerApp.Access app role assigned to Function App MI" -ForegroundColor Green
+                    } else {
+                        Write-Host "  WARNING: Failed to assign app role. Assign manually in Azure Portal." -ForegroundColor Yellow
+                    }
+                } else {
+                    Write-Host "  ContainerApp.Access app role already assigned" -ForegroundColor DarkGray
+                }
+            } else {
+                Write-Host "  WARNING: ContainerApp.Access app role not found on service principal" -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "  WARNING: Service principal not found for $containerAppEntraClientId. Create with: az ad sp create --id $containerAppEntraClientId" -ForegroundColor Yellow
+        }
+    }
 } else {
-    Write-Host "`n----- 2. Skipping Container App URL (not deployed) -----" -ForegroundColor DarkGray
+    Write-Host "`n----- 2. Skipping Container App settings (not deployed) -----" -ForegroundColor DarkGray
 }
 
 # ===== 3. Assign RBAC for Foundry Access =====

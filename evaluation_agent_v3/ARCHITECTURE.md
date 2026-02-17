@@ -587,8 +587,9 @@ sequenceDiagram
     Note over Func: Validates Function Key
     
     alt VoiceLive Proxy Endpoints
-        Func->>CA: POST /endpoint<br/>+ X-API-Key header
-        Note over CA: Validates API Key
+        Func->>Func: Acquire Entra ID token<br/>(DefaultAzureCredential)
+        Func->>CA: POST /endpoint<br/>+ Bearer token
+        Note over CA: EasyAuth validates token<br/>(audience: api://07421757-...)
         CA-->>Func: Response
     end
     
@@ -599,7 +600,7 @@ sequenceDiagram
 ### Security Layers
 
 1. **Function Keys**: Stored in Foundry Connection, not in code
-2. **Container App API Key**: Shared secret for internal service-to-service auth
+2. **Container App Entra ID EasyAuth**: Function App MI acquires token for app registration audience; EasyAuth validates before request reaches app code
 3. **Blob Storage**: Functions and Container App use managed identity
 4. **No secrets in OpenAPI spec**: Auth handled via connection reference
 5. **HTTPS only**: All endpoints require HTTPS
@@ -611,6 +612,7 @@ sequenceDiagram
 | Function App MI | Azure AI Developer | Cognitive Services account | Evaluations data plane access |
 | Function App MI | Cognitive Services User | Cognitive Services account | General API access |
 | Function App MI | Storage Blob Data Contributor | Storage account | Dataset/output read/write |
+| Function App MI | ContainerApp.Access (App Role) | App Registration SP | Entra ID auth to Container App |
 | Container App MI | Cognitive Services User | Cognitive Services account | VoiceLive SDK access |
 | Container App MI | Storage Blob Data Contributor | Storage account | Dataset/output read/write |
 | Container App MI | Storage Table Data Contributor | Storage account | Config journal writes |
@@ -850,7 +852,7 @@ sequenceDiagram
 
 ### Known Limitations
 1. **Metrics sometimes empty** - Foundry SDK may not return metrics immediately after completion
-2. **Container App auth** - Uses shared API key (future: Managed Identity + Easy Auth)
+2. **Container App auth** - Uses Entra ID EasyAuth with app registration `voicelive-container-app-auth` (07421757-...)
 3. **eval_group_id reuse** - Only works within same Foundry project
 4. **No dataset versioning yet** - Each upload creates new dataset (to be fixed in Phase 1)
 5. **azd Container App push** - `azd deploy` may get stuck pushing Container App image to ACR; workaround: `docker build` → `docker push` → `az containerapp update` manually
@@ -858,7 +860,7 @@ sequenceDiagram
 7. **ARM role assignment idempotency** - `Microsoft.Authorization/roleAssignments` in Bicep can throw `RoleAssignmentExists` on re-provision; all service RBAC is done via PowerShell scripts instead
 
 ### Future Improvements
-1. **Managed Identity auth for Container App** - Replace shared API key with Entra ID app-to-app auth for zero-credential architecture
+1. **Managed Identity auth for Foundry → Function App** - Replace function key connection with Entra ID managed identity auth. Requires a separate app registration for the Function App with EasyAuth enabled, then update agent to use `OpenApiManagedAuthDetails` with the Function App's audience. App registration `voicelive-container-app-auth` is for Container App only.
 2. **Private VNet architecture** - All backend services (Functions, Container App, Storage) on private endpoints for enhanced security
 
 ### SDK Limitations (Confirmed via Source Review)

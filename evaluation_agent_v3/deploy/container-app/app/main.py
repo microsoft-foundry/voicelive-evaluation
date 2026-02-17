@@ -2,6 +2,7 @@
 VoiceLive Audio Processor - FastAPI Application
 
 Main API endpoints for the Container App.
+Authentication is handled by Entra ID Easy Auth (platform-level) — no app-level auth needed.
 """
 
 import os
@@ -9,8 +10,7 @@ import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Security
-from fastapi.security import APIKeyHeader
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -18,21 +18,6 @@ from .jobs import job_manager, JobStatus
 from .processor import start_processing_job
 from .config import SessionConfig
 
-# API Key Security
-API_KEY = os.environ.get("API_KEY")
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
-
-
-async def verify_api_key(api_key: Optional[str] = Security(api_key_header)):
-    """Verify API key if configured."""
-    if not API_KEY:
-        # No API key configured, allow all requests
-        return True
-    if not api_key:
-        raise HTTPException(status_code=401, detail="Missing API key")
-    if api_key != API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-    return True
 
 # Configure Azure Monitor OpenTelemetry (before logging setup)
 if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
@@ -151,7 +136,6 @@ async def root():
 @app.post("/run_voicelive_audio_tests", response_model=RunAudioTestsResponse)
 async def run_voicelive_audio_tests(
     request: RunAudioTestsRequest,
-    _: bool = Depends(verify_api_key)
 ):
     """
     Start a VoiceLive audio processing job.
@@ -194,7 +178,6 @@ async def run_voicelive_audio_tests(
 @app.post("/check_job_status", response_model=JobStatusResponse)
 async def check_job_status(
     request: CheckJobStatusRequest,
-    _: bool = Depends(verify_api_key)
 ):
     """
     Check the status of a VoiceLive processing job.

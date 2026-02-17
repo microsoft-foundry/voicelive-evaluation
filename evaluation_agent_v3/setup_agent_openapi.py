@@ -246,7 +246,7 @@ def create_agent_with_openapi(function_url: str, function_key: str = None, entra
         description="VoiceLive Evaluation Agent with OpenAPI tools calling Azure Functions",
     )
     
-    print(f"\n✓ Agent created successfully!")
+    print(f"\n[OK] Agent created successfully!")
     print(f"  Agent Name: {agent.name}")
     print(f"  Agent ID: {agent.id}")
     print(f"\nThis agent calls Azure Functions directly - no local runner needed!")
@@ -340,7 +340,7 @@ def update_agent_with_openapi(function_url: str, function_key: str = None, entra
         description="VoiceLive Evaluation Agent with config management tools",
     )
     
-    print(f"\n✓ Agent version created successfully!")
+    print(f"\n[OK] Agent version created successfully!")
     print(f"  Agent Name: {agent.name}")
     print(f"  Version: {agent.version}")
     

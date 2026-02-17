@@ -2348,10 +2348,22 @@ def delete_foundry_datasets(req: func.HttpRequest) -> func.HttpResponse:
 # Container App Proxy Endpoints
 # =============================================================================
 # These endpoints proxy requests to the VoiceLive Container App.
-# Authentication is via shared API key (CONTAINER_APP_API_KEY)
+# Authentication is via Entra ID managed identity (Function App MI → Container App EasyAuth)
+
+# Cache the credential instance for reuse across requests
+_container_app_credential = None
+
+def _get_container_app_credential():
+    """Get or create a cached DefaultAzureCredential for Container App auth."""
+    global _container_app_credential
+    if _container_app_credential is None:
+        from azure.identity import DefaultAzureCredential
+        _container_app_credential = DefaultAzureCredential()
+    return _container_app_credential
+
 
 async def proxy_to_container_app(endpoint: str, body: dict) -> func.HttpResponse:
-    """Proxy request to Container App with API key authentication."""
+    """Proxy request to Container App with Entra ID managed identity authentication."""
     import httpx
     
     container_app_url = os.environ.get("CONTAINER_APP_URL")
@@ -2366,10 +2378,20 @@ async def proxy_to_container_app(endpoint: str, body: dict) -> func.HttpResponse
     url = f"{container_app_url.rstrip('/')}/{endpoint.lstrip('/')}"
     headers = {"Content-Type": "application/json"}
     
-    # Add API key if configured
-    api_key = os.environ.get("CONTAINER_APP_API_KEY")
-    if api_key:
-        headers["X-API-Key"] = api_key
+    # Acquire Entra ID token for Container App audience
+    entra_client_id = os.environ.get("CONTAINER_APP_ENTRA_CLIENT_ID")
+    if entra_client_id:
+        try:
+            credential = _get_container_app_credential()
+            token = credential.get_token(f"api://{entra_client_id}/.default")
+            headers["Authorization"] = f"Bearer {token.token}"
+        except Exception as e:
+            logging.error(f"Failed to acquire token for Container App: {e}")
+            return func.HttpResponse(
+                json.dumps({"error": f"Container App auth error: {str(e)}"}),
+                status_code=500,
+                mimetype="application/json"
+            )
     
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:

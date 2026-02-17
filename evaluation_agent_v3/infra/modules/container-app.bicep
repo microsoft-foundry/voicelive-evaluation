@@ -16,6 +16,9 @@ param appSettings object = {}
 @description('Application Insights connection string')
 param appInsightsConnectionString string = ''
 
+@description('Function App managed identity appId (for Container App EasyAuth allowedApplications)')
+param functionAppMiAppId string = ''
+
 @description('Container Registry name (will create if not exists)')
 param acrName string = ''
 
@@ -23,14 +26,10 @@ param acrName string = ''
 param containerImage string = ''
 
 @description('Enable Entra ID authentication (Easy Auth)')
-param enableEntraAuth bool = false
+param enableEntraAuth bool = true
 
 @description('App Registration Client ID for Container App Easy Auth')
 param entraClientId string = ''
-
-@description('Shared API key for Container App authentication')
-@secure()
-param containerAppApiKey string = ''
 
 // Generate ACR name if not provided
 var effectiveAcrName = !empty(acrName) ? acrName : 'acr${uniqueString(resourceGroup().id)}'
@@ -112,12 +111,7 @@ var appInsightsEnvVar = !empty(appInsightsConnectionString) ? [
   }
 ]
 
-var allEnvVars = concat(baseEnvVars, appInsightsEnvVar, !empty(containerAppApiKey) ? [
-  {
-    name: 'API_KEY'
-    secretRef: 'api-key'
-  }
-] : [])
+var allEnvVars = concat(baseEnvVars, appInsightsEnvVar)
 
 // Container App
 resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
@@ -142,17 +136,12 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           passwordSecretRef: 'acr-password'
         }
       ]
-      secrets: concat([
+      secrets: [
         {
           name: 'acr-password'
           value: acr.listCredentials().passwords[0].value
         }
-      ], !empty(containerAppApiKey) ? [
-        {
-          name: 'api-key'
-          value: containerAppApiKey
-        }
-      ] : [])
+      ]
     }
     template: {
       containers: [
@@ -224,7 +213,7 @@ resource authConfig 'Microsoft.App/containerApps/authConfigs@2023-05-01' = if (e
       azureActiveDirectory: {
         enabled: true
         registration: {
-          openIdIssuer: 'https://sts.windows.net/${subscription().tenantId}/v2.0'
+          openIdIssuer: 'https://login.microsoftonline.com/${subscription().tenantId}/v2.0'
           clientId: entraClientId
         }
         validation: {
@@ -232,6 +221,9 @@ resource authConfig 'Microsoft.App/containerApps/authConfigs@2023-05-01' = if (e
             'api://${entraClientId}'
             entraClientId
           ]
+          defaultAuthorizationPolicy: {
+            allowedApplications: !empty(functionAppMiAppId) ? [functionAppMiAppId] : []
+          }
         }
       }
     }
