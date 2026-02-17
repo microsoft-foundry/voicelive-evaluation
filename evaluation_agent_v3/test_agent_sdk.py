@@ -168,8 +168,9 @@ def run_tests(function_url: str, function_key: str) -> bool:
     # Test 9: list_evaluation_groups
     print("\n[9/10] list_evaluation_groups")
     success, result = call_endpoint(function_url, "list_evaluation_groups", {}, function_key)
-    if success and "groups" in result:
-        print(f"   ✓ Found {len(result['groups'])} evaluation groups")
+    if success and ("evaluation_groups" in result or "groups" in result):
+        groups = result.get("evaluation_groups", result.get("groups", []))
+        print(f"   ✓ Found {len(groups)} evaluation groups")
         tests.append(("list_evaluation_groups", True))
     else:
         # 500 error is expected if no outputs exist yet

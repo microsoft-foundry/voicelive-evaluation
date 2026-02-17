@@ -918,6 +918,15 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
             }),
             mimetype="application/json"
         )
+    except ValueError as e:
+        error_msg = str(e)
+        logging.warning(f"check_dataset_schema not found: {error_msg}")
+        status_code = 404 if "not found" in error_msg.lower() else 400
+        return func.HttpResponse(
+            json.dumps({"error": error_msg}),
+            status_code=status_code,
+            mimetype="application/json"
+        )
     except Exception as e:
         logging.error(f"check_dataset_schema error: {e}")
         return func.HttpResponse(
@@ -992,6 +1001,15 @@ def validate_dataset_consistency(req: func.HttpRequest) -> func.HttpResponse:
                 "error_count": len(errors),
                 "warning_count": len(warnings)
             }),
+            mimetype="application/json"
+        )
+    except ValueError as e:
+        error_msg = str(e)
+        logging.warning(f"validate_dataset_consistency not found: {error_msg}")
+        status_code = 404 if "not found" in error_msg.lower() else 400
+        return func.HttpResponse(
+            json.dumps({"error": error_msg}),
+            status_code=status_code,
             mimetype="application/json"
         )
     except Exception as e:
@@ -1083,6 +1101,15 @@ def validate_dataset_quality(req: func.HttpRequest) -> func.HttpResponse:
             }),
             mimetype="application/json"
         )
+    except ValueError as e:
+        error_msg = str(e)
+        logging.warning(f"validate_dataset_quality not found: {error_msg}")
+        status_code = 404 if "not found" in error_msg.lower() else 400
+        return func.HttpResponse(
+            json.dumps({"error": error_msg}),
+            status_code=status_code,
+            mimetype="application/json"
+        )
     except Exception as e:
         logging.error(f"validate_dataset_quality error: {e}")
         return func.HttpResponse(
@@ -1164,6 +1191,15 @@ def get_evaluation_recommendations(req: func.HttpRequest) -> func.HttpResponse:
                 },
                 "needs_user_confirmation": entry_count > 50
             }),
+            mimetype="application/json"
+        )
+    except ValueError as e:
+        error_msg = str(e)
+        logging.warning(f"get_evaluation_recommendations not found: {error_msg}")
+        status_code = 404 if "not found" in error_msg.lower() else 400
+        return func.HttpResponse(
+            json.dumps({"error": error_msg}),
+            status_code=status_code,
             mimetype="application/json"
         )
     except Exception as e:

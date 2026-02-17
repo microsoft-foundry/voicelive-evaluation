@@ -87,7 +87,7 @@ def test_check_dataset_schema(openai_client, agent_name: str) -> bool:
     
     try:
         response = openai_client.responses.create(
-            input=[{"role": "user", "content": "Check the schema of the Eiffel_Tower_Visit_1 dataset"}],
+            input=[{"role": "user", "content": "Check the schema of the minimal_test dataset"}],
             extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"Response:\n{response.output_text}")
@@ -105,7 +105,7 @@ def test_validate_dataset(openai_client, agent_name: str) -> bool:
     
     try:
         response = openai_client.responses.create(
-            input=[{"role": "user", "content": "Validate the Eiffel_Tower_Visit_1 dataset for consistency"}],
+            input=[{"role": "user", "content": "Validate the minimal_test dataset for consistency"}],
             extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"Response:\n{response.output_text}")
@@ -158,14 +158,14 @@ def test_streaming(openai_client, agent_name: str) -> bool:
 
 
 def test_run_evaluation(openai_client, agent_name: str) -> bool:
-    """Test: Run a quick evaluation on Eiffel_Tower_Visit_1 dataset."""
+    """Test: Run a quick evaluation on minimal_test dataset."""
     print("\n" + "=" * 60)
     print("TEST: Run Evaluation (fluency only for speed)")
     print("=" * 60)
     
     try:
         response = openai_client.responses.create(
-            input=[{"role": "user", "content": "Run evaluation on Eiffel_Tower_Visit_1 dataset with only fluency evaluator"}],
+            input=[{"role": "user", "content": "Run evaluation on minimal_test dataset with only fluency evaluator"}],
             extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"Response:\n{response.output_text}")
