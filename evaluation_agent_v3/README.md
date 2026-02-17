@@ -241,10 +241,19 @@ python test_agent_cloud.py --list-tests
 
 | Tool | Description |
 |------|-------------|
-| `list_datasets` | List all JSONL datasets in blob storage |
-| `check_dataset_schema` | Check required/optional fields |
-| `validate_dataset_consistency` | MANDATORY structural validation |
+| `list_datasets` | List datasets from both stores (voicelive/evaluation/all) |
+| `check_dataset_schema` | Detect dataset type and list fields |
+| `validate_voicelive_dataset` | Validate VoiceLive audio dataset (WavPath required) |
+| `validate_eval_dataset` | Validate evaluation-ready dataset (query/response required) |
+| `validate_dataset_consistency` | Backward-compat alias for validate_voicelive_dataset |
 | `validate_dataset_quality` | ADVISORY content quality check |
+
+### Dataset Upload
+
+| Tool | Description |
+|------|-------------|
+| `get_upload_url` | Get SAS URL for uploading a new dataset |
+| `finalize_upload` | Validate and route uploaded dataset to correct store |
 
 ### VoiceLive Audio Processing (Container App)
 
@@ -325,24 +334,51 @@ AZURE_STORAGE_OUTPUTS_CONTAINER=outputs
 
 ## Dataset Format
 
-Datasets are JSONL files with one entry per line:
+There are two distinct dataset types with different stores and schemas:
+
+### VoiceLive Audio Datasets (Blob Storage)
+
+Stored in blob `datasets/` container. Contains audio files for VoiceLive processing.
 
 ```json
-{"WavPath": "file1.wav", "Question": "User query", "Answer": "Expected response", "conversationID": "conv1", "system_prompt": "...", "tool_definitions": [...]}
+{"WavPath": "file1.wav", "Question": "User query", "Answer": "Expected response", "conversationID": "conv1", "system_prompt": "..."}
 {"WavPath": "file2.wav", "Question": "Another query", "Answer": "Another response", "conversationID": "conv1"}
 ```
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| WavPath / audio_path | Yes* | Path to audio file (for raw audio datasets) |
-| query / Question | Yes** | User query text |
-| response / Answer | Yes** | Agent response text |
+| WavPath / audio | **Yes** | Path to audio file |
+| Question | No | User query text |
+| Answer | No | Expected response text |
 | conversationID | No | Group files by conversation |
 | system_prompt | No | Agent instructions |
 | tool_definitions | No | Available tools for agent |
 
-*Required for VoiceLive audio processing
-**Required for Foundry evaluation
+### Evaluation-Ready Datasets (Foundry Data Store)
+
+Stored in Foundry Data Store (versioned). Ready for direct Foundry evaluation.
+
+```json
+{"query": "What is the Eiffel Tower?", "response": "The Eiffel Tower is...", "context": "Travel guide", "ground_truth": "Iron lattice tower in Paris"}
+{"query": "Book a hotel", "response": "I found 3 hotels...", "tool_calls": [...]}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| query | **Yes** | User query text |
+| response | **Yes** | Agent response text |
+| ground_truth | No | Expected ideal answer |
+| context | No | Additional context for grounding |
+| tool_calls | No | Tool calls made by agent |
+| tool_definitions | No | Available tools |
+
+### Upload Workflow
+
+1. `get_upload_url(name, type)` → receive SAS URL
+2. Upload file to SAS URL (`.zip` for VoiceLive, `.jsonl` for evaluation)
+3. `finalize_upload(upload_id, name, type)` → validates and routes:
+   - **VoiceLive**: extracts zip to blob `datasets/{name}/`
+   - **Evaluation**: validates fields, uploads to Foundry Data Store (auto-versioned)
 
 ## File Structure
 
@@ -350,7 +386,7 @@ Datasets are JSONL files with one entry per line:
 evaluation_agent_v3/
 ├── deploy/
 │   ├── azure-functions/           # Azure Functions code
-│   │   ├── function_app.py        # 20+ function endpoints
+│   │   ├── function_app.py        # 23 function endpoints
 │   │   ├── openapi.yaml           # OpenAPI spec for agent
 │   │   ├── requirements.txt
 │   │   └── host.json
@@ -369,19 +405,23 @@ evaluation_agent_v3/
 │       ├── foundry.bicep          # AI Services + Project + Models
 │       ├── storage.bicep          # Storage + Tables
 │       ├── function-app.bicep     # Functions + App Insights
-│       └── container-app.bicep    # Container App + ACR
+│       └── container-app.bicep    # Container App + ACR + EasyAuth
 ├── scripts/
 │   └── azd/                       # Deployment scripts
 │       ├── seed-session-configs.ps1  # Seed default configs
 │       ├── deploy-container-app.ps1  # Build & deploy container
-│       └── setup-agent.ps1           # Create Foundry agent
+│       ├── postprovision.ps1         # RBAC, connections, app roles
+│       ├── postdeploy.ps1            # Agent setup after deploy
+│       └── setup-agent.ps1           # Create/update Foundry agent
 ├── setup_agent.py                 # Local runner setup
-├── setup_agent_openapi.py         # Cloud agent setup
+├── setup_agent_openapi.py         # Cloud agent setup (OpenAPI)
 ├── runner.py                      # Local tool executor
 ├── tools.py                       # Tool implementations
-├── test_agent_sdk.py              # Integration tests
+├── test_agent_cloud.py            # Cloud E2E tests (9 tests)
+├── test_agent_behavior.py         # Behavioral routing tests (6 tests)
+├── test_agent_sdk.py              # SDK integration tests
 ├── azure.yaml                     # azd configuration
-├── ARCHITECTURE.md                # Design decisions
+├── ARCHITECTURE.md                # Design decisions & flowcharts
 └── README.md                      # This file
 ```
 

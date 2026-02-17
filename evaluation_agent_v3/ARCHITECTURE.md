@@ -255,6 +255,115 @@ sequenceDiagram
     end
 ```
 
+### Dataset Lifecycle: VoiceLive Audio → Evaluation
+
+This is the full end-to-end path for VoiceLive audio datasets, showing how data
+moves between stores and where Foundry dataset registration happens:
+
+```mermaid
+flowchart TD
+    subgraph Upload["1. Upload"]
+        A[User uploads .zip] --> B[get_upload_url]
+        B --> C[PUT to SAS URL]
+        C --> D[finalize_upload]
+        D --> E[Extract to blob datasets/name/]
+    end
+
+    subgraph Process["2. VoiceLive Processing"]
+        E --> F[run_voicelive_audio_tests]
+        F --> G[Container App processes audio]
+        G --> H["Output → blob outputs/voicelive_jobs/{job_id}/"]
+    end
+
+    subgraph Register["3. Auto-Registration"]
+        H --> I[check_voicelive_job_status]
+        I --> J{status = completed?}
+        J -- Yes --> K[Download from blob outputs/]
+        K --> L["Upload to Foundry Data Store<br/>(auto-register, name: voicelive_output_{id})"]
+        L --> M[Return foundry_dataset_id]
+        J -- No --> N[Return status: running]
+    end
+
+    subgraph Evaluate["4. Foundry Evaluation"]
+        M --> O[run_voicelive_evaluation]
+        O --> P{foundry_dataset_id<br/>provided?}
+        P -- Yes --> Q[Reuse existing Foundry dataset]
+        P -- No --> R["Download from blob → Upload to Foundry<br/>(fallback)"]
+        Q --> S[Run Foundry evaluators]
+        R --> S
+        S --> T[Results in Foundry Portal]
+    end
+
+    style Upload fill:#e6f3ff,stroke:#333
+    style Process fill:#fff3e6,stroke:#333
+    style Register fill:#e6ffe6,stroke:#333
+    style Evaluate fill:#f3e6ff,stroke:#333
+```
+
+**Key points:**
+- Blob `outputs/` is the **source-of-truth** for VoiceLive results (written by Container App)
+- Auto-registration (step 3) creates a Foundry copy for discovery and evaluation
+- The agent should pass `foundry_dataset_id` from step 3 → step 4 to avoid re-uploading
+- If auto-registration fails (non-blocking), the fallback path downloads from blob and uploads fresh
+
+### Dataset Lifecycle: Evaluation-Ready Upload → Evaluation
+
+```mermaid
+flowchart TD
+    A[User uploads .jsonl] --> B[get_upload_url]
+    B --> C[PUT to SAS URL]
+    C --> D[finalize_upload]
+    D --> E[Validate query/response fields]
+    E --> F{Valid?}
+    F -- Yes --> G["Upload to Foundry Data Store<br/>(native versioning)"]
+    G --> H[Return foundry_dataset_id + version]
+    F -- No --> I[Return validation errors]
+
+    H --> J[run_voicelive_evaluation<br/>with foundry_dataset_id]
+    J --> K[Reuse Foundry dataset directly]
+    K --> L[Run Foundry evaluators]
+    L --> M[Results in Foundry Portal]
+
+    style A fill:#f3e6ff,stroke:#333
+    style G fill:#e6ffe6,stroke:#333
+    style M fill:#e6f3ff,stroke:#333
+```
+
+### Dataset Lifecycle: Direct Evaluation (Blob Dataset)
+
+For datasets already in blob storage (e.g., uploaded before the new architecture):
+
+```mermaid
+flowchart TD
+    A[Dataset in blob datasets/] --> B[check_dataset_schema]
+    B --> C{Dataset type?}
+    C -- voicelive --> D[validate_voicelive_dataset]
+    C -- evaluation --> E[validate_eval_dataset]
+    C -- unknown --> F[Return field analysis]
+
+    D --> G[run_voicelive_audio_tests<br/>then evaluate]
+    E --> H[run_voicelive_evaluation]
+    H --> I{foundry_dataset_id?}
+    I -- Yes --> J[Reuse Foundry dataset]
+    I -- No --> K["Download from blob<br/>Upload to Foundry<br/>(creates new version)"]
+    J --> L[Run Foundry evaluators]
+    K --> L
+    L --> M[Results in Foundry Portal]
+
+    style A fill:#fff3e6,stroke:#333
+    style L fill:#e6f3ff,stroke:#333
+```
+
+### Foundry Dataset Upload Points (3 paths)
+
+| # | Trigger | Source | When |
+|---|---------|--------|------|
+| 1 | `_register_voicelive_output_as_foundry_dataset` | Blob `outputs/` | VoiceLive job completes (auto, non-blocking) |
+| 2 | `run_foundry_evaluation` fallback | Blob `datasets/` or `outputs/` | `foundry_dataset_id` not provided (safety net) |
+| 3 | `_finalize_eval_upload` | Blob `staging/` | User uploads eval-ready dataset |
+
+All three are intentional — #1 is the happy path, #2 is the fallback, #3 is for new uploads.
+
 ### Session Configuration Table
 
 The `sessionconfigs` table stores VoiceLive session presets:
@@ -593,21 +702,32 @@ Fields: EvalGroupId, Model, Voice, VadThreshold, EndOfSpeechTimeout, CreatedAt
 ### Blob Storage Structure
 
 ```
-stv3g7ywvldzjeo/
-├── datasets/                          # Input datasets
+st{unique}/
+├── datasets/                          # VoiceLive audio datasets
 │   ├── Eiffel_Tower_Visit_1/
 │   │   ├── Eiffel_Tower_Visit_1.jsonl
 │   │   └── *.wav                      # Audio files
-│   └── MultiConversationSample/
-│       └── multiConversationSample.jsonl
-└── outputs/                           # All outputs
-    ├── evaluations/                   # Foundry evaluation results
-    │   └── {instance_id}/
-    │       └── results.json
-    └── voicelive_jobs/                # VoiceLive audio results
-        └── {job_id}/
-            ├── metadata.json
-            └── results_YYYYMMDD_HHMMSS.jsonl
+│   ├── raw_audio_test.jsonl           # Standalone JSONL
+│   └── eval_ready_test.jsonl          # (legacy: eval datasets in blob)
+├── outputs/                           # VoiceLive processing results
+│   ├── evaluations/                   # Foundry evaluation results
+│   │   └── {instance_id}/
+│   │       └── results.json
+│   └── voicelive_jobs/                # VoiceLive audio results
+│       └── {job_id}/
+│           ├── metadata.json
+│           └── results_YYYYMMDD_HHMMSS.jsonl
+└── staging/                           # Temporary upload staging
+    └── {upload_id}.{ext}              # Auto-cleaned after finalize
+```
+
+**Foundry Data Store** (separate from blob):
+```
+Foundry Project → Datasets
+├── eval_ready_test (v1)               # User-uploaded eval dataset
+├── voicelive_output_abc123 (v1)       # Auto-registered from VoiceLive
+├── results_20260217_192225 (v1)       # Evaluation results dataset
+└── my_custom_eval (v1, v2, v3)        # Versioned on re-upload
 ```
 
 ---
@@ -673,19 +793,22 @@ sequenceDiagram
     participant Agent
     participant Functions as Azure Functions
     participant Blob as Blob Storage
+    participant Foundry as Foundry Data Store
     
     User->>Agent: "List available datasets"
-    Agent->>Functions: POST /list_datasets
+    Agent->>Functions: POST /list_datasets {dataset_type: "all"}
     Functions->>Blob: List blobs in datasets/
-    Blob-->>Functions: Blob list
-    Functions-->>Agent: datasets: [{path, entry_count}]
-    Agent-->>User: "Found 5 datasets: ..."
+    Functions->>Foundry: List Foundry datasets
+    Blob-->>Functions: VoiceLive datasets
+    Foundry-->>Functions: Evaluation datasets
+    Functions-->>Agent: {voicelive: [...], evaluation: [...]}
+    Agent-->>User: "VoiceLive: 3 datasets, Evaluation: 2 datasets"
     
-    User->>Agent: "Check schema of Eiffel dataset"
+    User->>Agent: "Check schema of eval_ready_test"
     Agent->>Functions: POST /check_dataset_schema
     Functions->>Blob: Download dataset
-    Functions-->>Agent: required_fields, optional_fields
-    Agent-->>User: "Dataset has query, response, tool_definitions..."
+    Functions-->>Agent: {dataset_type: "evaluation", fields: [query, response, ...]}
+    Agent-->>User: "Evaluation-ready dataset with query, response, context"
 ```
 
 ### Workflow 2: Validate Dataset Before Evaluation
@@ -696,14 +819,21 @@ sequenceDiagram
     participant Agent
     participant Functions as Azure Functions
     
-    User->>Agent: "Validate Eiffel_Tower_Visit_1"
-    Agent->>Functions: POST /validate_dataset_consistency
-    Functions-->>Agent: {validation_passed: true, issues: []}
+    User->>Agent: "Validate the raw_audio_test dataset"
+    Agent->>Functions: POST /check_dataset_schema
+    Functions-->>Agent: {dataset_type: "voicelive"}
     
-    Agent->>Functions: POST /validate_dataset_quality
-    Functions-->>Agent: {quality_score: 0.85, suggestions: [...]}
+    Agent->>Functions: POST /validate_voicelive_dataset
+    Functions-->>Agent: {validation_passed: true, entries: 4}
+    Agent-->>User: "VoiceLive dataset validated. 4 entries, all have WavPath."
+
+    User->>Agent: "Now validate eval_ready_test"
+    Agent->>Functions: POST /check_dataset_schema
+    Functions-->>Agent: {dataset_type: "evaluation"}
     
-    Agent-->>User: "Dataset passed validation.<br/>Quality score: 85%"
+    Agent->>Functions: POST /validate_eval_dataset
+    Functions-->>Agent: {validation_passed: true, entries: 5}
+    Agent-->>User: "Evaluation dataset validated. 5 entries with query/response."
 ```
 
 ### Workflow 3: Run Evaluation on Existing Dataset
@@ -720,21 +850,19 @@ sequenceDiagram
     Agent->>Functions: POST /run_voicelive_evaluation
     Functions->>Functions: Start Durable orchestrator
     Functions-->>Agent: {instance_id: "abc123", status: "started"}
+    Agent-->>User: "Evaluation started. Ask me to check status."
     
-    loop Poll status
-        Agent->>Functions: POST /check_evaluation_status
-        Functions-->>Agent: {status: "running"}
-    end
+    Note over User,Agent: Agent cannot auto-poll (see Known Limitations)
     
-    Note over Functions,Foundry: execute_evaluation activity
-    Functions->>Blob: Download dataset
-    Functions->>Foundry: Create eval group + run
-    Foundry-->>Functions: Metrics results
-    Functions->>Blob: Save results.json
+    User->>Agent: "Check the status"
+    Agent->>Functions: POST /check_evaluation_status
+    Functions-->>Agent: {status: "running", progress: "50%"}
+    Agent-->>User: "Still running (50%). Ask again in a minute."
     
+    User->>Agent: "Check again"
     Agent->>Functions: POST /check_evaluation_status
     Functions-->>Agent: {status: "completed", portal_url, metrics}
-    Agent-->>User: "Evaluation complete!<br/>Portal: https://ai.azure.com/...<br/>intent_resolution: 1.67"
+    Agent-->>User: "Evaluation complete!<br/>Portal: https://ai.azure.com/..."
 ```
 
 ### Workflow 4: Full Audio Processing + Evaluation Pipeline
@@ -748,8 +876,9 @@ sequenceDiagram
     participant VL as VoiceLive SDK
     participant Foundry as Foundry Evaluators
     participant Blob as Blob Storage
+    participant FD as Foundry Data Store
     
-    User->>Agent: "Process and evaluate Eiffel_Tower_Visit_1"
+    User->>Agent: "Process and evaluate raw_audio_test"
     
     rect rgb(200, 220, 240)
         Note over Agent,VL: Phase 1: VoiceLive Audio Processing
@@ -757,24 +886,68 @@ sequenceDiagram
         CA->>Blob: Download dataset + audio
         CA->>VL: Process each audio file
         VL-->>CA: Transcriptions + responses
-        CA->>Blob: Upload results JSONL
-        CA-->>Agent: {job_id, status: "completed", output_path}
+        CA->>Blob: Upload results to outputs/
+        CA-->>Agent: {job_id, status: "started"}
     end
     
+    Agent-->>User: "Audio processing started. Ask me to check status."
+    User->>Agent: "Check the job status"
+    
     rect rgb(220, 240, 200)
-        Note over Agent,Foundry: Phase 2: Foundry Evaluation
-        Agent->>Functions: POST /run_voicelive_evaluation<br/>{dataset_path: output_path}
-        Functions->>Blob: Download VoiceLive results
-        Functions->>Foundry: Run 10 evaluators
+        Note over Agent,FD: Phase 2: Auto-Registration
+        Agent->>CA: POST /check_voicelive_job_status
+        CA-->>Functions: {status: "completed", output_path}
+        Functions->>Blob: Download from outputs/
+        Functions->>FD: Auto-register as Foundry dataset
+        Functions-->>Agent: {status: completed, foundry_dataset: {foundry_dataset_id, version}}
+    end
+    
+    Agent-->>User: "Audio complete! Output registered as Foundry dataset. Run evaluation?"
+    User->>Agent: "Yes, run evaluation"
+    
+    rect rgb(240, 220, 240)
+        Note over Agent,Foundry: Phase 3: Foundry Evaluation (reuses dataset)
+        Agent->>Functions: POST /run_voicelive_evaluation<br/>{foundry_dataset_id: "...from step 2..."}
+        Note over Functions: Skips re-upload, reuses Foundry dataset
+        Functions->>Foundry: Run evaluators
         Foundry-->>Functions: Metrics
-        Functions->>Blob: Save evaluation results
         Functions-->>Agent: {portal_url, metrics_summary}
     end
     
-    Agent-->>User: "Complete!<br/>Audio: 6/6 files processed<br/>Portal: https://ai.azure.com/..."
+    Agent-->>User: "Complete! Portal: https://ai.azure.com/..."
 ```
 
-### Workflow 5: Manage Foundry Resources
+### Workflow 5: Upload New Dataset
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Agent
+    participant Functions as Azure Functions
+    participant Blob as Blob Storage
+    participant FD as Foundry Data Store
+    
+    User->>Agent: "Upload a new evaluation dataset called my_test"
+    Agent->>Functions: POST /get_upload_url {name: "my_test", type: "evaluation"}
+    Functions->>Blob: Generate SAS URL for staging/
+    Functions-->>Agent: {upload_url, upload_id}
+    Agent-->>User: "Upload your .jsonl file to this URL:<br/>[SAS URL]"
+    
+    Note over User,Blob: User uploads file (curl, SDK, etc.)
+    User->>Blob: PUT .jsonl to SAS URL
+    User->>Agent: "Upload complete"
+    
+    Agent->>Functions: POST /finalize_upload {upload_id, name, type: "evaluation"}
+    Functions->>Blob: Download from staging
+    Functions->>Functions: Validate query/response fields
+    Functions->>FD: Upload to Foundry Data Store
+    FD-->>Functions: {dataset_id, version: 1}
+    Functions->>Blob: Delete staging file
+    Functions-->>Agent: {foundry_dataset_id, version: 1}
+    Agent-->>User: "Dataset 'my_test' registered in Foundry (v1)"
+```
+
+### Workflow 6: Manage Foundry Resources
 
 ```mermaid
 sequenceDiagram
@@ -892,13 +1065,15 @@ sequenceDiagram
 - [ ] **Container App scaling** - Auto-scale based on queue depth
 
 ### Known Limitations
-1. **Metrics sometimes empty** - Foundry SDK may not return metrics immediately after completion
-2. **Container App auth** - Uses Entra ID EasyAuth with app registration `voicelive-container-app-auth` (07421757-...)
-3. **eval_group_id reuse** - Only works within same Foundry project
-4. **No dataset versioning yet** - Each upload creates new dataset (to be fixed in Phase 1)
-5. **azd Container App push** - `azd deploy` may get stuck pushing Container App image to ACR; workaround: `docker build` → `docker push` → `az containerapp update` manually
-6. **Cognitive Services soft-delete** - Deleting an AI Services account soft-deletes it; recreating with same name requires `az cognitiveservices account purge` first
-7. **ARM role assignment idempotency** - `Microsoft.Authorization/roleAssignments` in Bicep can throw `RoleAssignmentExists` on re-provision; all service RBAC is done via PowerShell scripts instead
+1. **No autonomous polling** - The Foundry Agent Service (Responses API) can call multiple tools within a single turn, but **cannot autonomously initiate new turns or wait between tool calls**. When the agent says "I'll keep checking the status", it actually ends the turn and waits for the user to ask again. The 10-minute run timeout also prevents long polling loops within a turn. **Workaround**: Agent instructions now tell the user to ask for status updates manually. Future improvement: add webhook/callback notifications for long-running jobs.
+2. **Metrics sometimes empty** - Foundry SDK may not return metrics immediately after completion
+3. **Container App auth** - Uses Entra ID EasyAuth with app registration `voicelive-container-app-auth` (07421757-...)
+4. **eval_group_id reuse** - Only works within same Foundry project
+5. **Evaluation datasets use Foundry native versioning** - Same name creates new version automatically
+6. **azd Container App push** - `azd deploy` may get stuck pushing Container App image to ACR; workaround: `docker build` → `docker push` → `az containerapp update` manually
+7. **Cognitive Services soft-delete** - Deleting an AI Services account soft-deletes it; recreating with same name requires `az cognitiveservices account purge` first
+8. **ARM role assignment idempotency** - `Microsoft.Authorization/roleAssignments` in Bicep can throw `RoleAssignmentExists` on re-provision; all service RBAC is done via PowerShell scripts instead
+9. **Foundry dataset URI in validate_eval_dataset** - Agent sometimes passes Foundry data URIs (`azureai://...`) to `validate_eval_dataset`, which only searches blob storage → 404. Fix planned: teach endpoint to resolve Foundry URIs or skip validation for already-registered datasets.
 
 ### Future Improvements
 1. **Managed Identity auth for Foundry → Function App** - Replace function key connection with Entra ID managed identity auth. Requires a separate app registration for the Function App with EasyAuth enabled, then update agent to use `OpenApiManagedAuthDetails` with the Function App's audience. App registration `voicelive-container-app-auth` is for Container App only.
