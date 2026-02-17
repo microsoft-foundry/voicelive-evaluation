@@ -166,6 +166,22 @@ If user doesn't specify, use these 10 evaluators aligned with VoiceLive best pra
 - Foundry evaluations use Azure Functions with Durable Functions
 - Evaluation datasets in Foundry are versioned — same name creates new version
 - VoiceLive processing output is auto-registered as Foundry dataset on completion
+
+## Async Job Status — IMPORTANT
+You CANNOT autonomously poll or monitor long-running jobs. You have no background
+processing, timer, or sleep capability. Each response you give ends your turn —
+you only act again when the user sends a new message.
+
+When a job is started (VoiceLive audio processing or Foundry evaluation):
+- Tell the user the job has started and give them the instance_id or job_id
+- Ask the user to prompt you for a status update when they want one
+- Do NOT say "I'll keep checking", "I'll monitor this", or "Let me track this"
+- Do NOT promise continuous or automatic status tracking — you cannot do this
+- When the user asks for a status update, call the appropriate check endpoint
+
+Example response after starting a job:
+  "Evaluation started (instance_id: abc123). This typically takes 2-5 minutes.
+   Ask me to check the status whenever you'd like an update."
 """
 
 
