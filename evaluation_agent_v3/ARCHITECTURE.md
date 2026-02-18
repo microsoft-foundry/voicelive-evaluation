@@ -1014,29 +1014,23 @@ sequenceDiagram
 
 ## Open Work Items
 
-### High Priority: Dataset Versioning & Eval Group Strategy
+### ~~High Priority: Dataset Versioning & Eval Group Strategy~~ ✅ Implemented
 
 **Goal**: Implement proper versioning and organization for datasets and evaluation groups.
 
-#### Phase 1: Versioning in Function App (Lower Risk, Recommended First)
-- [ ] **Version datasets on upload** - Before uploading to Foundry, check if dataset with same base name exists. If so, increment version number.
-- [ ] **One eval group per dataset** - Create/reuse eval group named after audio dataset. Add runs to existing group instead of creating new groups each time.
-- [ ] **Track lineage metadata** - Store source audio dataset name, processing timestamp, config hash in Foundry dataset description.
-- [ ] **Return version info** - Include dataset_id, version, eval_group_id in API responses.
+#### ~~Phase 1: Versioning in Function App~~ ✅ Complete
+- [x] **Version datasets on upload** — `run_foundry_evaluation` checks existing versions via `datasets.list()`, increments version number (line ~2124). `_finalize_eval_upload` uses Foundry native versioning on same-name upload.
+- [x] **One eval group per dataset** — `eval_group_id` parameter allows reusing existing eval groups (line ~2094). Config-based naming via `generate_eval_group_name()` groups runs by config. Agent instructions say to pass `foundry_dataset_id` from auto-register to avoid re-upload.
+- [x] **Track lineage metadata** — `_register_voicelive_output_as_foundry_dataset` sets `description=f"VoiceLive processing output (job: {job_id})"`. Run metadata includes `instance_id`, `source`, `dataset_version`, `evaluators`. Config journal tracks eval group → session config mapping.
+- [x] **Return version info** — `run_foundry_evaluation` returns `dataset_id`, `dataset_version`, `eval_group_id`, `eval_run_id`, `portal_url`. Auto-register returns `foundry_dataset_id`, `name`, `version`. Upload finalize returns `foundry_dataset_id`, `version`.
 
-#### Phase 2: Move Upload to Container App (Higher Risk, Future)
-- [ ] **Add Foundry SDK to Container App** - Install azure-ai-projects, configure PROJECT_ENDPOINT
-- [ ] **Upload to Foundry after processing** - Container App uploads directly to Foundry Data Store after VoiceLive processing completes
-- [ ] **Update Function App** - Remove upload logic, use dataset_id provided by Container App
-- [ ] **Update agent workflow** - Chain: Container App (returns dataset_id) → Function App (uses dataset_id)
+#### Phase 2: Move Upload to Container App (Future, Lower Priority Now)
+- [ ] **Add Foundry SDK to Container App** — Install azure-ai-projects, configure PROJECT_ENDPOINT
+- [ ] **Upload to Foundry after processing** — Container App uploads directly to Foundry Data Store after VoiceLive processing completes (eliminates the blob→Foundry copy hop in Function App)
+- [ ] **Update Function App** — Remove upload logic, use dataset_id provided by Container App
+- [ ] **Update agent workflow** — Chain: Container App (returns dataset_id) → Function App (uses dataset_id)
 
-#### Design Decisions
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Dataset naming | Use audio dataset name | Clear lineage, simple |
-| Config changes | New version (not new dataset) | Same audio input = same test |
-| Eval groups | One per audio dataset | Better organization, easy comparison |
-| Fallback | Keep blob upload working | Resilience if Foundry upload fails |
+Note: Phase 2 is lower priority now because auto-registration in `check_voicelive_job_status` achieves the same result. Phase 2 would eliminate the intermediate blob copy, which is a performance optimization rather than a functional gap.
 
 ### Other High Priority
 - [x] **Add RBAC assignments to azd automation** - Post-provision hook assigns Azure AI Developer + Cognitive Services User roles
