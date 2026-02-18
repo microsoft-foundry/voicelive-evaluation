@@ -510,6 +510,7 @@ def get_session_configs() -> list:
                 "noise_reduction": entity.get("NoiseReduction", "azure_deep_noise_suppression"),
                 "echo_cancellation": entity.get("EchoCancellation", "server_echo_cancellation"),
                 "is_default": entity.get("IsDefault", "false").lower() == "true",
+                "push_to_talk": entity.get("PushToTalk", "false").lower() == "true",
             }
             # Convert threshold to float if present
             if config["vad_threshold"]:
@@ -555,6 +556,7 @@ def get_session_config_by_name(name: str) -> dict:
             "noise_reduction": entity.get("NoiseReduction", "azure_deep_noise_suppression"),
             "echo_cancellation": entity.get("EchoCancellation", "server_echo_cancellation"),
             "is_default": entity.get("IsDefault", "false").lower() == "true",
+            "push_to_talk": entity.get("PushToTalk", "false").lower() == "true",
         }
         if config["vad_threshold"]:
             try:
@@ -601,6 +603,7 @@ def upsert_session_config(config: dict) -> bool:
             "NoiseReduction": config.get("noise_reduction", "azure_deep_noise_suppression"),
             "EchoCancellation": config.get("echo_cancellation", "server_echo_cancellation"),
             "IsDefault": "true" if config.get("is_default", False) else "false",
+            "PushToTalk": "true" if config.get("push_to_talk", False) else "false",
         }
         
         table_client.upsert_entity(entity)

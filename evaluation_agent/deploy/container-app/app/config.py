@@ -93,6 +93,9 @@ class SessionConfig:
     tools: Optional[List[Dict[str, Any]]] = None
     tool_definitions: Optional[List[Dict[str, Any]]] = None
     
+    # Audio input end detection
+    push_to_talk: bool = False  # False = VAD detects end of speech; True = explicit commit after audio sent
+    
     # Processing mode
     mode: ProcessorMode = ProcessorMode.AUDIO_EVALUATION
     
@@ -140,7 +143,8 @@ class SessionConfig:
                 "echo_cancellation": self.audio.echo_cancellation
             },
             "tools_count": len(self.tools) if self.tools else 0,
-            "mode": self.mode.value
+            "mode": self.mode.value,
+            "push_to_talk": self.push_to_talk
         }
     
     @classmethod
@@ -202,6 +206,10 @@ class SessionConfig:
         # Mode
         if "mode" in data:
             config.mode = ProcessorMode(data["mode"])
+        
+        # Push-to-talk
+        if "push_to_talk" in data:
+            config.push_to_talk = bool(data["push_to_talk"])
         
         return config
 

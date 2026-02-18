@@ -138,7 +138,8 @@ async def process_conversation(
             turn = await client.process_audio(
                 audio_data,
                 ground_truth=entry.answer or "",
-                tool_definitions=entry.tool_definitions or conversation_config.tool_definitions
+                tool_definitions=entry.tool_definitions or conversation_config.tool_definitions,
+                push_to_talk=conversation_config.push_to_talk
             )
             turn.turn_number = turn_number
             

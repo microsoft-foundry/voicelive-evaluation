@@ -201,7 +201,8 @@ class VoiceLiveClient:
         audio_data: bytes,
         ground_truth: str = "",
         tool_definitions: List[Dict] = None,
-        timeout_seconds: float = 60.0
+        timeout_seconds: float = 60.0,
+        push_to_talk: bool = False
     ) -> ConversationTurn:
         """
         Send audio and collect the response.
@@ -211,6 +212,8 @@ class VoiceLiveClient:
             ground_truth: Expected answer for evaluation
             tool_definitions: Tool definitions for evaluation dataset
             timeout_seconds: Max time to wait for response
+            push_to_talk: If True, send explicit audio commit after all audio is sent.
+                          If False (default), rely on VAD to detect end of speech.
             
         Returns:
             ConversationTurn with collected data
@@ -229,10 +232,15 @@ class VoiceLiveClient:
             encoded = base64.b64encode(chunk).decode('utf-8')
             await self._connection.input_audio_buffer.append(audio=encoded)
         
-        # Commit the audio buffer
-        await self._connection.input_audio_buffer.commit()
         turn.audio_send_end_time = datetime.now()
-        logger.debug("Audio sent and committed")
+        
+        if push_to_talk:
+            # Explicitly signal end of audio input (push-to-talk scenario)
+            await self._connection.input_audio_buffer.commit()
+            logger.debug("Audio sent and committed (push-to-talk)")
+        else:
+            # Let VAD detect end of speech naturally (default, real-world simulation)
+            logger.debug("Audio sent, waiting for VAD end-of-speech detection")
         
         # Collect response events
         response_complete = False

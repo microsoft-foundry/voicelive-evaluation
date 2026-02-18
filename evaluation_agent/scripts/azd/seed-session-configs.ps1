@@ -35,6 +35,7 @@ $configs = @(
         NoiseReduction = "azure_deep_noise_suppression"
         EchoCancellation = "server_echo_cancellation"
         IsDefault = "true"
+        PushToTalk = "false"
     },
     @{
         RowKey = "conf1"
@@ -54,6 +55,7 @@ $configs = @(
         NoiseReduction = "azure_deep_noise_suppression"
         EchoCancellation = "server_echo_cancellation"
         IsDefault = "false"
+        PushToTalk = "false"
     },
     @{
         RowKey = "conf2"
@@ -73,6 +75,7 @@ $configs = @(
         NoiseReduction = "azure_deep_noise_suppression"
         EchoCancellation = "server_echo_cancellation"
         IsDefault = "false"
+        PushToTalk = "false"
     },
     @{
         RowKey = "conf3"
@@ -92,6 +95,7 @@ $configs = @(
         NoiseReduction = "azure_deep_noise_suppression"
         EchoCancellation = "server_echo_cancellation"
         IsDefault = "false"
+        PushToTalk = "false"
     },
     @{
         RowKey = "conf4"
@@ -111,6 +115,7 @@ $configs = @(
         NoiseReduction = "azure_deep_noise_suppression"
         EchoCancellation = "server_echo_cancellation"
         IsDefault = "false"
+        PushToTalk = "false"
     },
     @{
         RowKey = "conf5"
@@ -130,6 +135,7 @@ $configs = @(
         NoiseReduction = "azure_deep_noise_suppression"
         EchoCancellation = "server_echo_cancellation"
         IsDefault = "false"
+        PushToTalk = "false"
     },
     @{
         RowKey = "conf6"
@@ -149,6 +155,27 @@ $configs = @(
         NoiseReduction = "azure_deep_noise_suppression"
         EchoCancellation = "server_echo_cancellation"
         IsDefault = "false"
+        PushToTalk = "false"
+    },
+    @{
+        RowKey = "push-to-talk"
+        PartitionKey = "voicelive"
+        Name = "push-to-talk"
+        Description = "Push-to-talk mode - 24kHz, gpt-4.1, explicit audio commit (no VAD end detection)"
+        Model = "gpt-4.1"
+        SampleRate = "24000"
+        VoiceName = "alloy"
+        VoiceType = "preset"
+        VadType = "azure_semantic_vad_multilingual"
+        VadThreshold = ""
+        SilenceDurationMs = ""
+        EouDetection = "true"
+        EouModel = "azure_semantic_v1_multilingual"
+        TranscriptionModel = "azure-speech"
+        NoiseReduction = "azure_deep_noise_suppression"
+        EchoCancellation = "server_echo_cancellation"
+        IsDefault = "false"
+        PushToTalk = "true"
     }
 )
 
