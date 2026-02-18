@@ -251,21 +251,23 @@ class BasicVoiceAssistant:
         voice: str,
         agent_name: str,
         project_name: str,
+        agent_version: Optional[str] = None,
+        conversation_id: Optional[str] = None,
         foundry_resource_override: Optional[str] = None,
-        agent_auth_identity_client_id: Optional[str] = None,
+        agent_authentication_identity_client_id: Optional[str] = None,
     ):
         self.endpoint = endpoint
         self.credential = credential
         self.voice = voice
-        # Build AgentSessionConfig internally (new SDK pattern)
+        # Build AgentSessionConfig internally
         self.agent_config: AgentSessionConfig = {
             "agent_name": agent_name,
+            "agent_version": agent_version if agent_version else None,
             "project_name": project_name,
-        }
-        if foundry_resource_override:
-            self.agent_config["foundry_resource_override"] = foundry_resource_override
-        if agent_auth_identity_client_id:
-            self.agent_config["authentication_identity_client_id"] = agent_auth_identity_client_id
+            "conversation_id": conversation_id if conversation_id else None,
+            "foundry_resource_override": foundry_resource_override if foundry_resource_override else None, 
+            "authentication_identity_client_id": agent_authentication_identity_client_id if agent_authentication_identity_client_id else None,                
+        }        
 
         self.connection: Optional["VoiceLiveConnection"] = None
         self.audio_processor: Optional[AudioProcessor] = None
@@ -278,15 +280,20 @@ class BasicVoiceAssistant:
         """Start the voice assistant session."""
         try:
             logger.info(
-                "Connecting to VoiceLive API with agent %s for project %s",
+                "Connecting to VoiceLive API with agent %s for project %s (version=%s, conversation_id=%s, foundry_override=%s, auth_identity=%s)",
                 self.agent_config.get("agent_name"),
                 self.agent_config.get("project_name"),
+                self.agent_config.get("agent_version"),
+                self.agent_config.get("conversation_id"),
+                self.agent_config.get("foundry_resource_override"),
+                self.agent_config.get("agent-authentication-identity-client-id")
             )
 
             # Connect using AgentSessionConfig (new SDK pattern)
             async with connect(
                 endpoint=self.endpoint,
                 credential=self.credential,
+                api_version="2026-01-01-preview",
                 agent_config=self.agent_config,
             ) as connection:
                 conn = connection
@@ -321,9 +328,9 @@ class BasicVoiceAssistant:
 
         # Set up interim response configuration to bridge latency gaps during processing
         interim_response_config = LlmInterimResponseConfig(
-            triggers=[InterimResponseTrigger.LATENCY],
-            latency_threshold_ms=50,
-            instructions="Create a friendly interim response indicating wait time due to ongoing processing. E.g. tool calling or latency."
+            triggers=[InterimResponseTrigger.TOOL, InterimResponseTrigger.LATENCY],
+            latency_threshold_ms=100,
+            instructions="Create friendly interim responses indicating wait time due to ongoing processing, if any. Do not include in all responses!"
         )
 
         # Create session configuration
@@ -331,13 +338,12 @@ class BasicVoiceAssistant:
             modalities=[Modality.TEXT, Modality.AUDIO],
             input_audio_format=InputAudioFormat.PCM16,
             output_audio_format=OutputAudioFormat.PCM16,
-            # interim_response_config=interim_response_config
+            interim_response=interim_response_config,
             # Uncomment the following, if not stored with agent configuration on the service side
             # voice=AzureStandardVoice(name=self.voice),
             # turn_detection=AzureSemanticVadMultilingual(),
             # input_audio_echo_cancellation=AudioEchoCancellation(),
-            # input_audio_noise_reduction=AudioNoiseReduction(type="azure_deep_noise_suppression"),
-
+            # input_audio_noise_reduction=AudioNoiseReduction(type="azure_deep_noise_suppression")
         )
 
         conn = self.connection
@@ -478,9 +484,21 @@ def main() -> None:
     endpoint = os.environ.get("VOICELIVE_ENDPOINT", "")
     voice_name = os.environ.get("VOICE_NAME", "en-US-Ava:DragonHDLatestNeural")
     agent_name = os.environ.get("AGENT_NAME", "")
+    agent_version = os.environ.get("AGENT_VERSION")
     project_name = os.environ.get("PROJECT_NAME", "")
+    conversation_id = os.environ.get("CONVERSATION_ID")
     foundry_resource_override = os.environ.get("FOUNDRY_RESOURCE_OVERRIDE")
-    agent_auth_identity_client_id = os.environ.get("AGENT_AUTH_IDENTITY_CLIENT_ID")
+    agent_authentication_identity_client_id = os.environ.get("AGENT_AUTHENTICATION_IDENTITY_CLIENT_ID")
+
+    print("Environment variables:")
+    print(f"VOICELIVE_ENDPOINT: {endpoint}")
+    print(f"VOICE_NAME: {voice_name}")
+    print(f"AGENT_NAME: {agent_name}")
+    print(f"AGENT_VERSION: {agent_version}")
+    print(f"PROJECT_NAME: {project_name}")
+    print(f"CONVERSATION_ID: {conversation_id}")
+    print(f"FOUNDRY_RESOURCE_OVERRIDE: {foundry_resource_override}")
+    print(f"AGENT_AUTHENTICATION_IDENTITY_CLIENT_ID: {agent_authentication_identity_client_id}")
 
     if not endpoint or not agent_name or not project_name:
         sys.exit("Set VOICELIVE_ENDPOINT, AGENT_NAME, and PROJECT_NAME in your .env file.")
@@ -495,9 +513,11 @@ def main() -> None:
         credential=credential,
         voice=voice_name,
         agent_name=agent_name,
+        agent_version=agent_version,
         project_name=project_name,
+        conversation_id=conversation_id,
         foundry_resource_override=foundry_resource_override,
-        agent_auth_identity_client_id=agent_auth_identity_client_id,
+        agent_authentication_identity_client_id=agent_authentication_identity_client_id,
     )
 
     # Handle SIGTERM for graceful shutdown (SIGINT already raises KeyboardInterrupt)

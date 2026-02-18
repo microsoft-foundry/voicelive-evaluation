@@ -1073,7 +1073,7 @@ sequenceDiagram
 6. **azd Container App push** - `azd deploy` may get stuck pushing Container App image to ACR; workaround: `docker build` → `docker push` → `az containerapp update` manually
 7. **Cognitive Services soft-delete** - Deleting an AI Services account soft-deletes it; recreating with same name requires `az cognitiveservices account purge` first
 8. **ARM role assignment idempotency** - `Microsoft.Authorization/roleAssignments` in Bicep can throw `RoleAssignmentExists` on re-provision; all service RBAC is done via PowerShell scripts instead
-9. **Foundry dataset URI in validate_eval_dataset** - Agent sometimes passes Foundry data URIs (`azureai://...`) to `validate_eval_dataset`, which only searches blob storage → 404. Fix planned: teach endpoint to resolve Foundry URIs or skip validation for already-registered datasets.
+9. **~~Foundry dataset URI in validate_eval_dataset~~** — ✅ Fixed. Both `validate_eval_dataset` and `check_dataset_schema` now resolve Foundry URIs (`azureai://...`), plain Foundry dataset names, and blob paths.
 
 ### Future Improvements
 1. **Managed Identity auth for Foundry → Function App** - Replace function key connection with Entra ID managed identity auth. Requires a separate app registration for the Function App with EasyAuth enabled, then update agent to use `OpenApiManagedAuthDetails` with the Function App's audience. App registration `voicelive-container-app-auth` is for Container App only.

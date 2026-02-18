@@ -7,49 +7,80 @@ from azure.ai.projects.models import PromptAgentDefinition
 
 load_dotenv()
 
+
+# Helper functions for Voice Live configuration chunking (512-char metadata limit)
+def chunk_config(config_json: str, limit: int = 512) -> dict:
+    """Split config into chunked metadata entries."""
+    metadata = {"microsoft.voice-live.configuration": config_json[:limit]}
+    remaining = config_json[limit:]
+    chunk_num = 1
+    while remaining:
+        metadata[f"microsoft.voice-live.configuration.{chunk_num}"] = remaining[:limit]
+        remaining = remaining[limit:]
+        chunk_num += 1
+    return metadata
+
+
+def reassemble_config(metadata: dict) -> str:
+    """Reassemble chunked Voice Live configuration."""
+    config = metadata.get("microsoft.voice-live.configuration", "")
+    chunk_num = 1
+    while f"microsoft.voice-live.configuration.{chunk_num}" in metadata:
+        config += metadata[f"microsoft.voice-live.configuration.{chunk_num}"]
+        chunk_num += 1
+    return config
+
+
+# Setup client
 project_client = AIProjectClient(
     endpoint=os.environ["PROJECT_ENDPOINT"],
     credential=DefaultAzureCredential(),
 )
+agent_name = os.environ["AGENT_NAME"]
 
-agent_name=os.environ["AGENT_NAME"]
-
-# Define the Voice Live settings
-voice_live_configuration = {
+# Define Voice Live session settings
+voice_live_config = {
     "session": {
-        "voice": {"name": "en-US-Ava:DragonHDLatestNeural", "type": "azure-standard", "temperature": 0.8},
-        "input_audio_transcription": {"model": "azure-speech"},
-        "turn_detection": {"type": "azure_semantic_vad",
+        "voice": {
+            "name": "en-US-Ava:DragonHDLatestNeural",
+            "type": "azure-standard",
+            "temperature": 0.8
+        },
+        "input_audio_transcription": {
+            "model": "azure-speech",
+            "language": "en-US"
+        },
+        "turn_detection": {
+            "type": "azure_semantic_vad",
             "end_of_utterance_detection": {
-                "model": "semantic_detection_v1_multilingual"
-            },
+                "model": "semantic_detection_v1_multilingual",
+                "end_of_utterance_timeout_ms": 2000,
+                "include_non_speech": True
+            }
         },
         "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
         "input_audio_echo_cancellation": {"type": "server_echo_cancellation"}
     }
 }
 
-# Create agent
+# Create agent with Voice Live configuration in metadata
 agent = project_client.agents.create_version(
     agent_name=agent_name,
     definition=PromptAgentDefinition(
         model=os.environ["MODEL_DEPLOYMENT_NAME"],
         instructions="You are a helpful assistant that answers general questions",
     ),
-    metadata={
-        "microsoft.voice-live.configuration": json.dumps(voice_live_configuration)
-    },
+    metadata=chunk_config(json.dumps(voice_live_config))
 )
-print(f"Agent created (id: {agent.id}, name: {agent.name}, version: {agent.version})")
+print(f"Agent created: {agent.name} (version {agent.version})")
 
-# Retrieve the agent config to verify Voice Live settings
+# Verify Voice Live configuration was stored correctly
 retrieved_agent = project_client.agents.get(agent_name=agent_name)
-print(f"\nRetrieved agent: {retrieved_agent.name}")
+stored_metadata = (retrieved_agent.versions or {}).get("latest", {}).get("metadata", {})
+stored_config = reassemble_config(stored_metadata)
 
-# Extract Voice Live config from versions.latest.metadata
-vl_config_str = (retrieved_agent.versions or {}).get('latest', {}).get('metadata', {}).get('microsoft.voice-live.configuration')
-if vl_config_str:
-    print("Voice Live configuration:")
-    print(json.dumps(json.loads(vl_config_str), indent=2))
+if stored_config:
+    print("\nVoice Live configuration:")
+    print(json.dumps(json.loads(stored_config), indent=2))
 else:
-    print("Voice Live configuration not found in agent metadata.")
+    print("\nVoice Live configuration not found in agent metadata.")
