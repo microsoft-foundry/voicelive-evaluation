@@ -8,7 +8,7 @@ from azure.ai.projects.models import PromptAgentDefinition
 load_dotenv()
 
 project_client = AIProjectClient(
-    endpoint=os.environ["PROJECT_ENDPOINT"],
+    endpoint=os.environ["PROJECT_ENDPOINT_V2"],
     credential=DefaultAzureCredential(),
 )
 

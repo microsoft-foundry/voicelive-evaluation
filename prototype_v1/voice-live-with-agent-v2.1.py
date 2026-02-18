@@ -14,14 +14,10 @@ from typing import Optional, Union, cast
 
 import pyaudio
 # from azure.ai.voicelive._types import InterimResponseConfig
-from azure.ai.voicelive.aio import VoiceLiveConnection, connect
-from azure.ai.voicelive.models import (AudioEchoCancellation,
-                                       AudioNoiseReduction, AzureStandardVoice,
-                                       InputAudioFormat,
-                                       Modality,
-                                       OutputAudioFormat, RequestSession,
-                                       ServerEventType, ServerVad)
-from azure.core.credentials import AzureKeyCredential
+from azure.ai.voicelive.aio import VoiceLiveConnection, AgentSessionConfig, connect 
+from azure.ai.voicelive.models import AudioEchoCancellation, AudioNoiseReduction, \
+    AzureStandardVoice, InputAudioFormat, Modality, OutputAudioFormat, \
+    RequestSession, ServerEventType, AzureSemanticVadMultilingual, LlmInterimResponseConfig, InterimResponseTrigger
 from azure.core.credentials_async import AsyncTokenCredential
 from azure.identity.aio import AzureCliCredential, DefaultAzureCredential
 from dotenv import load_dotenv
@@ -241,20 +237,27 @@ class BasicVoiceAssistant:
         self,
         endpoint: str,
         credential: AsyncTokenCredential,
-        agent_name: str,
-        foundry_project_name: str,
         voice: str,
+        agent_name: str,
+        project_name: str,
         foundry_resource_override: Optional[str] = None,
         agent_auth_identity_client_id: Optional[str] = None,
     ) -> None:
 
         self.endpoint = endpoint
         self.credential = credential
-        self.agent_name = agent_name
-        self.foundry_project_name = foundry_project_name
         self.voice = voice
-        self.foundry_resource_override = foundry_resource_override
-        self.agent_auth_identity_client_id = agent_auth_identity_client_id
+
+        # Build AgentSessionConfig internally
+        self.agent_config: AgentSessionConfig = {
+            "agent_name": agent_name,
+            "project_name": project_name
+        }
+        if foundry_resource_override:
+            self.agent_config["foundry_resource_override"] = foundry_resource_override
+        if agent_auth_identity_client_id:
+            self.agent_config["authentication_identity_client_id"] = agent_auth_identity_client_id
+
         self.connection: Optional[VoiceLiveConnection] = None
         self.audio_processor: Optional[AudioProcessor] = None
         self.session_ready = False
@@ -263,22 +266,17 @@ class BasicVoiceAssistant:
     async def start(self):
         """Start the voice assistant session."""
         try:
-            logger.info("Connecting to VoiceLive API with Foundry agent connection %s for project %s", self.agent_name, self.foundry_project_name)
+            logger.info(
+                "Connecting to VoiceLive API with agent %s for project %s",
+                self.agent_config.get("agent_name"),
+                self.agent_config.get("project_name"),
+            )
 
-            # Connect to VoiceLive WebSocket API
-            query_params: dict[str, str] = {
-                "agent-name": self.agent_name,
-                "agent-project-name": self.foundry_project_name,
-            }
-            if self.foundry_resource_override:
-                query_params["foundry-resource-override"] = self.foundry_resource_override
-            if self.agent_auth_identity_client_id:
-                query_params["agent-authentication-identity-client-id"] = self.agent_auth_identity_client_id
-
+            # Connect using AgentSessionConfig
             async with connect(
                 endpoint=self.endpoint,
                 credential=self.credential,
-                query=query_params,
+                agent_config=self.agent_config
             ) as connection:
                 conn = connection
                 self.connection = conn
@@ -313,30 +311,24 @@ class BasicVoiceAssistant:
         """Configure the VoiceLive session for audio conversation."""
         logger.info("Setting up voice conversation session...")
 
-        voice_config = AzureStandardVoice(name=self.voice)
-
-        # Create strongly typed turn detection configuration
-        turn_detection_config = ServerVad(
-            threshold=0.5,
-            prefix_padding_ms=300,
-            silence_duration_ms=500)
-
-        # # Set up interim response configuration
-        # interim_response_config: InterimResponseConfig = LlmInterimResponseConfig(
-        #     latency_threshold_ms=300,
-        # )
+        # Set up interim response configuration to bridge latency gaps during processing
+        interim_response_config = LlmInterimResponseConfig(
+            triggers=[InterimResponseTrigger.LATENCY],
+            latency_threshold_ms=50,
+            instructions="Create a friendly interim response indicating wait time due to ongoing processing. E.g. tool calling or latency."
+        )
 
         # Create strongly typed session configuration
         session_config = RequestSession(
             modalities=[Modality.TEXT, Modality.AUDIO],
-            # voice=voice_config,
             input_audio_format=InputAudioFormat.PCM16,
             output_audio_format=OutputAudioFormat.PCM16,
-            # turn_detection=turn_detection_config,
+            interim_response=interim_response_config,
+            # Uncomment the following, if not stored with agent configuration on the service side
+            # voice=AzureStandardVoice(name=self.voice),
+            # turn_detection=AzureSemanticVadMultilingual(),
             # input_audio_echo_cancellation=AudioEchoCancellation(),
             # input_audio_noise_reduction=AudioNoiseReduction(type="azure_deep_noise_suppression"),
-            # uncomment to use interim response if desired
-            # interim_response=interim_response_config,
         )
 
         conn = self.connection
@@ -460,7 +452,7 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        "--foundry_project_name",
+        "--project_name",
         help="Foundry project name to use",
         type=str,
         default=os.environ.get("AZURE_VOICE_LIVE_PROJECT_NAME_V2", ""),
@@ -488,7 +480,7 @@ def parse_arguments():
         type=str,
         default=os.environ.get("AZURE_VOICELIVE_AGENT_AUTH_IDENTITY_CLIENT_ID", None),
     )
-
+    print("Parsed arguments: ", parser.parse_args())
     return parser.parse_args()
 
 
@@ -501,16 +493,16 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
 
     # Create client with appropriate credential, only Entra ID token credential is allowed in Agent mode
-    credential: AsyncTokenCredential = AzureCliCredential()  # or DefaultAzureCredential() if needed
-    logger.info("Using Azure token credential")
+    credential: AsyncTokenCredential = DefaultAzureCredential()
+    logger.info("Using DefaultAzureCredential")
 
     # Create and start voice assistant
     assistant = BasicVoiceAssistant(
         endpoint=args.endpoint,
         credential=credential,
-        agent_name=args.agent_name,
-        foundry_project_name=args.foundry_project_name,
         voice=args.voice,
+        agent_name=args.agent_name,
+        project_name=args.project_name,
         foundry_resource_override=args.foundry_resource_override,
         agent_auth_identity_client_id=args.agent_auth_identity_client_id,
     )
