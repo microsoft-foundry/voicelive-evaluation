@@ -1,0 +1,51 @@
+# VoiceLive Evaluation Agent v3 - Azure Developer CLI Configuration
+name: voicelive-evaluation-agent-v3
+
+metadata:
+  template: voicelive-evaluation-agent-v3
+
+# Infrastructure provisioning
+infra:
+  provider: bicep
+  path: ./infra
+
+# Services to deploy
+services:
+  # Azure Functions - evaluation tools API
+  tools-api:
+    project: ./deploy/azure-functions
+    language: python
+    host: function
+
+  # VoiceLive Container App - audio processing
+  voicelive-processor:
+    project: ./deploy/container-app
+    language: python
+    host: containerapp
+
+# Hooks for deployment lifecycle
+hooks:
+  # After infrastructure is created - seed tables, assign RBAC, create connection
+  postprovision:
+    windows:
+      shell: pwsh
+      run: .\scripts\azd\postprovision.ps1
+    posix:
+      shell: bash
+      run: |
+        echo "Post-provision requires PowerShell. Run manually:"
+        echo "  pwsh scripts/azd/postprovision.ps1"
+
+  # After code is deployed - setup agent, show summary
+  postdeploy:
+    windows:
+      shell: pwsh
+      run: .\scripts\azd\postdeploy.ps1
+    posix:
+      shell: bash
+      run: |
+        echo "===== Post-Deploy: Setup Complete ====="
+        echo "  Function App URL: $AZURE_FUNCTION_APP_URL"
+        echo "  Container App:    $AZURE_CONTAINER_APP_URL"
+        echo ""
+        echo "Next: Create agent with python setup_agent_openapi.py --function-url $AZURE_FUNCTION_APP_URL"

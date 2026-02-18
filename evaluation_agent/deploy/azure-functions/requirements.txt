@@ -1,0 +1,10 @@
+# Azure Functions for VoiceLive Evaluation Tools
+azure-functions
+azure-functions-durable
+azure-identity
+azure-storage-blob
+azure-data-tables
+azure-ai-projects>=2.0.0b2
+azure-ai-agents
+openai>=2.8.1
+httpx

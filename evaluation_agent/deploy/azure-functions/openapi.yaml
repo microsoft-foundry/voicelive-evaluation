@@ -1,0 +1,977 @@
+openapi: 3.0.0
+info:
+  title: VoiceLive Evaluation Tools API
+  description: HTTP API for VoiceLive evaluation tools, called by Foundry Agent
+  version: 1.0.0
+
+servers:
+  - url: https://{functionAppName}.azurewebsites.net/api
+    variables:
+      functionAppName:
+        default: voicelive-eval-tools
+        description: Azure Function App name
+
+# Security scheme for Function Key authentication
+components:
+  securitySchemes:
+    functionKey:
+      type: apiKey
+      name: x-functions-key
+      in: header
+      description: Azure Function key for authentication
+
+# Apply security globally (can be overridden per-operation)
+security:
+  - functionKey: []
+
+paths:
+  /list_datasets:
+    post:
+      operationId: list_datasets
+      summary: List available datasets
+      description: |
+        Lists datasets from both VoiceLive (blob storage) and evaluation (Foundry) stores.
+        Use dataset_type to filter: "all" (default), "voicelive", or "evaluation".
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                folder_path:
+                  type: string
+                  description: Optional prefix to filter blob storage datasets
+                dataset_type:
+                  type: string
+                  enum: [all, voicelive, evaluation]
+                  description: >
+                    Filter by dataset type. "voicelive" = audio datasets in blob storage.
+                    "evaluation" = query/response datasets in Foundry. "all" = both (default).
+      responses:
+        '200':
+          description: List of datasets with type labels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  dataset_type_filter:
+                    type: string
+                  datasets_found:
+                    type: integer
+                  datasets:
+                    type: array
+                    items:
+                      type: object
+
+  /check_dataset_schema:
+    post:
+      operationId: check_dataset_schema
+      summary: Check dataset schema and detect type
+      description: |
+        Analyzes a JSONL dataset to detect its type (voicelive or evaluation)
+        and list all fields found. Use this to determine which validation
+        and workflow to use.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: Path to dataset in blob storage
+      responses:
+        '200':
+          description: Schema analysis with type detection
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /get_upload_url:
+    post:
+      operationId: get_upload_url
+      summary: Get upload URL for a new dataset
+      description: |
+        Generates a time-limited SAS URL for uploading a dataset file directly
+        to blob storage. After uploading, call finalize_upload to validate
+        and route the file to the correct store.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_name
+                - dataset_type
+              properties:
+                dataset_name:
+                  type: string
+                  description: Name for the dataset
+                dataset_type:
+                  type: string
+                  enum: [voicelive, evaluation]
+                  description: >
+                    "voicelive" for audio datasets (.zip with .wav + .jsonl).
+                    "evaluation" for eval-ready datasets (.jsonl with query/response).
+                file_extension:
+                  type: string
+                  description: File extension (.zip or .jsonl). Default .jsonl
+      responses:
+        '200':
+          description: Upload URL and instructions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upload_id:
+                    type: string
+                    description: Use this with finalize_upload after uploading
+                  upload_url:
+                    type: string
+                    description: SAS URL for direct file upload (PUT with x-ms-blob-type BlockBlob header)
+                  expires_in_minutes:
+                    type: integer
+
+  /finalize_upload:
+    post:
+      operationId: finalize_upload
+      summary: Finalize a dataset upload
+      description: |
+        After uploading a file to the SAS URL from get_upload_url, call this
+        to validate and route the dataset to the correct store.
+        For voicelive: extracts zip to blob datasets/{name}/.
+        For evaluation: validates JSONL then uploads to Foundry Data Store
+        (uses native versioning if dataset name already exists).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - upload_id
+                - dataset_name
+                - dataset_type
+              properties:
+                upload_id:
+                  type: string
+                  description: The upload_id from get_upload_url
+                dataset_name:
+                  type: string
+                  description: Name for the dataset
+                dataset_type:
+                  type: string
+                  enum: [voicelive, evaluation]
+      responses:
+        '200':
+          description: Upload finalized with dataset details
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /validate_voicelive_dataset:
+    post:
+      operationId: validate_voicelive_dataset
+      summary: Validate VoiceLive audio dataset
+      description: |
+        Validates a VoiceLive audio dataset for structural integrity.
+        Requires WavPath or audio field in every entry.
+        Use this for datasets with audio files, NOT for evaluation-ready datasets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: Path to JSONL file in blob storage
+      responses:
+        '200':
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /validate_eval_dataset:
+    post:
+      operationId: validate_eval_dataset
+      summary: Validate evaluation-ready dataset
+      description: |
+        Validates an evaluation-ready dataset (query/response JSONL).
+        Requires query and response fields in every entry.
+        Use this for Foundry evaluation datasets, NOT for VoiceLive audio datasets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: Path to dataset (blob path or Foundry dataset name)
+      responses:
+        '200':
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /validate_dataset_consistency:
+    post:
+      operationId: validate_dataset_consistency
+      summary: Validate dataset consistency
+      description: Validates JSONL dataset for structural integrity and completeness
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: Path to JSONL file in blob storage
+                expected_turns:
+                  type: integer
+                  description: Expected number of turns per conversation
+                ignore_comments:
+                  type: boolean
+                  description: Skip comment lines
+      responses:
+        '200':
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /validate_dataset_quality:
+    post:
+      operationId: validate_dataset_quality
+      summary: Validate dataset quality
+      description: Assesses content quality of a validated dataset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: Path to JSONL file in blob storage
+                strict:
+                  type: boolean
+                  description: Use strict matching
+                verbose:
+                  type: boolean
+                  description: Show detailed analysis
+      responses:
+        '200':
+          description: Quality analysis results
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /get_evaluation_recommendations:
+    post:
+      operationId: get_evaluation_recommendations
+      summary: Get evaluation recommendations
+      description: Analyzes a dataset and provides recommended settings for evaluation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: Path to validated JSONL dataset
+      responses:
+        '200':
+          description: Recommended settings
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /run_voicelive_evaluation:
+    post:
+      operationId: run_voicelive_evaluation
+      summary: Run VoiceLive evaluation
+      description: |
+        Runs Azure VoiceLive audio evaluation tests followed by Foundry evaluators.
+        This is an async operation - use check_evaluation_status to poll for completion.
+        When complete, results include a Foundry portal URL for detailed analysis.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - test_files_path
+              properties:
+                test_files_path:
+                  type: string
+                  description: Path to dataset in blob storage (e.g., "Eiffel_Tower_Visit_1" or "datasets/sample.jsonl")
+                session_mode:
+                  type: string
+                  enum: [per-conversation, per-file, single]
+                  description: How to group test files into VoiceLive sessions
+                max_workers:
+                  type: integer
+                  description: Number of parallel workers (default 4)
+                evaluators:
+                  type: array
+                  items:
+                    type: string
+                  description: |
+                    List of evaluators to run. Options include:
+                    - "intent_resolution" - Does response match user intent
+                    - "task_adherence" - Did agent follow instructions
+                    - "task_completion" - Was the task completed
+                    - "response_completeness" - Is response complete vs ground truth
+                    - "groundedness" - Is response grounded in context
+                    - "relevance" - Is response relevant to query
+                    - "tool_call_accuracy" - Were tool calls correct
+                    - "tool_selection" - Were correct tools selected
+                    - "tool_input_accuracy" - Were tool inputs correct
+                    - "tool_output_utilization" - Was tool output used properly
+                    - "fluency" - Language quality
+                    - "coherence" - Logical flow
+                    If not specified, defaults to all available evaluators.
+                run_voicelive_tests:
+                  type: boolean
+                  description: Whether to run VoiceLive audio tests (default true). Set false to only run evaluators on existing data.
+                eval_group_id:
+                  type: string
+                  description: |
+                    Optional: Reuse an existing Foundry evaluation group instead of creating a new one.
+                    Get available eval group IDs from list_evaluation_groups.
+                    Example: "eval_4609a79f9f2f458fbc6f37248bfb2e9d"
+                foundry_dataset_id:
+                  type: string
+                  description: |
+                    Optional: Reuse an existing Foundry dataset instead of uploading a new one.
+                    Get available dataset IDs from list_foundry_datasets.
+                    Example: "azureai://accounts/.../data/dataset-name/versions/1"
+                session_config:
+                  type: object
+                  description: |
+                    Optional: VoiceLive session configuration for eval group naming.
+                    Eval groups are named based on config: {model}_{voice}_{vad}_{eod}.
+                    Example: {"model": "gpt-realtime", "voice": "alloy", "vad_threshold": "0.5", "end_of_speech_timeout": "500"}
+      responses:
+        '200':
+          description: Evaluation job started (returns instance_id for status checking)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    description: "started"
+                  instance_id:
+                    type: string
+                    description: ID to use with check_evaluation_status
+
+  /check_evaluation_status:
+    post:
+      operationId: check_evaluation_status
+      summary: Check evaluation job status
+      description: |
+        Checks the status of a running evaluation job. Use the instance_id 
+        returned from run_voicelive_evaluation to poll for completion.
+        When completed, includes foundry_portal_url for detailed results viewing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - instance_id
+              properties:
+                instance_id:
+                  type: string
+                  description: The instance_id returned from run_voicelive_evaluation
+      responses:
+        '200':
+          description: Evaluation status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [pending, running, completed, failed]
+                    description: When 'completed', use instance_id with analyze_evaluation_results
+                  instance_id:
+                    type: string
+                    description: Use this with analyze_evaluation_results when status is completed
+                  foundry_portal_url:
+                    type: string
+                    description: URL to view evaluation results in Azure AI Foundry portal. ALWAYS present this URL to the user when evaluation completes.
+                  output:
+                    type: object
+                    description: Results when completed. Pass instance_id to analyze_evaluation_results for analysis.
+
+  /analyze_evaluation_results:
+    post:
+      operationId: analyze_evaluation_results
+      summary: Analyze evaluation results
+      description: |
+        Analyzes VoiceLive evaluation OUTPUT files to extract insights.
+        IMPORTANT: This analyzes RESULTS from completed evaluations, NOT datasets.
+        Use the instance_id from check_evaluation_status when status is 'completed'.
+        Results are stored at: evaluations/{instance_id}/results.json
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - results_path
+              properties:
+                results_path:
+                  type: string
+                  description: |
+                    Path to evaluation RESULTS (not datasets). Use the instance_id 
+                    from a completed evaluation. Examples: 
+                    - "647c23909ccf4d6fb66c151a29aa5ee3" (instance_id only)
+                    - "evaluations/647c23909ccf4d6fb66c151a29aa5ee3/results.json"
+                    DO NOT pass dataset paths like "datasets/..." here.
+      responses:
+        '200':
+          description: Analysis results
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /list_evaluation_groups:
+    get:
+      operationId: list_evaluation_groups
+      summary: List Foundry evaluation groups
+      description: |
+        Lists all evaluation groups in the Foundry project.
+        Use this to find eval_group_id values for reusing existing groups.
+      responses:
+        '200':
+          description: List of evaluation groups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  evaluation_groups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Eval group ID to pass as eval_group_id parameter
+                        name:
+                          type: string
+                        created_at:
+                          type: string
+
+  /list_foundry_datasets:
+    get:
+      operationId: list_foundry_datasets
+      summary: List Foundry datasets
+      description: |
+        Lists all datasets in the Foundry project.
+        Use this to find foundry_dataset_id values for reusing existing datasets.
+        Note: These are Foundry-uploaded datasets, NOT blob storage datasets.
+      responses:
+        '200':
+          description: List of datasets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  datasets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Dataset ID to pass as foundry_dataset_id parameter
+                        name:
+                          type: string
+                        version_count:
+                          type: integer
+                        latest_version:
+                          type: integer
+
+  /delete_evaluation_groups:
+    post:
+      operationId: delete_evaluation_groups
+      summary: Delete evaluation groups
+      description: |
+        Deletes evaluation groups by ID or search string.
+        Use list_evaluation_groups first to find groups to delete.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                eval_group_id:
+                  type: string
+                  description: Specific eval group ID to delete
+                search_string:
+                  type: string
+                  description: Delete all groups with names containing this string
+      responses:
+        '200':
+          description: Deletion results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_count:
+                    type: integer
+                  deleted:
+                    type: array
+                    items:
+                      type: object
+
+  /delete_foundry_datasets:
+    post:
+      operationId: delete_foundry_datasets
+      summary: Delete Foundry datasets
+      description: |
+        Deletes Foundry datasets by name or search string.
+        Use list_foundry_datasets first to find datasets to delete.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dataset_name:
+                  type: string
+                  description: Specific dataset name to delete
+                version:
+                  type: string
+                  description: Specific version to delete (optional, deletes all versions if omitted)
+                search_string:
+                  type: string
+                  description: Delete all datasets with names containing this string
+      responses:
+        '200':
+          description: Deletion results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_count:
+                    type: integer
+                  deleted:
+                    type: array
+                    items:
+                      type: object
+
+  # VoiceLive Container App endpoints (proxied through Function App)
+  /run_voicelive_audio_tests:
+    post:
+      operationId: run_voicelive_audio_tests
+      summary: Process audio files through VoiceLive
+      description: |
+        Starts a job to process audio files from a dataset through the Azure VoiceLive SDK.
+        This is the first step in a full evaluation: audio → VoiceLive → evaluation dataset.
+        The resulting dataset can then be evaluated using run_voicelive_evaluation.
+        
+        This endpoint proxies to the VoiceLive Container App via the Function App.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - dataset_path
+              properties:
+                dataset_path:
+                  type: string
+                  description: |
+                    Path to dataset in blob storage. Examples:
+                    - "Eiffel_Tower_Visit_1" (folder name)
+                    - "datasets/sample.jsonl" (direct path)
+                session_mode:
+                  type: string
+                  enum: ["per-conversation", "per-file", "single"]
+                  default: "per-conversation"
+                  description: How to group audio files for processing
+                max_workers:
+                  type: integer
+                  default: 4
+                  description: Maximum parallel workers
+                session_config:
+                  type: string
+                  description: |
+                    Name of session configuration to use (e.g., "default", "conf1").
+                    Use list_session_configs to see available configurations.
+      responses:
+        '200':
+          description: Job started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  job_id:
+                    type: string
+                    description: Use this to check status with check_voicelive_job_status
+                  message:
+                    type: string
+
+  /check_voicelive_job_status:
+    post:
+      operationId: check_voicelive_job_status
+      summary: Check VoiceLive audio processing job status
+      description: |
+        Check the status of a VoiceLive audio processing job.
+        When status is 'completed', the output_path contains the evaluation dataset.
+        
+        This endpoint proxies to the VoiceLive Container App via the Function App.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - job_id
+              properties:
+                job_id:
+                  type: string
+                  description: The job_id from run_voicelive_audio_tests
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: ["pending", "running", "completed", "failed"]
+                  progress:
+                    type: object
+                    properties:
+                      total_files:
+                        type: integer
+                      files_processed:
+                        type: integer
+                      percent_complete:
+                        type: number
+                  output_path:
+                    type: string
+                    description: Path to evaluation dataset in outputs container (when completed)
+                  error:
+                    type: string
+                    description: Error message if failed
+
+  # Session Configuration Management
+  /list_session_configs:
+    post:
+      operationId: list_session_configs
+      summary: List VoiceLive session configurations
+      description: |
+        Lists all available VoiceLive session configurations.
+        Each configuration defines model, voice, VAD settings, and audio processing options.
+      responses:
+        '200':
+          description: List of configurations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  configs_found:
+                    type: integer
+                  default_config:
+                    type: string
+                    description: Name of the default configuration
+                  configs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SessionConfig'
+
+  /get_session_config:
+    post:
+      operationId: get_session_config
+      summary: Get a session configuration by name
+      description: Gets detailed information about a specific session configuration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  description: Configuration name (e.g., "default", "conf1")
+      responses:
+        '200':
+          description: Configuration details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  config:
+                    $ref: '#/components/schemas/SessionConfig'
+        '404':
+          description: Configuration not found
+
+  /create_session_config:
+    post:
+      operationId: create_session_config
+      summary: Create a new session configuration
+      description: |
+        Creates a new VoiceLive session configuration with custom settings.
+        Use for setting up different evaluation scenarios (models, VAD types, etc).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionConfigInput'
+      responses:
+        '200':
+          description: Configuration created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  config:
+                    $ref: '#/components/schemas/SessionConfig'
+        '409':
+          description: Configuration already exists
+
+  /update_session_config:
+    post:
+      operationId: update_session_config
+      summary: Update an existing session configuration
+      description: Updates an existing configuration. Only provided fields are updated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionConfigInput'
+      responses:
+        '200':
+          description: Configuration updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  config:
+                    $ref: '#/components/schemas/SessionConfig'
+        '404':
+          description: Configuration not found
+
+  /delete_session_config:
+    post:
+      operationId: delete_session_config
+      summary: Delete a session configuration
+      description: Deletes a session configuration. Cannot delete the 'default' config.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  description: Name of configuration to delete
+      responses:
+        '200':
+          description: Configuration deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  deleted:
+                    type: string
+        '400':
+          description: Cannot delete default configuration
+
+security:
+  - functionKey: []
+
+components:
+  securitySchemes:
+    functionKey:
+      type: apiKey
+      in: query
+      name: code
+      description: Azure Function key for authentication
+  
+  schemas:
+    SessionConfig:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Unique name for the configuration
+        description:
+          type: string
+          description: Human-readable description
+        model:
+          type: string
+          enum: ["gpt-realtime", "gpt-realtime-mini", "gpt-4.1"]
+          description: VoiceLive model to use
+        sample_rate:
+          type: integer
+          enum: [16000, 24000]
+          description: Audio sample rate in Hz
+        voice_name:
+          type: string
+          description: Voice preset name (e.g., "alloy", "echo", "shimmer")
+        voice_type:
+          type: string
+          description: Voice type (default "preset")
+        vad_type:
+          type: string
+          enum: ["server_vad", "azure_semantic_vad_multilingual"]
+          description: Voice Activity Detection type
+        vad_threshold:
+          type: number
+          nullable: true
+          description: VAD sensitivity (0.0-1.0). Null = SDK default.
+        silence_duration_ms:
+          type: integer
+          nullable: true
+          description: Silence duration in ms. Null = SDK default.
+        eou_detection:
+          type: boolean
+          description: Enable End-of-Utterance detection (only for gpt-4.1)
+        eou_model:
+          type: string
+          description: EOU model to use
+        transcription_model:
+          type: string
+          description: Transcription model (auto-selected if not specified)
+        noise_reduction:
+          type: string
+          description: Noise reduction type
+        echo_cancellation:
+          type: string
+          description: Echo cancellation type
+        is_default:
+          type: boolean
+          description: Whether this is the default configuration
+    
+    SessionConfigInput:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Unique name for the configuration
+        description:
+          type: string
+        model:
+          type: string
+          enum: ["gpt-realtime", "gpt-realtime-mini", "gpt-4.1"]
+        sample_rate:
+          type: integer
+          enum: [16000, 24000]
+        voice_name:
+          type: string
+        voice_type:
+          type: string
+        vad_type:
+          type: string
+          enum: ["server_vad", "azure_semantic_vad_multilingual"]
+        vad_threshold:
+          type: number
+          nullable: true
+        silence_duration_ms:
+          type: integer
+          nullable: true
+        eou_detection:
+          type: boolean
+        eou_model:
+          type: string
+        transcription_model:
+          type: string
+        noise_reduction:
+          type: string
+        echo_cancellation:
+          type: string
+        is_default:
+          type: boolean

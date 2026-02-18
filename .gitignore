@@ -440,4 +440,5 @@ raw/
 
 # Ignore outputs and local datasets
 output/
+logs/
 local_datasets/

@@ -1,0 +1,4 @@
+{"WavPath": "audio/greeting.wav", "Question": "Hello, how are you doing today?", "Answer": "Hello! I'm doing well, thank you for asking. How can I assist you today?"}
+{"WavPath": "audio/capital_of_france.wav", "Question": "What is the capital of France?", "Answer": "The capital of France is Paris."}
+{"WavPath": "audio/tallest_mountain.wav", "Question": "What is the tallest mountain in the world?", "Answer": "The tallest mountain in the world is Mount Everest, standing at 8,849 meters (29,032 feet) above sea level."}
+{"WavPath": "audio/goodbye.wav", "Question": "Thanks for your help. Goodbye!", "Answer": "You're welcome! Have a great day. Goodbye!"}

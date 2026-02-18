@@ -1,0 +1,19 @@
+# VoiceLive Evaluation Agent v3 - Requirements
+# Azure AI Projects SDK based implementation (new Foundry Portal)
+
+# Azure AI SDKs
+azure-ai-projects>=1.0.0b8      # Primary SDK for Foundry (new API)
+azure-ai-agents>=1.1.0          # Agent models (FunctionTool, etc.)
+azure-identity>=1.25.1
+azure-core>=1.36.0
+
+# Azure Blob Storage (for cloud mode)
+azure-storage-blob>=12.19.0
+
+# Environment configuration
+python-dotenv>=1.0.0
+
+# Tracing and Monitoring
+opentelemetry-sdk>=1.20.0
+azure-core-tracing-opentelemetry>=1.0.0b11
+azure-monitor-opentelemetry>=1.6.0  # App Insights integration
