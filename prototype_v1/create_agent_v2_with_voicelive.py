@@ -47,15 +47,12 @@ voice_live_config = {
             "temperature": 0.8
         },
         "input_audio_transcription": {
-            "model": "azure-speech",
-            "language": "en-US"
+            "model": "azure-speech"
         },
         "turn_detection": {
             "type": "azure_semantic_vad",
             "end_of_utterance_detection": {
-                "model": "semantic_detection_v1_multilingual",
-                "end_of_utterance_timeout_ms": 2000,
-                "include_non_speech": True
+                "model": "semantic_detection_v1_multilingual"
             }
         },
         "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
