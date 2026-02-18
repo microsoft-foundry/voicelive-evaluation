@@ -242,9 +242,9 @@ python test_agent_cloud.py --list-tests
 | Tool | Description |
 |------|-------------|
 | `list_datasets` | List datasets from both stores (voicelive/evaluation/all) |
-| `check_dataset_schema` | Detect dataset type and list fields |
+| `check_dataset_schema` | Detect dataset type and list fields (supports blob paths, Foundry names, `azureai://` URIs) |
 | `validate_voicelive_dataset` | Validate VoiceLive audio dataset (WavPath required) |
-| `validate_eval_dataset` | Validate evaluation-ready dataset (query/response required) |
+| `validate_eval_dataset` | Validate evaluation-ready dataset (supports blob paths, Foundry names, `azureai://` URIs) |
 | `validate_dataset_consistency` | Backward-compat alias for validate_voicelive_dataset |
 | `validate_dataset_quality` | ADVISORY content quality check |
 
@@ -260,7 +260,9 @@ python test_agent_cloud.py --list-tests
 | Tool | Description |
 |------|-------------|
 | `run_voicelive_audio_tests` | Process audio files through VoiceLive SDK |
-| `check_voicelive_job_status` | Poll audio processing job status |
+| `check_voicelive_job_status` | Check audio processing job status (auto-registers output as Foundry dataset) |
+
+> **Note:** The agent cannot autonomously poll for status updates. When checking job or evaluation status, ask the agent explicitly — it will not loop or track status on its own.
 
 ### Foundry Evaluation (Azure Functions)
 
@@ -481,7 +483,7 @@ After `azd up`, the following resources are created:
 | AI Services Account | `ai-<token>` - Foundry account (if CREATE_FOUNDRY=true) |
 | Foundry Project | `<env-name>` - AI project with model deployments |
 | Storage Account | `st<token>` - datasets/, outputs/, tables |
-| Function App | `func-<token>` - 20+ HTTP endpoints |
+| Function App | `func-<token>` - 23 HTTP endpoints |
 | Container App | `ca-voicelive-<token>` - VoiceLive processor |
 | Container Registry | `acr<token>` - Docker images |
 | App Insights | `func-<token>-insights` - Telemetry |
