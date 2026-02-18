@@ -276,6 +276,112 @@ def upload_results(local_path: str, blob_path: str) -> str:
     return blob_client.url
 
 
+def _parse_foundry_dataset_ref(dataset_path: str) -> tuple:
+    """Parse a Foundry dataset URI or name into (name, version).
+    
+    Supports:
+    - "azureai://accounts/.../data/{name}/versions/{version}"
+    - Plain dataset name like "eval_ready_test" (resolves to latest)
+    
+    Returns (name, version) or (None, None) if not a Foundry reference.
+    """
+    import re
+    
+    # Foundry URI pattern: azureai://accounts/.../data/{name}/versions/{version}
+    match = re.search(r'/data/([^/]+)/versions/(\d+)', dataset_path)
+    if match:
+        return match.group(1), match.group(2)
+    
+    # Also match azureai:// without version
+    if dataset_path.startswith("azureai://"):
+        match = re.search(r'/data/([^/]+)', dataset_path)
+        if match:
+            return match.group(1), None
+    
+    return None, None
+
+
+def _download_dataset_flexible(dataset_path: str) -> str:
+    """Download dataset from blob storage or Foundry Data Store.
+    
+    Detects Foundry dataset URIs (azureai://...) and plain Foundry dataset
+    names, downloads via Foundry credentials. Falls back to blob storage.
+    
+    Returns path to local temp file.
+    """
+    # Check for Foundry dataset reference
+    foundry_name, foundry_version = _parse_foundry_dataset_ref(dataset_path)
+    
+    if foundry_name:
+        return _download_foundry_dataset(foundry_name, foundry_version)
+    
+    # Check if this is a Foundry dataset name (no path separators, no extension)
+    # Try Foundry first if it looks like a plain name
+    if '/' not in dataset_path and '\\' not in dataset_path and not dataset_path.endswith('.jsonl'):
+        try:
+            return _download_foundry_dataset(dataset_path, None)
+        except Exception:
+            pass  # Fall through to blob storage
+    
+    # Default: blob storage
+    return download_dataset(dataset_path)
+
+
+def _download_foundry_dataset(name: str, version: str = None) -> str:
+    """Download a dataset from Foundry Data Store to a temp file."""
+    import tempfile
+    
+    project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT") or os.environ.get("PROJECT_ENDPOINT")
+    if not project_endpoint:
+        raise ValueError("PROJECT_ENDPOINT not configured — cannot download Foundry datasets")
+    
+    from azure.ai.projects import AIProjectClient
+    
+    project_client = AIProjectClient(
+        credential=DefaultAzureCredential(),
+        endpoint=project_endpoint
+    )
+    
+    # Resolve version if not provided
+    if not version:
+        versions = list(project_client.datasets.list_versions(name=name))
+        if not versions:
+            raise ValueError(f"Foundry dataset '{name}' not found")
+        version = str(max(int(v.version) for v in versions))
+    
+    # Get download credentials (SAS URL)
+    creds = project_client.datasets.get_credentials(name=name, version=version)
+    creds_dict = creds.as_dict()
+    
+    # Extract SAS-authenticated blob URI
+    blob_ref = creds_dict.get("blobReferenceForConsumption") or creds_dict.get("blobReference", {})
+    blob_uri = blob_ref.get("blobUri")
+    sas_uri = blob_ref.get("credential", {}).get("sasUri")
+    
+    if not blob_uri:
+        raise ValueError(f"Could not get download URI for Foundry dataset '{name}' v{version}")
+    
+    # Build download URL: blob URI + SAS token from container SAS
+    if sas_uri:
+        # Extract SAS token from container SAS URI
+        sas_token = sas_uri.split("?", 1)[1] if "?" in sas_uri else ""
+        download_url = f"{blob_uri}?{sas_token}" if sas_token else blob_uri
+    else:
+        download_url = blob_uri
+    
+    # Download to temp file
+    import httpx as _httpx
+    resp = _httpx.get(download_url)
+    resp.raise_for_status()
+    
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl", mode="wb")
+    tmp.write(resp.content)
+    tmp.close()
+    
+    logging.info(f"Downloaded Foundry dataset '{name}' v{version} ({len(resp.content)} bytes)")
+    return tmp.name
+
+
 # =============================================================================
 # Config Journal & Eval Group Naming
 # =============================================================================
@@ -1156,8 +1262,8 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json"
             )
         
-        # Download from blob if needed
-        local_path = download_dataset(dataset_path)
+        # Download from blob or Foundry
+        local_path = _download_dataset_flexible(dataset_path)
         
         # Field groups for type detection
         voicelive_fields = {"WavPath": 0, "audio": 0, "Question": 0, "Answer": 0,
@@ -1430,6 +1536,11 @@ def validate_eval_dataset(req: func.HttpRequest) -> func.HttpResponse:
     
     This validates datasets intended for direct Foundry evaluation,
     NOT VoiceLive audio datasets. Use validate_voicelive_dataset for audio.
+    
+    Accepts:
+    - Blob storage paths (e.g., "eval_ready_test.jsonl")
+    - Foundry dataset URIs (e.g., "azureai://accounts/.../data/name/versions/1")
+    - Foundry dataset names (e.g., "eval_ready_test" — resolves latest version)
     """
     logging.info("validate_eval_dataset called")
     
@@ -1444,7 +1555,8 @@ def validate_eval_dataset(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json"
             )
         
-        local_path = download_dataset(dataset_path)
+        # Detect Foundry dataset reference and download from Foundry
+        local_path = _download_dataset_flexible(dataset_path)
         
         errors = []
         warnings = []
