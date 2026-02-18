@@ -21,7 +21,7 @@ load_dotenv()
 DEFAULT_AGENT_NAME = "voicelive-evaluation-agent-cloud"
 DEFAULT_ENDPOINT = os.environ.get(
     "AZURE_AI_PROJECT_ENDPOINT",
-    "https://jagoerge-voicelive-sec-resource.services.ai.azure.com/api/projects/jagoerge-voicelive-sec"
+    "https://ai-3x6t3c6zpbsr6.services.ai.azure.com/api/projects/voicelive-e2e-test"
 )
 
 

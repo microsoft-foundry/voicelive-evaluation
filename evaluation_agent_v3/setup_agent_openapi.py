@@ -371,11 +371,18 @@ def update_agent_with_openapi(function_url: str, function_key: str = None, entra
     print(f"  Model: {agent_model}")
     print(f"  Auth: {auth_desc}")
     
-    # Create new version instead of updating
+    # Create new version with 'latest' label so Responses API can find it.
+    # The SDK's create_version() doesn't expose version_label as a kwarg,
+    # so we serialize the definition to a dict and add version_label.
+    def_dict = agent_def.as_dict()
+    body = {
+        "definition": def_dict,
+        "description": "VoiceLive Evaluation Agent with config management tools",
+        "version_label": "latest",
+    }
     agent = client.agents.create_version(
         agent_name=AGENT_NAME,
-        definition=agent_def,
-        description="VoiceLive Evaluation Agent with config management tools",
+        body=body,
     )
     
     print(f"\n[OK] Agent version created successfully!")
