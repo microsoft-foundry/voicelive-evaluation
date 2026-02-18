@@ -39,7 +39,7 @@ Two deployment modes are supported:
 #### Option A: Create New Foundry Project (Default)
 
 ```bash
-cd evaluation_agent_v3
+cd evaluation_agent
 
 # Login
 az login
@@ -58,7 +58,7 @@ This creates an AI Services account, Foundry project, model deployments (gpt-4.1
 #### Option B: Use Existing Foundry Project
 
 ```bash
-cd evaluation_agent_v3
+cd evaluation_agent
 
 az login
 azd auth login
@@ -385,7 +385,7 @@ Stored in Foundry Data Store (versioned). Ready for direct Foundry evaluation.
 ## File Structure
 
 ```
-evaluation_agent_v3/
+evaluation_agent/
 ├── deploy/
 │   ├── azure-functions/           # Azure Functions code
 │   │   ├── function_app.py        # 23 function endpoints

@@ -23,7 +23,7 @@ User → Foundry Portal → Agent → HTTP Call → Azure Functions → Blob Sto
 
 ```bash
 # 1. Deploy Azure Functions
-cd evaluation_agent_v3/deploy/azure-functions
+cd evaluation_agent/deploy/azure-functions
 func azure functionapp publish <your-function-app-name>
 
 # 2. Configure Function App settings (Azure Portal or CLI)
@@ -36,7 +36,7 @@ az functionapp config appsettings set \
     AZURE_STORAGE_OUTPUTS_CONTAINER=outputs
 
 # 3. Create agent with OpenAPI tools
-cd evaluation_agent_v3
+cd evaluation_agent
 python setup_agent_openapi.py \
   --function-url https://<your-function-app-name>.azurewebsites.net/api \
   --function-key <your-function-key>
@@ -49,7 +49,7 @@ python setup_agent_openapi.py \
 Simply run the runner on your machine:
 
 ```bash
-cd evaluation_agent_v3
+cd evaluation_agent
 cp .env.sample .env
 # Edit .env with your values
 python runner.py
