@@ -1060,17 +1060,17 @@ Note: Phase 2 is lower priority now because auto-registration in `check_voiceliv
 
 ### Known Limitations
 1. **No autonomous polling** - The Foundry Agent Service (Responses API) can call multiple tools within a single turn, but **cannot autonomously initiate new turns or wait between tool calls**. When the agent says "I'll keep checking the status", it actually ends the turn and waits for the user to ask again. The 10-minute run timeout also prevents long polling loops within a turn. **Workaround**: Agent instructions now tell the user to ask for status updates manually. Future improvement: add webhook/callback notifications for long-running jobs.
-2. **Metrics sometimes empty** - Foundry SDK may not return metrics immediately after completion
-3. **Container App auth** - Uses Entra ID EasyAuth with app registration `voicelive-container-app-auth` (07421757-...)
-4. **eval_group_id reuse** - Only works within same Foundry project
-5. **Evaluation datasets use Foundry native versioning** - Same name creates new version automatically
+2. **Metrics sometimes empty** - Foundry SDK may not return metrics immediately after run completion. No retry/backoff on metrics retrieval yet.
+3. **Container App auth** - Uses Entra ID EasyAuth with app registration `voicelive-container-app-auth` (07421757-...). This is operational, not a bug.
+4. **eval_group_id reuse** - Only works within same Foundry project. This is a design constraint, not a bug.
+5. **Evaluation datasets use Foundry native versioning** - Same name creates new version automatically. This is by design.
 6. **azd Container App push** - `azd deploy` may get stuck pushing Container App image to ACR; workaround: `docker build` → `docker push` → `az containerapp update` manually
 7. **Cognitive Services soft-delete** - Deleting an AI Services account soft-deletes it; recreating with same name requires `az cognitiveservices account purge` first
 8. **ARM role assignment idempotency** - `Microsoft.Authorization/roleAssignments` in Bicep can throw `RoleAssignmentExists` on re-provision; all service RBAC is done via PowerShell scripts instead
-9. **~~Foundry dataset URI in validate_eval_dataset~~** — ✅ Fixed. Both `validate_eval_dataset` and `check_dataset_schema` now resolve Foundry URIs (`azureai://...`), plain Foundry dataset names, and blob paths.
+9. ~~**Foundry dataset URI in validate_eval_dataset**~~ — ✅ Fixed. Both `validate_eval_dataset` and `check_dataset_schema` now resolve Foundry URIs (`azureai://...`), plain Foundry dataset names, and blob paths.
 
 ### Future Improvements
-1. **Managed Identity auth for Foundry → Function App** - Replace function key connection with Entra ID managed identity auth. Requires a separate app registration for the Function App with EasyAuth enabled, then update agent to use `OpenApiManagedAuthDetails` with the Function App's audience. App registration `voicelive-container-app-auth` is for Container App only.
+1. **Managed Identity auth for Foundry → Function App** - Code path exists (`--entra-auth --client-id` in `setup_agent_openapi.py` using `OpenApiManagedAuthDetails`), but deployment currently uses connection-based API key auth via `postdeploy.ps1`. Activating requires: create a separate app registration for the Function App, enable EasyAuth on Function App, update postdeploy to use `--entra-auth` instead of `--connection-name`.
 2. **Private VNet architecture** - All backend services (Functions, Container App, Storage) on private endpoints for enhanced security
 
 ### SDK Limitations (Confirmed via Source Review)
