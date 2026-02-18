@@ -426,7 +426,7 @@ graph LR
     
     A --> B
     B --> C1
-    B -.->|Future: direct upload| C2
+    B -.->|Auto-registers on completion| C2
     C1 -->|Current: Function uploads| C2
     C2 --> D
 ```
@@ -1024,19 +1024,19 @@ sequenceDiagram
 - [x] **Track lineage metadata** — `_register_voicelive_output_as_foundry_dataset` sets `description=f"VoiceLive processing output (job: {job_id})"`. Run metadata includes `instance_id`, `source`, `dataset_version`, `evaluators`. Config journal tracks eval group → session config mapping.
 - [x] **Return version info** — `run_foundry_evaluation` returns `dataset_id`, `dataset_version`, `eval_group_id`, `eval_run_id`, `portal_url`. Auto-register returns `foundry_dataset_id`, `name`, `version`. Upload finalize returns `foundry_dataset_id`, `version`.
 
-#### Phase 2: Move Upload to Container App (Future, Lower Priority Now)
-- [ ] **Add Foundry SDK to Container App** — Install azure-ai-projects, configure PROJECT_ENDPOINT
-- [ ] **Upload to Foundry after processing** — Container App uploads directly to Foundry Data Store after VoiceLive processing completes (eliminates the blob→Foundry copy hop in Function App)
-- [ ] **Update Function App** — Remove upload logic, use dataset_id provided by Container App
-- [ ] **Update agent workflow** — Chain: Container App (returns dataset_id) → Function App (uses dataset_id)
-
-Note: Phase 2 is lower priority now because auto-registration in `check_voicelive_job_status` achieves the same result. Phase 2 would eliminate the intermediate blob copy, which is a performance optimization rather than a functional gap.
+#### ~~Phase 2: Move Upload to Container App~~ ✅ Achieved
+Auto-registration in `check_voicelive_job_status` achieves the same result — Function App registers VoiceLive output as Foundry dataset on job completion via `_register_voicelive_output_as_foundry_dataset()`. No intermediate copy needed.
 
 ### Other High Priority
 - [x] **Add RBAC assignments to azd automation** - Post-provision hook assigns Azure AI Developer + Cognitive Services User roles
 - [x] **Fix VoiceLive Container App progress tracking** - Per-file progress updates via callback in process_conversation
 - [x] **Add Foundry connection creation to azd** - Post-provision hook creates CustomKeys connection via ARM
 - [ ] **Add webhook notifications** - Notify when long evaluations complete
+
+### Feature Backlog
+- [ ] **VAD Default End Detection** — Change VoiceLive processor default to NOT send `audio_input_finished` event; rely on VAD to detect end of audio input (simulates real-world voice interaction)
+- [ ] **Push-to-Talk Flag** — Add optional `--push-to-talk` flag to enable explicit `audio_input_finished` event (current behavior), for push-to-talk scenario evaluation. Depends on VAD default change.
+- [ ] **Blob Output Cleanup** — Endpoint to delete old VoiceLive output blobs from the `outputs` container (Foundry dataset and eval group deletion already implemented)
 
 ### Medium Priority
 - [x] **Add Foundry account/project creation to azd** - Creates AI Services account, Foundry project, and model deployments via Bicep
@@ -1072,6 +1072,7 @@ Note: Phase 2 is lower priority now because auto-registration in `check_voiceliv
 ### Future Improvements
 1. **Managed Identity auth for Foundry → Function App** - Code path exists (`--entra-auth --client-id` in `setup_agent_openapi.py` using `OpenApiManagedAuthDetails`), but deployment currently uses connection-based API key auth via `postdeploy.ps1`. Activating requires: create a separate app registration for the Function App, enable EasyAuth on Function App, update postdeploy to use `--entra-auth` instead of `--connection-name`.
 2. **Private VNet architecture** - All backend services (Functions, Container App, Storage) on private endpoints for enhanced security
+3. **VAD-based end detection** - Change default from sending explicit `audio_input_finished` to relying on VAD; add `--push-to-talk` flag for current behavior
 
 ### SDK Limitations (Confirmed via Source Review)
 
