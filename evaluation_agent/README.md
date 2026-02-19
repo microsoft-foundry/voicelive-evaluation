@@ -225,6 +225,45 @@ python test_agent_cloud.py --list-tests
 
 **Available tests**: `list_datasets`, `list_evaluators`, `list_session_configs`, `check_dataset_schema`, `validate_dataset`, `list_evaluation_groups`, `streaming`
 
+## Evaluation Pipeline Flow
+
+The evaluation pipeline is a **two-phase process** with clear ownership boundaries:
+
+### Phase 1: VoiceLive Audio Processing (Container App)
+
+```
+run_voicelive_audio_tests → Container App → VoiceLive SDK → blob storage
+```
+
+1. Function App proxy (`run_voicelive_audio_tests`) resolves session config and forwards to Container App
+2. Container App downloads audio dataset from `datasets/` container
+3. Container App sends each audio file to VoiceLive SDK, collects transcriptions and responses
+4. Results JSONL + metadata uploaded to `outputs/voicelive_jobs/{job_id}/`
+
+**Output**: JSONL with `query` (transcription), `response` (agent reply), `ground_truth`, processing metadata
+
+### Phase 2: Foundry Evaluation (Function App)
+
+```
+run_voicelive_evaluation → download blob results → Foundry dataset → eval group → evaluators → portal URL
+```
+
+1. Function App downloads results JSONL from blob storage (or accepts evaluation-ready JSONL directly)
+2. Uploads dataset to Foundry via `datasets.upload_file()`
+3. Creates or reuses an eval group (`evaluations.create()`)
+4. Runs Foundry evaluators (coherence, fluency, intent resolution, task adherence)
+5. Polls for completion and returns metrics summary + Foundry portal URL
+
+**Output**: Eval group with runs visible in [AI Foundry portal](https://ai.azure.com), metrics, portal URL
+
+### Comparison Workflow (PTT vs VAD)
+
+To compare push-to-talk vs VAD on the same dataset:
+
+1. Run Phase 1 twice with different session configs (`push-to-talk` and `default`)
+2. Run Phase 2 on each result, passing the same `eval_group_id` to group runs together
+3. Compare metrics side-by-side in the Foundry portal
+
 ## Available Tools
 
 ### Session Configuration Management
@@ -259,8 +298,10 @@ python test_agent_cloud.py --list-tests
 
 | Tool | Description |
 |------|-------------|
-| `run_voicelive_audio_tests` | Process audio files through VoiceLive SDK |
-| `check_voicelive_job_status` | Check audio processing job status (auto-registers output as Foundry dataset) |
+| `run_voicelive_audio_tests` | Process audio files through VoiceLive SDK (results saved to blob storage) |
+| `check_voicelive_job_status` | Check audio processing job status |
+
+> **Note:** The Container App only writes results to blob storage (`outputs/voicelive_jobs/{job_id}/`). It does **not** upload to Foundry. Use `run_voicelive_evaluation` to create Foundry datasets and run evaluators on the results.
 
 > **Note:** The agent cannot autonomously poll for status updates. When checking job or evaluation status, ask the agent explicitly — it will not loop or track status on its own.
 
@@ -268,7 +309,7 @@ python test_agent_cloud.py --list-tests
 
 | Tool | Description |
 |------|-------------|
-| `run_voicelive_evaluation` | Run Foundry evaluators on dataset |
+| `run_voicelive_evaluation` | Full evaluation pipeline: download blob results → upload Foundry dataset → create eval group → run Foundry evaluators → return portal URL |
 | `check_evaluation_status` | Poll evaluation job status |
 | `get_evaluation_recommendations` | Get settings for large datasets |
 | `analyze_evaluation_results` | Analyze completed evaluation |

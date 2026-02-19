@@ -275,7 +275,7 @@ flowchart TD
         G --> H["Output → blob outputs/voicelive_jobs/{job_id}/"]
     end
 
-    subgraph Register["3. Auto-Registration"]
+    subgraph Register["3. Auto-Registration (best-effort)"]
         H --> I[check_voicelive_job_status]
         I --> J{status = completed?}
         J -- Yes --> K[Download from blob outputs/]
@@ -284,14 +284,14 @@ flowchart TD
         J -- No --> N[Return status: running]
     end
 
-    subgraph Evaluate["4. Foundry Evaluation"]
+    subgraph Evaluate["4. Foundry Evaluation (run_voicelive_evaluation)"]
         M --> O[run_voicelive_evaluation]
         O --> P{foundry_dataset_id<br/>provided?}
         P -- Yes --> Q[Reuse existing Foundry dataset]
-        P -- No --> R["Download from blob → Upload to Foundry<br/>(fallback)"]
-        Q --> S[Run Foundry evaluators]
+        P -- No --> R["Download from blob → Upload to Foundry<br/>(always works)"]
+        Q --> S["Create/reuse eval group → Run evaluators"]
         R --> S
-        S --> T[Results in Foundry Portal]
+        S --> T["Results + portal URL in Foundry Portal"]
     end
 
     style Upload fill:#e6f3ff,stroke:#333
@@ -677,7 +677,7 @@ Fields: EvalGroupId, Model, Voice, VadThreshold, EndOfSpeechTimeout, CreatedAt
 | `validate_dataset_consistency` | HTTP | Backward-compat alias for validate_voicelive_dataset |
 | `validate_dataset_quality` | HTTP | Assess content quality (either type) |
 | `get_evaluation_recommendations` | HTTP | Suggest settings for large datasets |
-| `run_voicelive_evaluation` | HTTP+Durable | Start async Foundry evaluation |
+| `run_voicelive_evaluation` | HTTP+Durable | Full eval pipeline: download blob results → upload Foundry dataset → create/reuse eval group → run evaluators → return portal URL |
 | `check_evaluation_status` | HTTP | Poll evaluation status |
 | `analyze_evaluation_results` | HTTP | Analyze completed results |
 | `list_evaluation_groups` | HTTP | List Foundry eval groups |
@@ -894,24 +894,26 @@ sequenceDiagram
     User->>Agent: "Check the job status"
     
     rect rgb(220, 240, 200)
-        Note over Agent,FD: Phase 2: Auto-Registration
+        Note over Agent,FD: Phase 2: Auto-Registration (best-effort)
         Agent->>CA: POST /check_voicelive_job_status
         CA-->>Functions: {status: "completed", output_path}
         Functions->>Blob: Download from outputs/
         Functions->>FD: Auto-register as Foundry dataset
         Functions-->>Agent: {status: completed, foundry_dataset: {foundry_dataset_id, version}}
+        Note over Functions: Auto-registration may silently fail<br/>(e.g. Container App scaled to 0)
     end
     
     Agent-->>User: "Audio complete! Output registered as Foundry dataset. Run evaluation?"
     User->>Agent: "Yes, run evaluation"
     
     rect rgb(240, 220, 240)
-        Note over Agent,Foundry: Phase 3: Foundry Evaluation (reuses dataset)
-        Agent->>Functions: POST /run_voicelive_evaluation<br/>{foundry_dataset_id: "...from step 2..."}
-        Note over Functions: Skips re-upload, reuses Foundry dataset
-        Functions->>Foundry: Run evaluators
-        Foundry-->>Functions: Metrics
-        Functions-->>Agent: {portal_url, metrics_summary}
+        Note over Agent,Foundry: Phase 3: Foundry Evaluation
+        Agent->>Functions: POST /run_voicelive_evaluation<br/>{dataset_path: "voicelive_jobs/{id}/results.jsonl"}
+        Functions->>Blob: Download results JSONL
+        Functions->>FD: Upload as Foundry dataset (if no foundry_dataset_id)
+        Functions->>Foundry: Create/reuse eval group + run evaluators
+        Foundry-->>Functions: Metrics + portal URL
+        Functions-->>Agent: {portal_url, metrics_summary, eval_group_id}
     end
     
     Agent-->>User: "Complete! Portal: https://ai.azure.com/..."
@@ -1024,8 +1026,8 @@ sequenceDiagram
 - [x] **Track lineage metadata** — `_register_voicelive_output_as_foundry_dataset` sets `description=f"VoiceLive processing output (job: {job_id})"`. Run metadata includes `instance_id`, `source`, `dataset_version`, `evaluators`. Config journal tracks eval group → session config mapping.
 - [x] **Return version info** — `run_foundry_evaluation` returns `dataset_id`, `dataset_version`, `eval_group_id`, `eval_run_id`, `portal_url`. Auto-register returns `foundry_dataset_id`, `name`, `version`. Upload finalize returns `foundry_dataset_id`, `version`.
 
-#### ~~Phase 2: Move Upload to Container App~~ ✅ Achieved
-Auto-registration in `check_voicelive_job_status` achieves the same result — Function App registers VoiceLive output as Foundry dataset on job completion via `_register_voicelive_output_as_foundry_dataset()`. No intermediate copy needed.
+#### ~~Phase 2: Move Upload to Container App~~ ✅ Partially Achieved
+Auto-registration in `check_voicelive_job_status` attempts Foundry dataset upload on job completion via `_register_voicelive_output_as_foundry_dataset()`. However, this is **best-effort** — it silently fails if the Container App has scaled to zero before status is checked. The `run_voicelive_evaluation` pipeline handles its own Foundry dataset upload as the reliable path.
 
 ### Other High Priority
 - [x] **Add RBAC assignments to azd automation** - Post-provision hook assigns Azure AI Developer + Cognitive Services User roles
@@ -1068,11 +1070,13 @@ Auto-registration in `check_voicelive_job_status` achieves the same result — F
 7. **Cognitive Services soft-delete** - Deleting an AI Services account soft-deletes it; recreating with same name requires `az cognitiveservices account purge` first
 8. **ARM role assignment idempotency** - `Microsoft.Authorization/roleAssignments` in Bicep can throw `RoleAssignmentExists` on re-provision; all service RBAC is done via PowerShell scripts instead
 9. ~~**Foundry dataset URI in validate_eval_dataset**~~ — ✅ Fixed. Both `validate_eval_dataset` and `check_dataset_schema` now resolve Foundry URIs (`azureai://...`), plain Foundry dataset names, and blob paths.
+10. **BUG: Eval group comparison runs create separate groups** - When running PTT vs VAD comparison evaluations, `run_voicelive_evaluation` creates a new eval group per run (using `name` only). The Foundry eval group unique identifier is the `id` (e.g., `eval_xxx`), not the name. To group multiple runs for comparison, the first run's `eval_group_id` must be passed to subsequent runs. **Fix needed**: Return `eval_group_id` from first run, accept it as input to subsequent runs.
+11. **Auto-registration is best-effort** - `check_voicelive_job_status` attempts to register VoiceLive output as a Foundry dataset, but silently fails if the Container App has scaled to zero before status is polled. The `run_voicelive_evaluation` pipeline handles its own upload as the reliable path.
 
 ### Future Improvements
 1. **Managed Identity auth for Foundry → Function App** - Code path exists (`--entra-auth --client-id` in `setup_agent_openapi.py` using `OpenApiManagedAuthDetails`), but deployment currently uses connection-based API key auth via `postdeploy.ps1`. Activating requires: create a separate app registration for the Function App, enable EasyAuth on Function App, update postdeploy to use `--entra-auth` instead of `--connection-name`.
 2. **Private VNet architecture** - All backend services (Functions, Container App, Storage) on private endpoints for enhanced security
-3. **VAD-based end detection** - Change default from sending explicit `audio_input_finished` to relying on VAD; add `--push-to-talk` flag for current behavior
+3. ~~**VAD-based end detection**~~ ✅ Implemented - Default behavior now uses VAD (no explicit `audio_input_finished`). `push_to_talk` flag enables explicit commit for comparison testing.
 
 ### SDK Limitations (Confirmed via Source Review)
 
