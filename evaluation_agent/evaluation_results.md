@@ -8,12 +8,44 @@ Push-to-Talk (PTT) sends an explicit `audio_input_finished` event after each aud
 
 | Setting | Value |
 |---------|-------|
-| VoiceLive Model | `gpt-realtime` |
+| VoiceLive Model | `gpt-4.1` |
 | Voice | `alloy` (OpenAI preset) |
 | API Version | `2026-01-01-preview` |
 | SDK Version | `azure-ai-voicelive 1.2.0b4` |
 | Session Mode | `per-conversation` |
 | Foundry Evaluators | intent_resolution, task_adherence, task_completion, response_completeness, groundedness, relevance, tool_call_accuracy, tool_selection, tool_input_accuracy, tool_output_utilization |
+
+### Session Configurations Used
+
+#### `default` (VAD mode)
+
+| Parameter | Value |
+|-----------|-------|
+| `model` | `gpt-4.1` |
+| `voice_name` / `voice_type` | `alloy` / `preset` (OpenAIVoice) |
+| `sample_rate` | 24000 Hz |
+| `transcription_model` | `azure-speech` |
+| `vad_type` | `azure_semantic_vad_multilingual` |
+| `eou_detection` / `eou_model` | `true` / `azure_semantic_v1_multilingual` |
+| `noise_reduction` | `azure_deep_noise_suppression` |
+| `echo_cancellation` | `server_echo_cancellation` |
+| **`push_to_talk`** | **`false`** — relies on VAD silence detection to end each turn |
+
+#### `push-to-talk` (PTT mode)
+
+| Parameter | Value |
+|-----------|-------|
+| `model` | `gpt-4.1` |
+| `voice_name` / `voice_type` | `alloy` / `preset` (OpenAIVoice) |
+| `sample_rate` | 24000 Hz |
+| `transcription_model` | `gpt-4o-transcribe` |
+| `vad_type` | `azure_semantic_vad_multilingual` |
+| `eou_detection` / `eou_model` | `true` / `azure_semantic_v1_multilingual` |
+| `noise_reduction` | `azure_deep_noise_suppression` |
+| `echo_cancellation` | `server_echo_cancellation` |
+| **`push_to_talk`** | **`true`** — sends explicit `audio_input_finished` + `commit()` after each audio chunk |
+
+> **Note**: Both configs share identical VAD/audio settings. The only behavioral differences are `push_to_talk` (controls end-of-turn signaling) and `transcription_model` (`azure-speech` vs `gpt-4o-transcribe`).
 
 ### Datasets
 
