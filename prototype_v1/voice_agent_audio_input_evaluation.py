@@ -867,7 +867,10 @@ def main() -> None:
     file_handler = logging.FileHandler(f'logs/{ts}_voicelive_eval.log', mode='w', encoding='utf-8')
     file_handler.setLevel(log_level)
     file_handler.setFormatter(logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s'))
-    logging.basicConfig(level=log_level, format='%(asctime)s:%(name)s:%(levelname)s:%(message)s', handlers=[file_handler])
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s'))
+    logging.basicConfig(level=log_level, format='%(asctime)s:%(name)s:%(levelname)s:%(message)s', handlers=[file_handler, console_handler])
 
     # Load env
     load_dotenv(override=True)
