@@ -128,6 +128,7 @@ class ConversationTurn:
     assistant_audio_received: bool = False
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     tool_results: List[Dict[str, Any]] = field(default_factory=list)
+    response_audio_chunks: List[bytes] = field(default_factory=list)
 
     # Timing
     audio_send_end_time: Optional[datetime] = None
@@ -491,6 +492,11 @@ async def process_audio(
                     if turn.first_audio_response_time is None:
                         turn.first_audio_response_time = datetime.now()
                         turn.assistant_audio_received = True
+                    if hasattr(event, 'delta') and event.delta:
+                        try:
+                            turn.response_audio_chunks.append(base64.b64decode(event.delta))
+                        except Exception:
+                            pass  # Skip malformed audio chunks
 
                 elif etype == ServerEventType.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE:
                     if hasattr(event, 'call_id') and hasattr(event, 'arguments'):
@@ -789,6 +795,11 @@ async def process_conversation(
             if eval_output_file:
                 _append_jsonl(eval_output_file, result)
 
+            # Save response audio as WAV
+            if turn.response_audio_chunks:
+                audio_out_dir = os.path.join(output_dir, entry.conversation_id)
+                save_response_audio(turn, audio_out_dir, entry.conversation_id, conv_config.sample_rate)
+
             # Update conversation history for subsequent turns
             turn_messages: List[Dict[str, Any]] = []
             user_text = sanitize_text_for_utf8(turn.user_transcription)
@@ -838,6 +849,28 @@ def _append_jsonl(path: str, record: Dict[str, Any]) -> None:
 # Output
 # ---------------------------------------------------------------------------
 
+def save_response_audio(
+    turn: ConversationTurn,
+    output_dir: str,
+    conversation_id: str,
+    sample_rate: int = 24000,
+) -> Optional[str]:
+    """Save response audio chunks as a WAV file. Returns path or None."""
+    if not turn.response_audio_chunks:
+        return None
+    os.makedirs(output_dir, exist_ok=True)
+    filename = f"turn_{turn.turn_number:02d}_response.wav"
+    wav_path = os.path.join(output_dir, filename)
+    pcm_data = b"".join(turn.response_audio_chunks)
+    with wave.open(wav_path, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)  # 16-bit PCM
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_data)
+    logger.info(f"Saved response audio: {wav_path} ({len(pcm_data)} bytes)")
+    return wav_path
+
+
 def write_results(results: List[Dict[str, Any]], output_dir: str, dataset_name: str) -> str:
     """Write results as a JSONL file and return the path."""
     os.makedirs(output_dir, exist_ok=True)
@@ -847,6 +880,53 @@ def write_results(results: List[Dict[str, Any]], output_dir: str, dataset_name: 
         for r in results:
             f.write(json.dumps(r, ensure_ascii=False) + '\n')
     logger.info(f"Results written to {out_path} ({len(results)} entries)")
+    return out_path
+
+
+def write_operational_summary(
+    results: List[Dict[str, Any]],
+    output_dir: str,
+    expected_turns: int,
+    session_timestamp: str,
+    session_suffix: Optional[str] = None,
+    evaluation_enabled: bool = False,
+) -> str:
+    """Write operational_summary JSON matching the old prototype format."""
+    actual_turns = len(results)
+    audio_count = sum(
+        1 for r in results
+        if r.get("metrics", {}).get("audio_response_received", False)
+    )
+    text_only = sum(
+        1 for r in results
+        if not r.get("metrics", {}).get("audio_response_received", False)
+        and r.get("response") and not r.get("error")
+    )
+    summary = {
+        "operational_metrics": {
+            "turns_processed": f"{actual_turns}/{expected_turns}",
+            "expected_turns": expected_turns,
+            "actual_turns": actual_turns,
+            "vad_splitting_detected": actual_turns > expected_turns,
+            "turn_expansion_factor": round(actual_turns / expected_turns, 2) if expected_turns > 0 else 0,
+            "turns_with_audio_response": audio_count,
+            "turns_with_text_only_response": text_only,
+            "audio_response_rate": round(audio_count / actual_turns, 2) if actual_turns > 0 else 0,
+        },
+        "session_info": {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "evaluation_mode": "enabled" if evaluation_enabled else "disabled",
+            "session_id": session_timestamp,
+            "session_suffix": session_suffix or "",
+        },
+    }
+    os.makedirs(output_dir, exist_ok=True)
+    suffix_part = f"_{session_suffix}" if session_suffix else ""
+    filename = f"operational_summary_{session_timestamp}{suffix_part}.json"
+    out_path = os.path.join(output_dir, filename)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+    logger.info(f"Operational summary written to {out_path}")
     return out_path
 
 
@@ -929,16 +1009,33 @@ async def main_async(args: argparse.Namespace) -> None:
             )
             all_results.extend(results)
 
+    # Session naming
+    session_suffix = getattr(args, "session_suffix", None)
+    session_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    suffix_part = f"_{session_suffix}" if session_suffix else ""
+
     # Write raw JSONL output
     out_path = write_results(all_results, args.output_dir, dataset_name)
 
     # Write evaluation JSONL if not already written via aggregate file
+    evaluation_enabled = bool(eval_dir)
     if not aggregate_eval_file:
-        eval_output_file = os.path.join(eval_dir, f"{dataset_name}_evaluation.jsonl")
+        eval_filename = f"{session_timestamp}{suffix_part}_{dataset_name}.jsonl"
+        eval_output_file = os.path.join(eval_dir, eval_filename)
         with open(eval_output_file, "w", encoding="utf-8") as f:
             for r in all_results:
                 f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
         logger.info(f"Evaluation data written to {eval_output_file}")
+
+    # Write operational summary
+    write_operational_summary(
+        all_results,
+        output_dir=eval_dir,
+        expected_turns=len(all_entries),
+        session_timestamp=session_timestamp,
+        session_suffix=session_suffix,
+        evaluation_enabled=evaluation_enabled,
+    )
 
     # Run evaluation if enabled and not in batch aggregation mode
     skip_eval = getattr(args, "skip_evaluation", False)
