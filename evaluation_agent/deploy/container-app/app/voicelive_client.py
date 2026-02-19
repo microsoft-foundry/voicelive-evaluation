@@ -22,6 +22,7 @@ from azure.ai.voicelive.models import (
     ServerVad,
     AzureSemanticVadMultilingual,
     AzureStandardVoice,
+    OpenAIVoice,
     Modality,
     InputAudioFormat,
     OutputAudioFormat,
@@ -147,11 +148,14 @@ class VoiceLiveClient:
             for m in config.modalities
         ]
         
-        # Build voice
-        sdk_voice = AzureStandardVoice(
-            name=config.voice.name,
-            type=config.voice.type
-        )
+        # Build voice - use OpenAIVoice for preset voices, AzureStandardVoice for Azure voices
+        if config.voice.type == "preset":
+            sdk_voice = OpenAIVoice(name=config.voice.name)
+        else:
+            sdk_voice = AzureStandardVoice(
+                name=config.voice.name,
+                type=config.voice.type
+            )
         
         # Build transcription
         sdk_transcription = AudioInputTranscriptionOptions(
@@ -256,6 +260,7 @@ class VoiceLiveClient:
         
         try:
             async with asyncio.timeout(timeout_seconds):
+                logger.info(f"Starting event collection (timeout={timeout_seconds}s, push_to_talk={push_to_talk})")
                 async for event in self._connection:
                     event_type = event.type
                     
@@ -327,9 +332,15 @@ class VoiceLiveClient:
                         error_msg = getattr(event, 'error', {})
                         logger.error(f"VoiceLive error: {error_msg}")
                         break
+                    
+                    # Log unhandled events for debugging
+                    else:
+                        logger.info(f"VoiceLive event: {event_type}")
                         
         except asyncio.TimeoutError:
             logger.warning(f"Response timeout after {timeout_seconds}s")
+        
+        logger.info(f"Event collection ended: response_complete={response_complete}, transcription='{turn.user_transcription[:50] if turn.user_transcription else ''}', response='{turn.assistant_response[:50] if turn.assistant_response else ''}'")
         
         # Ensure we have some response text
         if not turn.assistant_response and text_buffer:
