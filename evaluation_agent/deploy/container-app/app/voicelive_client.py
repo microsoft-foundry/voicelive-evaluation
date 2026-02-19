@@ -8,6 +8,7 @@ Uses azure-ai-voicelive SDK directly with async/await pattern.
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Optional, List, Dict, Any, AsyncIterator
 from dataclasses import dataclass, field
@@ -105,12 +106,18 @@ class VoiceLiveClient:
         
     async def __aenter__(self):
         """Establish connection."""
-        logger.info(f"Connecting to VoiceLive: {self.endpoint}, model: {self.model}")
-        self._connection = await voicelive_connect(
-            endpoint=self.endpoint,
-            credential=self.credential,
-            model=self.model,
-        ).__aenter__()
+        connect_kwargs = {
+            "endpoint": self.endpoint,
+            "credential": self.credential,
+            "model": self.model,
+        }
+        # Use explicit api_version if set via environment variable
+        api_version = os.environ.get("AZURE_VOICELIVE_API_VERSION")
+        if api_version:
+            connect_kwargs["api_version"] = api_version
+        
+        logger.info(f"Connecting to VoiceLive: {self.endpoint}, model: {self.model}, api_version: {api_version or 'SDK default'}")
+        self._connection = await voicelive_connect(**connect_kwargs).__aenter__()
         logger.info("VoiceLive connection established")
         return self
     
