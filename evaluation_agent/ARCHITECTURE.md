@@ -1152,7 +1152,7 @@ Auto-registration in `check_voicelive_job_status` attempts Foundry dataset uploa
 - [x] **Fix VoiceLive Container App progress tracking** - Per-file progress updates via callback in process_conversation
 - [x] **Add Foundry connection creation to azd** - Post-provision hook creates CustomKeys connection via ARM
 - [ ] **Add webhook notifications** - Notify when long evaluations complete
-- [ ] **BUG: Eval group reuse requires ID not name** — When creating eval groups, only the name is set, not the ID. The eval group unique identifier is the ID, not the name, so specifying the same name creates separate groups. Must pass `eval_group_id` to reuse an existing group.
+- [x] ~~**BUG: Eval group reuse requires ID not name**~~ ✅ Fixed — `run_foundry_evaluation` now looks up existing eval groups by config-based name before creating. If a name match is found, its ID is reused automatically. Explicit `eval_group_id` parameter still works for direct ID reuse.
 
 ### Feature Backlog
 - [x] **VAD Default End Detection** ✅ — VoiceLive processor default uses VAD (server-side Voice Activity Detection) to detect end of audio input. No explicit `audio_input_finished` event is sent. VAD mode achieves 6/6 queries, 6/6 responses, 1/1 tool calls.

@@ -2097,20 +2097,35 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
         
         # Create or reuse eval group
         if eval_group_id:
-            # Reuse existing eval group
+            # Reuse existing eval group by explicit ID
             eval_id = eval_group_id
-            logging.info(f"Reusing existing eval group: {eval_id}")
+            logging.info(f"Reusing existing eval group by ID: {eval_id}")
             eval_group_name = None
         else:
-            # Create new eval group with config-based name
+            # Generate config-based name and check for existing group with same name
             eval_group_name = generate_eval_group_name(session_config)
-            eval_object = openai_client.evals.create(
-                name=eval_group_name,
-                data_source_config=data_source_config,
-                testing_criteria=testing_criteria,
-            )
-            eval_id = eval_object.id
-            logging.info(f"Created eval group: {eval_group_name} ({eval_id})")
+            existing_id = None
+            try:
+                for group in openai_client.evals.list():
+                    if group.name == eval_group_name:
+                        existing_id = group.id
+                        break
+            except Exception as e:
+                logging.warning(f"Could not list eval groups for name lookup: {e}")
+            
+            if existing_id:
+                # Reuse existing eval group found by name
+                eval_id = existing_id
+                logging.info(f"Reusing existing eval group by name match: {eval_group_name} ({eval_id})")
+            else:
+                # Create new eval group
+                eval_object = openai_client.evals.create(
+                    name=eval_group_name,
+                    data_source_config=data_source_config,
+                    testing_criteria=testing_criteria,
+                )
+                eval_id = eval_object.id
+                logging.info(f"Created eval group: {eval_group_name} ({eval_id})")
             
             # Journal the config -> eval group mapping
             journal_eval_group(eval_group_name, session_config or {}, eval_id)
