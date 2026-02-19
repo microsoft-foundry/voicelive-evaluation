@@ -641,18 +641,91 @@ async def _execute_and_send_tool_result(
 # Conversation processing
 # ---------------------------------------------------------------------------
 
+def build_evaluation_data(
+    turn: ConversationTurn,
+    entry: DatasetEntry,
+    conversation_history: List[Dict[str, Any]],
+    system_instructions: str,
+    tool_definitions: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """
+    Build evaluation data in the format expected by voice_agent_evaluation.py
+    and the Azure AI Evaluation SDK.
+
+    The ``query`` field is a conversation-history list of role/content messages
+    (system, then prior turns interleaved user/assistant/tool, then current
+    user input).  ``response`` contains the current assistant messages.
+    """
+    query_messages: List[Dict[str, Any]] = [
+        {"role": "system", "content": system_instructions}
+    ]
+
+    # Prior turns (chronological)
+    for hist in conversation_history:
+        for msg in hist.get("messages", []):
+            query_messages.append(msg)
+
+    # Current turn — user input
+    user_text = sanitize_text_for_utf8(turn.user_transcription)
+    if user_text:
+        query_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
+
+    # Current turn — tool messages
+    for tr in turn.tool_results:
+        query_messages.append({
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": tr["call_id"], "type": "function",
+                            "function": {"name": tr["name"], "arguments": json.dumps(tr.get("args", {}))}}],
+        })
+        query_messages.append({
+            "role": "tool",
+            "tool_call_id": tr["call_id"],
+            "content": tr["result"],
+        })
+
+    # Build response list
+    response_messages: List[Dict[str, Any]] = []
+    resp_text = sanitize_text_for_utf8(turn.assistant_response)
+    if resp_text:
+        response_messages.append({
+            "role": "assistant",
+            "content": resp_text,
+        })
+
+    metrics = turn.calculate_metrics()
+    metrics["logical_turn_number"] = turn.turn_number
+    metrics["audio_response_received"] = turn.assistant_audio_received
+
+    return {
+        "query": query_messages,
+        "response": response_messages,
+        "metrics": metrics,
+        "tool_calls": turn.tool_calls or [],
+        "tool_definitions": tool_definitions or [],
+        "ground_truth": entry.ground_truth or "",
+        "conversation_id": entry.conversation_id,
+        "source_file": entry.audio_path,
+        "turn_number": turn.turn_number,
+    }
+
+
 async def process_conversation(
     entries: List[DatasetEntry],
     connection: Any,
     config: SessionConfig,
     output_dir: str,
+    eval_output_file: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Process a multi-turn conversation through VoiceLive.
 
     Returns a list of evaluation-ready result dicts.
+    If *eval_output_file* is provided, each turn is also appended to that
+    JSONL file as it completes (for batch-processor compatibility).
     """
     results: List[Dict[str, Any]] = []
+    conversation_history: List[Dict[str, Any]] = []
 
     # Override config from dataset if needed
     conv_config = config
@@ -684,6 +757,8 @@ async def process_conversation(
 
     await configure_session(connection, conv_config)
 
+    effective_tool_defs = conv_config.tool_definitions or []
+
     for i, entry in enumerate(entries):
         turn_number = i + 1
         try:
@@ -703,18 +778,29 @@ async def process_conversation(
             if i < len(entries) - 1:
                 await asyncio.sleep(0.5)
 
-            result = {
-                "query": sanitize_text_for_utf8(turn.user_transcription),
-                "response": sanitize_text_for_utf8(turn.assistant_response),
-                "ground_truth": entry.ground_truth or "",
-                "tool_calls": turn.tool_calls,
-                "tool_definitions": entry.tool_definitions or conv_config.tool_definitions or [],
-                "conversation_id": entry.conversation_id,
-                "source_file": entry.audio_path,
-                "turn_number": turn_number,
-                "metrics": turn.calculate_metrics(),
-            }
+            result = build_evaluation_data(
+                turn, entry, conversation_history,
+                system_instructions=conv_config.instructions,
+                tool_definitions=entry.tool_definitions or effective_tool_defs,
+            )
             results.append(result)
+
+            # Append to evaluation aggregate file (for batch processor)
+            if eval_output_file:
+                _append_jsonl(eval_output_file, result)
+
+            # Update conversation history for subsequent turns
+            turn_messages: List[Dict[str, Any]] = []
+            user_text = sanitize_text_for_utf8(turn.user_transcription)
+            if user_text:
+                turn_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
+            resp_text = sanitize_text_for_utf8(turn.assistant_response)
+            if resp_text:
+                turn_messages.append({"role": "assistant", "content": resp_text})
+            for tr in turn.tool_results:
+                turn_messages.append({"role": "tool", "tool_call_id": tr["call_id"], "content": tr["result"]})
+            conversation_history.append({"turn": turn_number, "messages": turn_messages})
+
             logger.info(f"Turn {turn_number} done: {os.path.basename(entry.audio_path)}")
 
         except Exception as e:
@@ -727,6 +813,13 @@ async def process_conversation(
             })
 
     return results
+
+
+def _append_jsonl(path: str, record: Dict[str, Any]) -> None:
+    """Append a single JSON record to a JSONL file (thread-safe via append mode)."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -751,10 +844,21 @@ def write_results(results: List[Dict[str, Any]], output_dir: str, dataset_name: 
 
 async def main_async(args: argparse.Namespace) -> None:
     """Async entry point — connect to VoiceLive, process dataset, write results."""
-    endpoint = os.environ.get("AZURE_VOICELIVE_ENDPOINT", "")
-    model = os.environ.get("AZURE_VOICELIVE_MODEL", args.model)
+    # Support both old and new env var names
+    endpoint = (
+        os.environ.get("AZURE_VOICELIVE_ENDPOINT")
+        or os.environ.get("AZURE_VOICE_LIVE_ENDPOINT")
+        or ""
+    )
+    model = (
+        os.environ.get("AZURE_VOICELIVE_MODEL")
+        or os.environ.get("AZURE_VOICE_LIVE_MODEL")
+        or args.model
+    )
     if not endpoint:
-        raise ValueError("AZURE_VOICELIVE_ENDPOINT environment variable is required")
+        raise ValueError(
+            "AZURE_VOICELIVE_ENDPOINT (or AZURE_VOICE_LIVE_ENDPOINT) environment variable is required"
+        )
 
     # Parse dataset
     all_entries = read_dataset(args.test_files_path)
@@ -768,6 +872,13 @@ async def main_async(args: argparse.Namespace) -> None:
         sample_rate=args.sample_rate,
         push_to_talk=args.push_to_talk,
     )
+
+    # Evaluation output file — aggregate file (batch mode) or auto-generated
+    eval_dir = getattr(args, "evaluation_dir", None) or args.output_dir
+    os.makedirs(eval_dir, exist_ok=True)
+    dataset_name = os.path.splitext(os.path.basename(args.test_files_path))[0]
+    aggregate_eval_file = getattr(args, "aggregate_eval_file", None)
+    eval_output_file = aggregate_eval_file  # may be None
 
     # Group by session mode
     if args.session_mode == "per-conversation":
@@ -784,7 +895,10 @@ async def main_async(args: argparse.Namespace) -> None:
 
     all_results: List[Dict[str, Any]] = []
     credential = DefaultAzureCredential()
-    api_version = os.environ.get("AZURE_VOICELIVE_API_VERSION")
+    api_version = (
+        os.environ.get("AZURE_VOICELIVE_API_VERSION")
+        or os.environ.get("AZURE_VOICE_LIVE_API_VERSION")
+    )
 
     for conv_id, entries in conversation_groups:
         logger.info(f"Conversation '{conv_id}': {len(entries)} turn(s)")
@@ -797,13 +911,65 @@ async def main_async(args: argparse.Namespace) -> None:
             connect_kwargs["api_version"] = api_version
 
         async with voicelive_connect(**connect_kwargs) as connection:
-            results = await process_conversation(entries, connection, config, args.output_dir)
+            results = await process_conversation(
+                entries, connection, config, args.output_dir,
+                eval_output_file=eval_output_file,
+            )
             all_results.extend(results)
 
-    # Write output
-    dataset_name = os.path.splitext(os.path.basename(args.test_files_path))[0]
+    # Write raw JSONL output
     out_path = write_results(all_results, args.output_dir, dataset_name)
+
+    # Write evaluation JSONL if not already written via aggregate file
+    if not aggregate_eval_file:
+        eval_output_file = os.path.join(eval_dir, f"{dataset_name}_evaluation.jsonl")
+        with open(eval_output_file, "w", encoding="utf-8") as f:
+            for r in all_results:
+                f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
+        logger.info(f"Evaluation data written to {eval_output_file}")
+
+    # Run evaluation if enabled and not in batch aggregation mode
+    skip_eval = getattr(args, "skip_evaluation", False)
+    if not skip_eval and not aggregate_eval_file and eval_output_file:
+        _run_evaluation(eval_output_file, args.output_dir,
+                        eval_object_id=getattr(args, "eval_object_id", None))
+
     logger.info(f"Done — {len(all_results)} results written to {out_path}")
+
+
+def _run_evaluation(
+    eval_input_path: str,
+    output_dir: str,
+    eval_object_id: Optional[str] = None,
+) -> None:
+    """Run voice_agent_evaluation.main() if the module is available."""
+    try:
+        import voice_agent_evaluation  # type: ignore
+    except ImportError:
+        logger.warning("voice_agent_evaluation module not found — skipping evaluation run")
+        return
+    try:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        eval_name = os.path.basename(eval_input_path)
+        eval_desc = f"Voice Live API: {ts}"
+        eval_output = os.path.join(output_dir, ts)
+        os.makedirs(eval_output, exist_ok=True)
+        logger.info(f"Starting evaluation: {eval_name}")
+        voice_agent_evaluation.main(
+            eval_input_path,
+            referenceTranscriptFilePath="",
+            output_folder=eval_output,
+            eval_group_name=eval_desc,
+            eval_object_id=eval_object_id or "",
+            eval_run_name=eval_name,
+            eval_run_scenario=eval_name,
+            dataset_id="",
+            dataset_appendix="",
+            setupCustomEvaluators=False,
+        )
+        logger.info(f"Evaluation completed (results in {eval_output})")
+    except Exception as e:
+        logger.error(f"Evaluation failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -812,6 +978,9 @@ async def main_async(args: argparse.Namespace) -> None:
 
 def main() -> None:
     """Parse arguments and run."""
+    # Change to script directory before anything else (ensures .env loading works)
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
     parser = argparse.ArgumentParser(
         description="Process audio files through the Azure VoiceLive SDK for evaluation"
     )
@@ -825,7 +994,23 @@ def main() -> None:
     )
     parser.add_argument(
         '--evaluation-dir', '-e', dest='evaluation_dir', default=None,
-        help='Evaluation data directory (optional)',
+        help='Evaluation data directory (default: same as output_dir)',
+    )
+    parser.add_argument(
+        '--aggregate-eval-file', dest='aggregate_eval_file', default=None,
+        help='Path to aggregate evaluation JSONL file (used by batch_processor)',
+    )
+    parser.add_argument(
+        '--session-suffix', dest='session_suffix', default=None,
+        help='Session suffix for output naming (used by batch_processor)',
+    )
+    parser.add_argument(
+        '--eval-object-id', dest='eval_object_id', default=None,
+        help='Existing evaluation object ID to reuse',
+    )
+    parser.add_argument(
+        '--skip-evaluation', dest='skip_evaluation', action='store_true',
+        help='Skip running evaluation after processing (useful in batch mode)',
     )
     parser.add_argument(
         '--session-mode', dest='session_mode',
@@ -854,13 +1039,17 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Resolve paths
+    # Resolve paths relative to the (now current) script directory
     if not os.path.isabs(args.test_files_path):
         args.test_files_path = os.path.abspath(args.test_files_path)
     if not os.path.isabs(args.output_dir):
         args.output_dir = os.path.abspath(args.output_dir)
+    if args.evaluation_dir and not os.path.isabs(args.evaluation_dir):
+        args.evaluation_dir = os.path.abspath(args.evaluation_dir)
+    if args.aggregate_eval_file and not os.path.isabs(args.aggregate_eval_file):
+        args.aggregate_eval_file = os.path.abspath(args.aggregate_eval_file)
 
-    # Logging
+    # Logging — file handler + console
     log_level = logging.DEBUG if args.verbose else logging.INFO
     os.makedirs('logs', exist_ok=True)
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -872,8 +1061,8 @@ def main() -> None:
     console_handler.setFormatter(logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s'))
     logging.basicConfig(level=log_level, format='%(asctime)s:%(name)s:%(levelname)s:%(message)s', handlers=[file_handler, console_handler])
 
-    # Load env
-    load_dotenv(override=True)
+    # Load env — explicit path to .env in the script directory
+    load_dotenv("./.env", override=True)
 
     asyncio.run(main_async(args))
 
