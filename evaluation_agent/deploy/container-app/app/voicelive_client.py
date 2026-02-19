@@ -243,22 +243,32 @@ class VoiceLiveClient:
         chunk_samples = int(sample_rate * 0.02)  # 20ms worth of samples
         chunk_bytes = chunk_samples * 2  # PCM16 = 2 bytes per sample
         
-        for i in range(0, len(audio_data), chunk_bytes):
-            chunk = audio_data[i:i + chunk_bytes]
-            encoded = base64.b64encode(chunk).decode('utf-8')
-            await self._connection.input_audio_buffer.append(audio=encoded)
-            await asyncio.sleep(0.02)  # Real-time pacing: 20ms per 20ms chunk
+        # CR-3: Send audio concurrently with event collection so that
+        # server responses generated during audio sending are captured
+        # immediately (critical for PTT where response.done may arrive
+        # before all audio is sent).
+        audio_send_complete = asyncio.Event()
         
-        turn.audio_send_end_time = datetime.now()
-        
-        if push_to_talk:
-            # Explicitly signal end of audio input
-            await self._connection.input_audio_buffer.commit()
-            logger.debug("Audio sent and committed (push-to-talk)")
-        else:
-            # Fix #2: Send silence keepalive while waiting for VAD to detect
-            # end of speech. Without this, VAD may not trigger speech_stopped.
-            logger.debug("Audio sent, sending silence keepalive for VAD detection")
+        async def send_audio():
+            """Send audio chunks with real-time pacing."""
+            try:
+                for i in range(0, len(audio_data), chunk_bytes):
+                    chunk = audio_data[i:i + chunk_bytes]
+                    encoded = base64.b64encode(chunk).decode('utf-8')
+                    await self._connection.input_audio_buffer.append(audio=encoded)
+                    await asyncio.sleep(0.02)  # Real-time pacing
+                
+                turn.audio_send_end_time = datetime.now()
+                
+                if push_to_talk:
+                    await self._connection.input_audio_buffer.commit()
+                    logger.debug("Audio sent and committed (push-to-talk)")
+                else:
+                    logger.debug("Audio sent, starting silence keepalive for VAD")
+            except Exception as e:
+                logger.error(f"Audio send error: {e}")
+            finally:
+                audio_send_complete.set()
         
         # Collect response events
         response_done_received = False
@@ -269,20 +279,26 @@ class VoiceLiveClient:
         
         # Fix #2: Silence keepalive task for VAD mode
         silence_task = None
+        silence_chunk = base64.b64encode(b'\x00' * chunk_bytes).decode('utf-8')
+        
+        async def send_silence():
+            """Send silence chunks to keep audio buffer active for VAD."""
+            try:
+                # Wait for audio sending to complete first
+                await audio_send_complete.wait()
+                if push_to_talk:
+                    return  # No silence needed in PTT mode
+                while True:
+                    await self._connection.input_audio_buffer.append(audio=silence_chunk)
+                    await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.debug(f"Silence keepalive ended: {e}")
+        
+        # Start audio sending and silence keepalive concurrently
+        audio_task = asyncio.create_task(send_audio())
         if not push_to_talk:
-            silence_chunk = base64.b64encode(b'\x00' * chunk_bytes).decode('utf-8')
-            
-            async def send_silence():
-                """Send silence chunks to keep audio buffer active for VAD."""
-                try:
-                    while True:
-                        await self._connection.input_audio_buffer.append(audio=silence_chunk)
-                        await asyncio.sleep(0.1)
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:
-                    logger.debug(f"Silence keepalive ended: {e}")
-            
             silence_task = asyncio.create_task(send_silence())
         
         try:
@@ -378,8 +394,8 @@ class VoiceLiveClient:
                             logger.info(f"Tool call: {tool_call['name']}({event.arguments[:100]})")
                             
                             # Fix #7: Execute tool and send result back
-                            await self._execute_and_send_tool_result(event, turn)
-                            tool_output_sent = True
+                            # CR-1: Only set tool_output_sent if send actually succeeded
+                            tool_output_sent = await self._execute_and_send_tool_result(event, turn)
                     
                     # Fix #3: Response complete — DON'T break immediately.
                     # Wait for late-arriving transcript events.
@@ -416,11 +432,17 @@ class VoiceLiveClient:
         except asyncio.TimeoutError:
             logger.warning(f"Response timeout after {timeout_seconds}s")
         finally:
-            # Always cancel silence keepalive
+            # Cancel background tasks
             if silence_task and not silence_task.done():
                 silence_task.cancel()
                 try:
                     await silence_task
+                except asyncio.CancelledError:
+                    pass
+            if audio_task and not audio_task.done():
+                audio_task.cancel()
+                try:
+                    await audio_task
                 except asyncio.CancelledError:
                     pass
         
@@ -448,9 +470,14 @@ class VoiceLiveClient:
         drain_seconds: float = 2.0
     ) -> None:
         """
-        Fix #3: After response.done, wait briefly for late-arriving
+        Fix #3 + CR-1: After response.done, wait briefly for late-arriving
         transcript/text events before finalizing the turn.
+        Handles both delta and done events.
         """
+        # Mutable local buffers to accumulate late deltas
+        late_audio_transcript = audio_transcript_buffer
+        late_text = text_buffer
+        
         try:
             async with asyncio.timeout(drain_seconds):
                 async for event in self._connection:
@@ -462,34 +489,51 @@ class VoiceLiveClient:
                             turn.user_transcription = event.transcript
                         logger.debug(f"Late transcription: {turn.user_transcription[:60]}")
                     
+                    # CR-1: Also handle delta events during drain
+                    elif event_type == ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA:
+                        if hasattr(event, 'delta') and event.delta:
+                            late_audio_transcript += event.delta
+                    
                     elif event_type == ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DONE:
-                        transcript = getattr(event, 'transcript', '') or audio_transcript_buffer
+                        transcript = getattr(event, 'transcript', '') or late_audio_transcript
                         if transcript and len(transcript) > len(turn.assistant_response):
                             turn.assistant_response = transcript
+                        late_audio_transcript = ""
+                    
+                    elif event_type == ServerEventType.RESPONSE_TEXT_DELTA:
+                        if hasattr(event, 'delta') and event.delta:
+                            late_text += event.delta
                     
                     elif event_type == ServerEventType.RESPONSE_TEXT_DONE:
-                        text = getattr(event, 'text', '') or text_buffer
+                        text = getattr(event, 'text', '') or late_text
                         if text and len(text) > len(turn.assistant_response):
                             turn.assistant_response = text
+                        late_text = ""
                     
                     elif event_type == ServerEventType.RESPONSE_DONE:
-                        # Another response.done (e.g., from tool follow-up)
                         break
                     
                     elif event_type == ServerEventType.ERROR:
                         break
                     
         except asyncio.TimeoutError:
+            # Use accumulated buffer content if no done event arrived
+            if late_audio_transcript and len(late_audio_transcript) > len(turn.assistant_response):
+                turn.assistant_response = late_audio_transcript
+            elif late_text and len(late_text) > len(turn.assistant_response):
+                turn.assistant_response = late_text
             logger.debug("Post-response drain completed (timeout)")
     
     async def _execute_and_send_tool_result(
         self,
         event,
         turn: ConversationTurn
-    ) -> None:
+    ) -> bool:
         """
         Fix #7: Execute a tool call locally and send the result back to
         VoiceLive so the model can produce a tool-informed response.
+        
+        Returns True if tool output was successfully sent, False otherwise.
         """
         call_id = event.call_id
         name = getattr(event, 'name', 'unknown')
@@ -521,12 +565,18 @@ class VoiceLiveClient:
             )
             logger.info(f"Tool result sent: {name} -> {result_text[:100]}")
             
+            # CR-2: Brief delay to let server register tool output
+            # before requesting follow-up response
+            await asyncio.sleep(0.05)
+            
             # Request follow-up response incorporating tool output
             await self._connection.response.create()
             logger.debug("Requested follow-up response after tool result")
+            return True
             
         except Exception as e:
             logger.error(f"Failed to send tool result: {e}")
+            return False
     
     def _execute_tool(self, name: str, args: dict) -> str:
         """Execute a tool by name. Override for custom tool registries."""
@@ -544,4 +594,5 @@ class VoiceLiveClient:
             except Exception as e:
                 return f"[Tool {name} error: {e}]"
         
-        return f"[Tool {name} executed successfully]"
+        # CR-3: Return explicit error for unknown tools so model can respond appropriately
+        return json.dumps({"error": f"Unknown tool: {name}", "status": "not_found"})
