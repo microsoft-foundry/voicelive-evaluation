@@ -2175,19 +2175,8 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
         eval_run_id = eval_run.id
         logging.info(f"Created eval run: {run_name} ({eval_run_id})")
         
-        # Wait for completion (with timeout)
-        import time
-        max_wait = 600  # 10 minutes
-        start_time = time.time()
-        
-        while time.time() - start_time < max_wait:
-            run_status = openai_client.evals.runs.retrieve(run_id=eval_run_id, eval_id=eval_id)
-            if run_status.status in ["completed", "failed"]:
-                break
-            time.sleep(10)
-        
-        # Get portal URL from the run object
-        portal_url = getattr(run_status, 'report_url', None)
+        # Get portal URL from the initial run object (available immediately)
+        portal_url = getattr(eval_run, 'report_url', None)
         logging.info(f"SDK report_url: {portal_url}")
         
         # The SDK report_url should be correct format:
@@ -2198,50 +2187,19 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
         
         logging.info(f"Final portal URL: {portal_url}")
         
-        # Get results
-        metrics_summary = {}
-        if run_status.status == "completed":
-            try:
-                output_items = list(openai_client.evals.runs.output_items.list(
-                    run_id=eval_run_id, eval_id=eval_id
-                ))
-                
-                # Aggregate metrics
-                metric_scores = {}
-                metric_counts = {}
-                for item in output_items:
-                    results = item.results if hasattr(item, 'results') else []
-                    for result in results:
-                        name = result.name if hasattr(result, 'name') else result.get("name", "unknown")
-                        score = result.score if hasattr(result, 'score') else result.get("score")
-                        if isinstance(score, (int, float)):
-                            if name not in metric_scores:
-                                metric_scores[name] = 0
-                                metric_counts[name] = 0
-                            metric_scores[name] += score
-                            metric_counts[name] += 1
-                
-                metrics_summary = {
-                    name: round(metric_scores[name] / metric_counts[name], 3)
-                    for name in metric_scores
-                }
-                
-                # Write detailed results to output
-                results_file = os.path.join(output_path, "eval_results.jsonl")
-                with open(results_file, 'w', encoding='utf-8') as f:
-                    for item in output_items:
-                        f.write(json.dumps(item.model_dump(), indent=None) + '\n')
-                        
-            except Exception as e:
-                logging.error(f"Error getting eval results: {e}")
-        
+        # Return immediately — don't block waiting for completion.
+        # The agent can check status later via check_evaluation_status
+        # with eval_id + eval_run_id (queries Foundry directly).
         return {
-            "status": run_status.status,
+            "status": "started",
             "eval_id": eval_id,
             "eval_run_id": eval_run_id,
             "foundry_portal_url": portal_url,
             "evaluators_run": eval_list,
-            "metrics_summary": metrics_summary,
+            "dataset_id": dataset_id,
+            "dataset_version": new_version,
+            "metrics_summary": {},
+            "message": "Evaluation run created. Use check_evaluation_status with eval_id and eval_run_id to poll for results."
         }
         
     except Exception as e:
@@ -2453,22 +2411,33 @@ async def run_voicelive_evaluation(req: func.HttpRequest, client) -> func.HttpRe
 @app.durable_client_input(client_name="client")
 async def check_evaluation_status(req: func.HttpRequest, client) -> func.HttpResponse:
     """
-    Check the status of a running evaluation job.
+    Check the status of a Foundry evaluation run.
+    
+    Accepts either:
+    - eval_id + eval_run_id: Queries Foundry directly (preferred)
+    - instance_id: Checks durable orchestration status (legacy)
     """
     logging.info("check_evaluation_status called")
     
     try:
         body = req.get_json()
+        eval_id = body.get("eval_id")
+        eval_run_id = body.get("eval_run_id")
         instance_id = body.get("instance_id")
         
+        # Preferred path: query Foundry directly
+        if eval_id and eval_run_id:
+            return _check_foundry_eval_run(eval_id, eval_run_id)
+        
+        # Legacy path: check durable orchestration
         if not instance_id:
             return func.HttpResponse(
-                json.dumps({"error": "instance_id required"}),
+                json.dumps({"error": "Provide eval_id + eval_run_id (preferred) or instance_id"}),
                 status_code=400,
                 mimetype="application/json"
             )
         
-        # Get orchestration status
+        # Check durable status, extract eval_id/eval_run_id if completed
         status = await client.get_status(instance_id)
         
         if status is None:
@@ -2485,6 +2454,13 @@ async def check_evaluation_status(req: func.HttpRequest, client) -> func.HttpRes
         
         runtime_status = status.runtime_status.name if status.runtime_status else "Unknown"
         
+        # If durable completed, try to get live Foundry status
+        if runtime_status == "Completed" and status.output and isinstance(status.output, dict):
+            out_eval_id = status.output.get("eval_id")
+            out_run_id = status.output.get("eval_run_id")
+            if out_eval_id and out_run_id:
+                return _check_foundry_eval_run(out_eval_id, out_run_id)
+        
         response = {
             "action": "check_evaluation_status",
             "instance_id": instance_id,
@@ -2496,13 +2472,11 @@ async def check_evaluation_status(req: func.HttpRequest, client) -> func.HttpRes
         if runtime_status == "Completed":
             response["output"] = status.output
             response["message"] = "Evaluation completed successfully."
-            # Extract and highlight portal URL for agent
             if status.output and isinstance(status.output, dict):
                 portal_url = status.output.get("foundry_portal_url")
                 if portal_url:
                     response["foundry_portal_url"] = portal_url
                     response["message"] = f"Evaluation completed. View detailed results at: {portal_url}"
-                # Also include metrics summary at top level for easy access
                 metrics = status.output.get("metrics")
                 if metrics:
                     response["metrics_summary"] = metrics
@@ -2523,6 +2497,87 @@ async def check_evaluation_status(req: func.HttpRequest, client) -> func.HttpRes
         logging.error(f"check_evaluation_status error: {e}")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+def _check_foundry_eval_run(eval_id: str, eval_run_id: str) -> func.HttpResponse:
+    """Query Foundry directly for eval run status and metrics."""
+    from azure.ai.projects import AIProjectClient
+    
+    project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT") or os.environ.get("PROJECT_ENDPOINT")
+    if not project_endpoint:
+        return func.HttpResponse(
+            json.dumps({"error": "AZURE_AI_PROJECT_ENDPOINT not configured"}),
+            status_code=500,
+            mimetype="application/json"
+        )
+    
+    try:
+        project_client = AIProjectClient(
+            credential=DefaultAzureCredential(),
+            endpoint=project_endpoint
+        )
+        openai_client = project_client.get_openai_client()
+        
+        run_status = openai_client.evals.runs.retrieve(run_id=eval_run_id, eval_id=eval_id)
+        
+        portal_url = getattr(run_status, 'report_url', None)
+        if not portal_url:
+            portal_url = f"https://ai.azure.com/build/evaluations/{eval_id}"
+        
+        response = {
+            "action": "check_evaluation_status",
+            "eval_id": eval_id,
+            "eval_run_id": eval_run_id,
+            "status": run_status.status,
+            "foundry_portal_url": portal_url,
+        }
+        
+        if run_status.status == "completed":
+            # Collect metrics
+            metrics_summary = {}
+            try:
+                output_items = list(openai_client.evals.runs.output_items.list(
+                    run_id=eval_run_id, eval_id=eval_id
+                ))
+                metric_scores = {}
+                metric_counts = {}
+                for item in output_items:
+                    results = item.results if hasattr(item, 'results') else []
+                    for result in results:
+                        name = result.name if hasattr(result, 'name') else result.get("name", "unknown")
+                        score = result.score if hasattr(result, 'score') else result.get("score")
+                        if isinstance(score, (int, float)):
+                            if name not in metric_scores:
+                                metric_scores[name] = 0
+                                metric_counts[name] = 0
+                            metric_scores[name] += score
+                            metric_counts[name] += 1
+                metrics_summary = {
+                    name: round(metric_scores[name] / metric_counts[name], 3)
+                    for name in metric_scores
+                }
+            except Exception as e:
+                logging.warning(f"Could not retrieve eval metrics: {e}")
+            
+            response["metrics_summary"] = metrics_summary
+            response["message"] = f"Evaluation completed. View results at: {portal_url}"
+        elif run_status.status == "failed":
+            response["message"] = "Evaluation run failed."
+            response["error"] = getattr(run_status, 'error', None)
+        else:
+            response["message"] = f"Evaluation is {run_status.status}. Check again in a few moments."
+        
+        return func.HttpResponse(
+            json.dumps(response),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"Foundry eval run check error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": f"Failed to query Foundry: {str(e)}"}),
             status_code=500,
             mimetype="application/json"
         )
