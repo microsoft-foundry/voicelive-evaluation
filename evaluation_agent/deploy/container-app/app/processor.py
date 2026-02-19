@@ -139,9 +139,15 @@ async def process_conversation(
                 audio_data,
                 ground_truth=entry.answer or "",
                 tool_definitions=entry.tool_definitions or conversation_config.tool_definitions,
-                push_to_talk=conversation_config.push_to_talk
+                push_to_talk=conversation_config.push_to_talk,
+                sample_rate=config.audio.sample_rate
             )
             turn.turn_number = turn_number
+            
+            # Fix #4: Inter-turn synchronization — brief pause between turns
+            # to let late events settle before starting next audio file
+            if i < len(entries) - 1:
+                await asyncio.sleep(0.5)
             
             # Convert to evaluation format
             result = turn.to_eval_format(
@@ -154,9 +160,19 @@ async def process_conversation(
             result["source_file"] = entry.wav_path
             result["expected_question"] = entry.question
             
-            results.append(result)
-            
-            logger.info(f"Processed turn {turn_number}: {entry.wav_path[:50]}...")
+            # Fix #8: Only emit results that have meaningful content
+            # (don't inflate failure counts with empty turns)
+            if turn.user_transcription or turn.assistant_response or turn.tool_calls:
+                results.append(result)
+                logger.info(f"Processed turn {turn_number}: {entry.wav_path[:50]}...")
+            else:
+                logger.warning(
+                    f"Turn {turn_number} ({entry.wav_path}) produced no content "
+                    f"(empty query, response, and no tool calls) — skipped"
+                )
+                # Still append with error marker for traceability
+                result["error"] = "Empty turn: no transcription, response, or tool calls captured"
+                results.append(result)
             if on_file_complete:
                 await on_file_complete(success=True)
             
