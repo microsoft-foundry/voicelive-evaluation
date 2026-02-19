@@ -747,6 +747,7 @@ def create_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             "noise_reduction": body.get("noise_reduction", "azure_deep_noise_suppression"),
             "echo_cancellation": body.get("echo_cancellation", "server_echo_cancellation"),
             "is_default": body.get("is_default", False),
+            "push_to_talk": body.get("push_to_talk", False),
         }
         
         success = upsert_session_config(config)
@@ -804,7 +805,8 @@ def update_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         config = existing.copy()
         for key in ["description", "model", "sample_rate", "voice_name", "voice_type", 
                     "vad_type", "vad_threshold", "silence_duration_ms", "eou_detection",
-                    "eou_model", "transcription_model", "noise_reduction", "echo_cancellation", "is_default"]:
+                    "eou_model", "transcription_model", "noise_reduction", "echo_cancellation", "is_default",
+                    "push_to_talk"]:
             if key in body:
                 config[key] = body[key]
         
@@ -3013,10 +3015,27 @@ async def run_voicelive_audio_tests(req: func.HttpRequest) -> func.HttpResponse:
                     endpoint=table_url,
                     credential=DefaultAzureCredential()
                 ).get_table_client("sessionconfigs")
-                entity = table_client.get_entity(partition_key="config", row_key=config_value)
-                # Build session config dict from table entity
-                config_dict = {k: v for k, v in entity.items() 
-                             if k not in ("PartitionKey", "RowKey", "Timestamp", "odata.etag")}
+                entity = table_client.get_entity(partition_key="voicelive", row_key=config_value)
+                # Transform table entity to Container App session config format
+                config_dict = {
+                    "model": entity.get("Model", "gpt-realtime"),
+                    "transcription_model": entity.get("TranscriptionModel", "gpt-4o-transcribe"),
+                    "voice": {
+                        "name": entity.get("VoiceName", "alloy"),
+                        "type": entity.get("VoiceType", "preset"),
+                    },
+                    "audio": {
+                        "sample_rate": int(entity.get("SampleRate", 24000)),
+                        "noise_reduction": entity.get("NoiseReduction", "azure_deep_noise_suppression"),
+                        "echo_cancellation": entity.get("EchoCancellation", "server_echo_cancellation"),
+                    },
+                    "turn_detection": {
+                        "type": entity.get("VadType", "azure_semantic_vad_multilingual"),
+                        "use_eou_detection": entity.get("EouDetection", "true").lower() == "true",
+                        "eou_model": entity.get("EouModel", "azure_semantic_v1_multilingual"),
+                    },
+                    "push_to_talk": entity.get("PushToTalk", "false").lower() == "true",
+                }
                 body["session_config"] = config_dict
                 logging.info(f"Resolved session config '{config_value}' to dict")
             except Exception as e:
