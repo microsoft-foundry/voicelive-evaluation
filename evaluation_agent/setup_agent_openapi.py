@@ -226,7 +226,11 @@ def load_openapi_spec(function_url: str) -> dict:
         spec = yaml.safe_load(f)
     
     # Update server URL - all endpoints go through Function App
-    spec['servers'] = [{'url': function_url}]
+    # Ensure /api suffix is present (Azure Functions route prefix)
+    base = function_url.rstrip('/')
+    if not base.endswith('/api'):
+        base += '/api'
+    spec['servers'] = [{'url': base}]
     
     return spec
 
