@@ -266,7 +266,7 @@ class BasicVoiceAssistant:
             "project_name": project_name,
             "conversation_id": conversation_id if conversation_id else None,
             "foundry_resource_override": foundry_resource_override if foundry_resource_override else None, 
-            "authentication_identity_client_id": agent_authentication_identity_client_id if agent_authentication_identity_client_id else None,                
+            "authentication_identity_client_id": agent_authentication_identity_client_id if agent_authentication_identity_client_id and foundry_resource_override else None,                
         }        
 
         self.connection: Optional["VoiceLiveConnection"] = None
@@ -338,7 +338,7 @@ class BasicVoiceAssistant:
             modalities=[Modality.TEXT, Modality.AUDIO],
             input_audio_format=InputAudioFormat.PCM16,
             output_audio_format=OutputAudioFormat.PCM16,
-            interim_response=interim_response_config,
+            # interim_response=interim_response_config,
             # Uncomment the following, if not stored with agent configuration on the service side
             # voice=AzureStandardVoice(name=self.voice),
             # turn_detection=AzureSemanticVadMultilingual(),

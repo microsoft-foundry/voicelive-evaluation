@@ -31,6 +31,8 @@ from azure.ai.voicelive.models import (
     AudioNoiseReduction,
     AudioEchoCancellation,
     EouDetection,
+    FunctionCallOutputItem,
+    ItemType,
 )
 
 from .config import SessionConfig, VadType, EouModel
@@ -163,7 +165,10 @@ class VoiceLiveClient:
             model=config.get_transcription_model()
         )
         
-        # Build turn detection (VAD)
+        # Build turn detection
+        # VAD is always configured to ensure valid session. In PTT mode,
+        # we additionally use commit() + response.create() for explicit
+        # turn boundaries, but keep VAD as the base turn detection.
         if config.turn_detection.type == VadType.AZURE_SEMANTIC:
             if config.supports_eou_detection() and config.turn_detection.use_eou_detection:
                 sdk_turn_detection = AzureSemanticVadMultilingual(
@@ -237,69 +242,76 @@ class VoiceLiveClient:
         
         turn = ConversationTurn()
         
-        # Fix #1: Send audio in small chunks with real-time pacing
+        # Send audio in small chunks with real-time pacing.
         # 20ms chunks at sample_rate, simulating real-time playback so VAD
         # can detect speech boundaries naturally.
         chunk_samples = int(sample_rate * 0.02)  # 20ms worth of samples
         chunk_bytes = chunk_samples * 2  # PCM16 = 2 bytes per sample
         
-        # CR-3: Send audio concurrently with event collection so that
-        # server responses generated during audio sending are captured
-        # immediately (critical for PTT where response.done may arrive
-        # before all audio is sent).
+        # PTT vs VAD have fundamentally different send patterns:
+        # - PTT: Send all audio → commit → response.create → THEN collect events
+        #   (no events arrive until we explicitly request a response)
+        # - VAD: Send audio concurrently with event collection, because VAD
+        #   triggers responses during audio send based on speech boundaries
+        
+        if push_to_talk:
+            # PTT: Sequential send → commit → response.create, THEN collect
+            logger.info("PTT mode: sending audio synchronously before event collection")
+            for i in range(0, len(audio_data), chunk_bytes):
+                chunk = audio_data[i:i + chunk_bytes]
+                encoded = base64.b64encode(chunk).decode('utf-8')
+                await self._connection.input_audio_buffer.append(audio=encoded)
+                await asyncio.sleep(0.02)  # Real-time pacing
+            
+            turn.audio_send_end_time = datetime.now()
+            await self._connection.input_audio_buffer.commit()
+            await self._connection.response.create()
+            logger.debug("Audio committed and response.create sent (PTT)")
+        
+        # For VAD mode: concurrent audio send + event collection
         audio_send_complete = asyncio.Event()
-        
-        async def send_audio():
-            """Send audio chunks with real-time pacing."""
-            try:
-                for i in range(0, len(audio_data), chunk_bytes):
-                    chunk = audio_data[i:i + chunk_bytes]
-                    encoded = base64.b64encode(chunk).decode('utf-8')
-                    await self._connection.input_audio_buffer.append(audio=encoded)
-                    await asyncio.sleep(0.02)  # Real-time pacing
-                
-                turn.audio_send_end_time = datetime.now()
-                
-                if push_to_talk:
-                    await self._connection.input_audio_buffer.commit()
-                    logger.debug("Audio sent and committed (push-to-talk)")
-                else:
-                    logger.debug("Audio sent, starting silence keepalive for VAD")
-            except Exception as e:
-                logger.error(f"Audio send error: {e}")
-            finally:
-                audio_send_complete.set()
-        
-        # Collect response events
-        response_done_received = False
-        text_buffer = ""
-        audio_transcript_buffer = ""
-        current_tool_call = None
-        tool_output_sent = False
-        
-        # Fix #2: Silence keepalive task for VAD mode
+        audio_task = None
         silence_task = None
         silence_chunk = base64.b64encode(b'\x00' * chunk_bytes).decode('utf-8')
         
-        async def send_silence():
-            """Send silence chunks to keep audio buffer active for VAD."""
-            try:
-                # Wait for audio sending to complete first
-                await audio_send_complete.wait()
-                if push_to_talk:
-                    return  # No silence needed in PTT mode
-                while True:
-                    await self._connection.input_audio_buffer.append(audio=silence_chunk)
-                    await asyncio.sleep(0.1)
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                logger.debug(f"Silence keepalive ended: {e}")
-        
-        # Start audio sending and silence keepalive concurrently
-        audio_task = asyncio.create_task(send_audio())
         if not push_to_talk:
+            async def send_audio():
+                """Send audio chunks with real-time pacing (VAD mode)."""
+                try:
+                    for i in range(0, len(audio_data), chunk_bytes):
+                        chunk = audio_data[i:i + chunk_bytes]
+                        encoded = base64.b64encode(chunk).decode('utf-8')
+                        await self._connection.input_audio_buffer.append(audio=encoded)
+                        await asyncio.sleep(0.02)  # Real-time pacing
+                    turn.audio_send_end_time = datetime.now()
+                    logger.debug("Audio sent, starting silence keepalive for VAD")
+                except Exception as e:
+                    logger.error(f"Audio send error: {e}")
+                finally:
+                    audio_send_complete.set()
+            
+            async def send_silence():
+                """Send silence chunks to keep audio buffer active for VAD."""
+                try:
+                    await audio_send_complete.wait()
+                    while True:
+                        await self._connection.input_audio_buffer.append(audio=silence_chunk)
+                        await asyncio.sleep(0.1)
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.debug(f"Silence keepalive ended: {e}")
+            
+            audio_task = asyncio.create_task(send_audio())
             silence_task = asyncio.create_task(send_silence())
+        
+        # Event collection state
+        response_done_received = False
+        text_buffer = ""
+        audio_transcript_buffer = ""
+        tool_output_sent = False
+        pending_tool_call = None  # SDK sample: execute tool AFTER response.done
+        pending_tool_item_id = None  # previous_item_id for conversation.item.create
         
         try:
             async with asyncio.timeout(timeout_seconds):
@@ -331,6 +343,13 @@ class VoiceLiveClient:
                         if hasattr(event, 'transcript'):
                             turn.user_transcription = event.transcript or ""
                         logger.debug(f"Transcription: {turn.user_transcription[:80]}...")
+                    
+                    # SDK sample: Detect function call items early to capture previous_item_id
+                    elif event_type == ServerEventType.CONVERSATION_ITEM_CREATED:
+                        if hasattr(event, 'item') and hasattr(event.item, 'type'):
+                            if event.item.type == ItemType.FUNCTION_CALL:
+                                pending_tool_item_id = event.item.id
+                                logger.info(f"Function call item created: {event.item.name} (id={event.item.id})")
                     
                     # Response text delta (text modality)
                     elif event_type == ServerEventType.RESPONSE_TEXT_DELTA:
@@ -382,7 +401,8 @@ class VoiceLiveClient:
                             turn.first_audio_response_time = datetime.now()
                             turn.assistant_audio_received = True
                     
-                    # Function call arguments done
+                    # Function call arguments done — store as pending
+                    # SDK sample: Do NOT execute yet; wait for RESPONSE_DONE first
                     elif event_type == ServerEventType.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE:
                         if hasattr(event, 'call_id') and hasattr(event, 'arguments'):
                             tool_call = {
@@ -392,22 +412,24 @@ class VoiceLiveClient:
                             }
                             turn.tool_calls.append(tool_call)
                             logger.info(f"Tool call: {tool_call['name']}({event.arguments[:100]})")
-                            
-                            # Fix #7: Execute tool and send result back
-                            # CR-1: Only set tool_output_sent if send actually succeeded
-                            tool_output_sent = await self._execute_and_send_tool_result(event, turn)
+                            pending_tool_call = event  # Store for execution after response.done
                     
-                    # Fix #3: Response complete — DON'T break immediately.
-                    # Wait for late-arriving transcript events.
+                    # Response complete
                     elif event_type == ServerEventType.RESPONSE_DONE:
                         logger.debug("response.done received")
                         
-                        # If tool output was just sent, the model will produce a
-                        # follow-up response. Don't finalize yet.
-                        if tool_output_sent:
-                            logger.info("Tool output sent, waiting for follow-up response")
-                            tool_output_sent = False
-                            continue
+                        # SDK sample: Execute pending tool call AFTER response.done
+                        if pending_tool_call is not None:
+                            logger.info("Executing pending tool call after response.done")
+                            tool_output_sent = await self._execute_and_send_tool_result(
+                                pending_tool_call, turn, pending_tool_item_id
+                            )
+                            pending_tool_call = None
+                            pending_tool_item_id = None
+                            if tool_output_sent:
+                                # Wait for follow-up response
+                                continue
+                            # If send failed, finalize turn
                         
                         response_done_received = True
                         # Stop silence keepalive
@@ -527,11 +549,12 @@ class VoiceLiveClient:
     async def _execute_and_send_tool_result(
         self,
         event,
-        turn: ConversationTurn
+        turn: ConversationTurn,
+        previous_item_id: Optional[str] = None
     ) -> bool:
         """
-        Fix #7: Execute a tool call locally and send the result back to
-        VoiceLive so the model can produce a tool-informed response.
+        Execute a tool call locally and send the result back to VoiceLive
+        using the SDK-pattern (FunctionCallOutputItem + previous_item_id).
         
         Returns True if tool output was successfully sent, False otherwise.
         """
@@ -554,19 +577,21 @@ class VoiceLiveClient:
             "result": result_text
         })
         
-        # Send result back to VoiceLive
+        # Send result back to VoiceLive using SDK-pattern typed model
         try:
-            await self._connection.conversation.item.create(
-                item={
-                    "type": "function_call_output",
-                    "call_id": call_id,
-                    "output": result_text
-                }
+            function_output = FunctionCallOutputItem(
+                call_id=call_id,
+                output=result_text
             )
-            logger.info(f"Tool result sent: {name} -> {result_text[:100]}")
+            
+            create_kwargs = {"item": function_output}
+            if previous_item_id:
+                create_kwargs["previous_item_id"] = previous_item_id
+            
+            await self._connection.conversation.item.create(**create_kwargs)
+            logger.info(f"Tool result sent: {name} -> {result_text[:100]} (prev_item={previous_item_id})")
             
             # CR-2: Brief delay to let server register tool output
-            # before requesting follow-up response
             await asyncio.sleep(0.05)
             
             # Request follow-up response incorporating tool output

@@ -94,7 +94,10 @@ class SessionConfig:
     tool_definitions: Optional[List[Dict[str, Any]]] = None
     
     # Audio input end detection
-    push_to_talk: bool = False  # False = VAD detects end of speech; True = explicit commit after audio sent
+    # False = VAD detects end of speech automatically (server manages turns)
+    # True  = Audio is committed + response.create() called explicitly,
+    #         while VAD remains configured (VoiceLive requires turn_detection).
+    push_to_talk: bool = False
     
     # Processing mode
     mode: ProcessorMode = ProcessorMode.AUDIO_EVALUATION

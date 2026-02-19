@@ -105,7 +105,11 @@ async def process_conversation(
             "instructions": entries[0].system_prompt
         })
     if entries and entries[0].tool_definitions:
-        conversation_config.tools = entries[0].tool_definitions
+        tool_defs = entries[0].tool_definitions
+        # Normalize: ensure tools is always a list (dataset may have single dict)
+        if isinstance(tool_defs, dict):
+            tool_defs = [tool_defs]
+        conversation_config.tools = tool_defs
     
     await client.configure_session(conversation_config)
     
