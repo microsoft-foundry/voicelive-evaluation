@@ -309,8 +309,8 @@ To compare push-to-talk vs VAD on the same dataset:
 
 | Tool | Description |
 |------|-------------|
-| `run_voicelive_evaluation` | Full evaluation pipeline: download blob results → upload Foundry dataset → create eval group → run Foundry evaluators → return portal URL |
-| `check_evaluation_status` | Poll evaluation job status |
+| `run_voicelive_evaluation` | Full pipeline: download blob results → upload Foundry dataset → create eval group → start evaluators → return `eval_id`, `eval_run_id`, portal URL **immediately** (non-blocking) |
+| `check_evaluation_status` | Query eval run status + metrics. Accepts `eval_id` + `eval_run_id` (queries Foundry directly) or `instance_id` (legacy durable check) |
 | `get_evaluation_recommendations` | Get settings for large datasets |
 | `analyze_evaluation_results` | Analyze completed evaluation |
 

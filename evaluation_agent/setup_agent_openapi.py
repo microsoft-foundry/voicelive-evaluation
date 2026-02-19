@@ -109,12 +109,16 @@ There are two distinct dataset types with different stores and workflows:
 
 ### VoiceLive Audio Processing
 - run_voicelive_audio_tests: Process raw audio files through VoiceLive SDK
+  Results are saved to blob storage (outputs/voicelive_jobs/{job_id}/)
 - check_voicelive_job_status: Check status of audio processing job
-  Note: On completion, output is auto-registered as Foundry dataset
 
 ### Evaluation Execution
-- run_voicelive_evaluation: Run Foundry evaluators on a dataset
-- check_evaluation_status: Check status of async evaluation
+- run_voicelive_evaluation: Start Foundry evaluation on a dataset.
+  Returns immediately with eval_id, eval_run_id, and foundry_portal_url.
+  Does NOT block waiting for completion.
+- check_evaluation_status: Check eval run status and get metrics.
+  Preferred: pass eval_id + eval_run_id (queries Foundry directly).
+  Legacy: pass instance_id (checks durable orchestration).
 - get_evaluation_recommendations: Get recommendations for large datasets
 
 ### Foundry Resource Management  
@@ -140,17 +144,28 @@ There are two distinct dataset types with different stores and workflows:
 2. validate_voicelive_dataset → Verify structure (WavPath present)
 3. list_session_configs → Show available configs (optional)
 4. run_voicelive_audio_tests → Process audio through VoiceLive
-5. check_voicelive_job_status → Poll until complete (auto-registers to Foundry)
-6. run_voicelive_evaluation → Use the foundry_dataset_id from step 5 to avoid re-upload
-7. check_evaluation_status → Poll until complete
+5. check_voicelive_job_status → Poll until complete (results in blob storage)
+6. run_voicelive_evaluation → Pass the output blob path as dataset_path
+   Returns immediately with eval_id, eval_run_id, foundry_portal_url
+7. check_evaluation_status(eval_id, eval_run_id) → Query Foundry directly for status + metrics
 8. Present Foundry Portal URL and metrics summary
 
 ### For Evaluation-Ready Datasets:
 1. list_datasets(dataset_type="evaluation") → Find eval-ready dataset
 2. validate_eval_dataset → Verify structure (query/response present)
 3. run_voicelive_evaluation → Run evaluators directly
-4. check_evaluation_status → Poll until complete
+   Returns immediately with eval_id, eval_run_id, foundry_portal_url
+4. check_evaluation_status(eval_id, eval_run_id) → Query Foundry directly for status + metrics
 5. analyze_evaluation_results → Get detailed insights
+
+### For PTT vs VAD Comparison:
+1. Run Phase 1 (run_voicelive_audio_tests) twice with different session configs:
+   - session_config="push-to-talk" for PTT mode
+   - session_config="default" for VAD mode
+2. Run Phase 2 (run_voicelive_evaluation) on each result JSONL
+   - To group in same eval group: pass eval_group_id from first run to second run
+3. check_evaluation_status for each eval run
+4. Compare metrics side-by-side in Foundry portal
 
 ## Default Evaluators
 If user doesn't specify, use these 10 evaluators aligned with VoiceLive best practices:
@@ -160,12 +175,14 @@ If user doesn't specify, use these 10 evaluators aligned with VoiceLive best pra
 
 ## Important Notes
 - ALWAYS present the Foundry Portal URL when evaluation completes
+- run_voicelive_evaluation returns IMMEDIATELY with eval_id + eval_run_id + portal URL
+- Use check_evaluation_status with eval_id + eval_run_id to query Foundry directly (fastest)
 - For large datasets (>50 entries), use get_evaluation_recommendations first
-- Use eval_group_id/foundry_dataset_id to avoid re-uploading data
-- VoiceLive audio processing uses Container App (long-running)
-- Foundry evaluations use Azure Functions with Durable Functions
+- Use eval_group_id to group multiple eval runs for comparison (e.g. PTT vs VAD)
+- Use foundry_dataset_id to avoid re-uploading the same data
+- VoiceLive audio processing uses Container App (results go to blob storage)
+- Foundry evaluations use Azure Functions (uploads to Foundry, runs evaluators)
 - Evaluation datasets in Foundry are versioned — same name creates new version
-- VoiceLive processing output is auto-registered as Foundry dataset on completion
 
 ## Async Job Status — IMPORTANT
 You CANNOT autonomously poll or monitor long-running jobs. You have no background
@@ -179,9 +196,13 @@ When a job is started (VoiceLive audio processing or Foundry evaluation):
 - Do NOT promise continuous or automatic status tracking — you cannot do this
 - When the user asks for a status update, call the appropriate check endpoint
 
-Example response after starting a job:
-  "Evaluation started (instance_id: abc123). This typically takes 2-5 minutes.
-   Ask me to check the status whenever you'd like an update."
+Example response after starting an evaluation:
+  "Evaluation started! Here are the details:
+   - Eval ID: eval_f72707ab...
+   - Run ID: evalrun_21fefffe...
+   - Portal: https://ai.azure.com/build/evaluations/eval_f72707ab...
+   The evaluation typically takes 2-5 minutes. Ask me to check the status
+   whenever you'd like an update, or visit the portal link directly."
 """
 
 

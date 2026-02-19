@@ -519,8 +519,8 @@ sequenceDiagram
 **Reasoning**:
 - **Serverless cost model**: Pay only for execution time
 - **Auto-scaling**: Handles variable load automatically
-- **Durable Functions**: Overcomes 10-minute timeout for Foundry evaluations
-- **Async pattern**: Natural fit for AI agent workflows (start job → poll status)
+- **Durable Functions**: Orchestrates multi-step evaluation pipeline (download → upload → create eval → return)
+- **Non-blocking eval**: `run_foundry_evaluation` returns immediately with eval_id/eval_run_id; `check_evaluation_status` queries Foundry directly
 
 **Durable Functions Flow**:
 ```mermaid
@@ -533,9 +533,10 @@ stateDiagram-v2
     finalize_evaluation --> [*]: Return results
     
     state check_status <<fork>>
-    [*] --> check_status: HTTP POST
-    check_status --> Running: status polling
-    check_status --> Completed: get output
+    [*] --> check_status: HTTP POST (eval_id + eval_run_id)
+    check_status --> Foundry: Query run status directly
+    Foundry --> Completed: Return metrics + portal URL
+    Foundry --> Running: Return in_progress
 ```
 
 ---
@@ -678,7 +679,7 @@ Fields: EvalGroupId, Model, Voice, VadThreshold, EndOfSpeechTimeout, CreatedAt
 | `validate_dataset_quality` | HTTP | Assess content quality (either type) |
 | `get_evaluation_recommendations` | HTTP | Suggest settings for large datasets |
 | `run_voicelive_evaluation` | HTTP+Durable | Full eval pipeline: download blob results → upload Foundry dataset → create/reuse eval group → run evaluators → return portal URL |
-| `check_evaluation_status` | HTTP | Poll evaluation status |
+| `check_evaluation_status` | HTTP | Query Foundry eval run status + metrics (accepts eval_id+eval_run_id or instance_id) |
 | `analyze_evaluation_results` | HTTP | Analyze completed results |
 | `list_evaluation_groups` | HTTP | List Foundry eval groups |
 | `list_foundry_datasets` | HTTP | List Foundry datasets |
