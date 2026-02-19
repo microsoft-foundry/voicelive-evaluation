@@ -375,7 +375,10 @@ paths:
                   type: string
                   description: |
                     Optional: Reuse an existing Foundry evaluation group instead of creating a new one.
-                    Get available eval group IDs from list_evaluation_groups.
+                    For comparison runs (e.g., PTT vs VAD): run the first evaluation, then use
+                    check_evaluation_status to get the eval_group_id from the response. Pass that
+                    eval_group_id here so the second run is added to the same group for comparison.
+                    Get available IDs from list_evaluation_groups or check_evaluation_status.
                     Example: "eval_4609a79f9f2f458fbc6f37248bfb2e9d"
                 foundry_dataset_id:
                   type: string
@@ -454,12 +457,26 @@ paths:
                     type: string
                     enum: [pending, running, completed, failed]
                     description: When 'completed', use instance_id with analyze_evaluation_results
+                  eval_id:
+                    type: string
+                    description: Foundry evaluation group ID
+                  eval_run_id:
+                    type: string
+                    description: Foundry evaluation run ID
+                  eval_group_id:
+                    type: string
+                    description: |
+                      Same as eval_id. Pass this as eval_group_id to run_voicelive_evaluation
+                      to add additional runs (e.g., PTT vs VAD comparison) to the same eval group.
                   instance_id:
                     type: string
                     description: Use this with analyze_evaluation_results when status is completed
                   foundry_portal_url:
                     type: string
                     description: URL to view evaluation results in Azure AI Foundry portal. ALWAYS present this URL to the user when evaluation completes.
+                  metrics_summary:
+                    type: object
+                    description: Average scores per evaluator metric when status is completed.
                   output:
                     type: object
                     description: Results when completed. Pass instance_id to analyze_evaluation_results for analysis.

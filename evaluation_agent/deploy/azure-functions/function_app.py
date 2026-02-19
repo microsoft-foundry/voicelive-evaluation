@@ -2283,11 +2283,14 @@ def execute_evaluation(params: dict) -> dict:
             dataset_name=dataset_name
         )
         
-        # Combine results
+        # Combine results — surface eval_id/eval_run_id at top level
+        # so check_evaluation_status can extract them from durable output
         results = {
             "status": "completed",
             "entries_evaluated": entry_count,
             "instance_id": instance_id,
+            "eval_id": eval_results.get("eval_id"),
+            "eval_run_id": eval_results.get("eval_run_id"),
             "timestamp": datetime.utcnow().isoformat(),
             "voicelive_tests": voicelive_results,
             "foundry_evaluation": eval_results,
@@ -2531,6 +2534,7 @@ def _check_foundry_eval_run(eval_id: str, eval_run_id: str) -> func.HttpResponse
             "action": "check_evaluation_status",
             "eval_id": eval_id,
             "eval_run_id": eval_run_id,
+            "eval_group_id": eval_id,  # Same as eval_id — pass to run_voicelive_evaluation to add runs to this group
             "status": run_status.status,
             "foundry_portal_url": portal_url,
         }

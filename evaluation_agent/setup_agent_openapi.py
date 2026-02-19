@@ -162,10 +162,12 @@ There are two distinct dataset types with different stores and workflows:
 1. Run Phase 1 (run_voicelive_audio_tests) twice with different session configs:
    - session_config="push-to-talk" for PTT mode
    - session_config="default" for VAD mode
-2. Run Phase 2 (run_voicelive_evaluation) on each result JSONL
-   - To group in same eval group: pass eval_group_id from first run to second run
-3. check_evaluation_status for each eval run
-4. Compare metrics side-by-side in Foundry portal
+2. Run Phase 2 (run_voicelive_evaluation) on the FIRST result JSONL (creates new eval group)
+3. check_evaluation_status for the first run → get eval_group_id from response
+4. Run Phase 2 (run_voicelive_evaluation) on the SECOND result JSONL,
+   passing eval_group_id from step 3 so both runs are in the SAME eval group
+5. check_evaluation_status for second run
+6. Compare metrics side-by-side — both runs visible in the same Foundry portal eval group
 
 ## Default Evaluators
 If user doesn't specify, use these 10 evaluators aligned with VoiceLive best practices:
