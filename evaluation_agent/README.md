@@ -258,6 +258,69 @@ run_voicelive_evaluation → download blob results → Foundry dataset → eval 
 
 ### Comparison Workflow (PTT vs VAD)
 
+#### Audio Processing Modes
+
+The VoiceLive Container App supports two audio processing modes that control how speech boundaries are detected and responses are triggered:
+
+- **VAD mode** (default): Server-side Voice Activity Detection auto-detects when the user stops speaking and triggers a response automatically. Audio sending and event collection run concurrently, with a silence keepalive loop to maintain the VAD session.
+- **PTT mode** (`push_to_talk=true`): The client sends all audio, commits the buffer, and explicitly calls `response.create()`. Audio is sent sequentially before event collection begins.
+
+#### VAD Mode Sequence
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant V as VoiceLive SDK
+    participant A as AI Model
+
+    C->>V: Create session (turn_detection=AzureSemanticVad)
+    par Send audio & Collect events
+        C->>V: Send audio chunks (concurrent)
+        C->>V: Send silence keepalive frames
+    and
+        V->>A: VAD detects speech_stopped → auto-trigger
+        A-->>V: Response (text/audio deltas)
+        V-->>C: Transcription + Response events
+    end
+    V-->>C: RESPONSE_DONE
+    C->>C: Late event drain
+    C->>C: Return results
+```
+
+#### PTT Mode Sequence
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant V as VoiceLive SDK
+    participant A as AI Model
+
+    C->>V: Create session (turn_detection=AzureSemanticVad, push_to_talk=true)
+    C->>V: Send all audio chunks (sequential)
+    C->>V: commit()
+    C->>V: response.create()
+    V->>A: Process audio
+    A-->>V: Response (text/audio deltas)
+    V-->>C: Transcription + Response events
+    V-->>C: RESPONSE_DONE
+    C->>C: Late event drain
+    C->>C: Return results
+```
+
+#### Mode Comparison
+
+| Aspect | VAD Mode | PTT Mode |
+|--------|----------|----------|
+| Turn detection | Server auto-detects speech boundaries | Client commits + `response.create()` |
+| Session config | `turn_detection = AzureSemanticVad` | `turn_detection = AzureSemanticVad` (required) |
+| Silence keepalive | Yes (keeps VAD active during processing) | No |
+| Audio send | Concurrent with event collection | Sequential, before event collection |
+| Response trigger | Automatic on `speech_stopped` | Explicit `response.create()` |
+| Results (6 turns) | 6/6 Q, 6/6 R, 1 TC | 4/6 Q, 4/6 R |
+| Best for | Most accurate results | When explicit turn boundaries needed |
+
+> **Known limitation**: PTT mode achieves 4/6 vs VAD's 6/6 because VoiceLive requires `turn_detection` to always be set (not `None`). PTT uses a hybrid approach with VAD configured, which causes VAD interference on early turns. A feature request has been filed for `turn_detection=None` support to enable true PTT mode.
+
 To compare push-to-talk vs VAD on the same dataset:
 
 1. Run Phase 1 twice with different session configs (`push-to-talk` and `default`)
@@ -603,4 +666,4 @@ For **agent-side tracing** (traces appearing in Foundry portal):
 
 ---
 
-*Last updated: February 16, 2026*
+*Last updated: February 19, 2026*
