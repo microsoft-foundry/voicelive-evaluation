@@ -49,6 +49,7 @@ classDiagram
         +bool assistant_audio_received
         +List~Dict~ tool_calls
         +List~Dict~ tool_results
+        +List~bytes~ response_audio_chunks
         +Optional~datetime~ audio_send_end_time
         +Optional~datetime~ transcription_complete_time
         +Optional~datetime~ first_text_response_time
@@ -71,7 +72,7 @@ classDiagram
 ```mermaid
 flowchart TD
     start([Start VAD Mode]) --> conn["Create connection"]
-    conn --> cfg["configure_session\n(turn_detection = AzureSemanticVad)"]
+    conn --> cfg["configure_session\n(turn_detection = AzureSemanticVadMultilingual)"]
     cfg --> prep["Prepare silence_chunk\n(zero-filled audio frame)"]
     prep --> concurrent["Start concurrent tasks"]
     concurrent --> send["send_audio()\naudio chunks + asyncio.sleep(0.02)"]
@@ -117,7 +118,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     start([Start PTT Mode]) --> conn["Create connection"]
-    conn --> cfg["configure_session\n(turn_detection = AzureSemanticVad)\nNote: VoiceLive requires turn_detection"]
+    conn --> cfg["configure_session\n(turn_detection = AzureSemanticVadMultilingual)\nNote: VoiceLive requires turn_detection"]
     cfg --> send["Send all audio chunks synchronously\nawait connection.input_audio_buffer.append()\nawait asyncio.sleep(0.02)"]
     send --> timing["Record audio_send_end_time"]
     timing --> commit["await connection.input_audio_buffer.commit()"]

@@ -261,6 +261,9 @@ The batch processor spawns subprocesses that write to a shared aggregated eval J
 5. **Response audio is partial** — `RESPONSE_AUDIO_DELTA` events may not contain the complete response audio; saved WAVs may be smaller than expected compared to real-time playback.
 6. **Evaluations API regional availability** — the Foundry Evaluations API is not available in all regions (e.g. `southcentralus`). Ensure `PROJECT_ENDPOINT` points to a supported region (e.g. Sweden Central, East US 2).
 7. **No barge-in / interruption handling** — auto-truncation for interrupted responses is not yet implemented (see backlog).
+8. **Evaluation polling has no timeout** — `voice_agent_evaluation.py` polls indefinitely for eval run completion with no maximum attempt cap; a stuck run will block the process.
+9. **Evaluation output is pretty-printed JSON** — the `*_eval_output.jsonl` files use `indent=4` formatting, so each record spans multiple lines (not strict one-record-per-line JSONL).
+10. **Batch processor shared file writes** — parallel subprocess workers append to a shared aggregate JSONL file without inter-process locking; unlikely but possible write contention under high parallelism.
 
 ## Version History
 
