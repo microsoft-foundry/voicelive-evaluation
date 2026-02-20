@@ -596,6 +596,12 @@ After `azd up`, the following resources are created:
 
 ## Troubleshooting
 
+### Foundry Agent UX does not accept .jsonl files
+- The Foundry NEXTGEN Agent portal file upload only supports: `.c, .cpp, .cs, .css, .doc, .docx, .go, .html, .java, .js, .json, .md, .pdf, .php, .pptx, .py, .rb, .sh, .tex, .ts, .txt`
+- `.jsonl` is **not** in the list — you cannot attach JSONL files in the agent chat
+- **Workaround**: Ask the agent to provide an upload URL (`get_upload_url`), upload via the SAS URL, then call `finalize_upload`
+- A custom web frontend is planned to handle this natively
+
 ### "Blob not found" errors
 - Check path format - agent may send various formats
 - Verify file exists in correct container (datasets/ vs outputs/)
