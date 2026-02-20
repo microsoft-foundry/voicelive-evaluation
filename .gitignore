@@ -442,3 +442,5 @@ raw/
 output/
 logs/
 local_datasets/
+hf_data_cache/
+test_datasets/

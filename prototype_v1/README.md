@@ -265,6 +265,50 @@ The batch processor spawns subprocesses that write to a shared aggregated eval J
 9. **Evaluation output is pretty-printed JSON** — the `*_eval_output.jsonl` files use `indent=4` formatting, so each record spans multiple lines (not strict one-record-per-line JSONL).
 10. **Batch processor shared file writes** — parallel subprocess workers append to a shared aggregate JSONL file without inter-process locking; unlikely but possible write contention under high parallelism.
 
+## Preparing Test Datasets
+
+Use the helper script to download HuggingFace audio datasets as evaluation-ready JSONL:
+
+```bash
+# Download all 3 default TwinkStart datasets
+python helper_scripts/hf_dataset_to_jsonl.py
+
+# Download with a sample limit
+python helper_scripts/hf_dataset_to_jsonl.py TwinkStart/llama-questions --limit 50
+
+# Then run evaluation
+python prototype_v1/voice_agent_audio_input_evaluation.py -f datasets/TwinkStart-llama-questions/TwinkStart-llama-questions.jsonl
+```
+
+**Always validate datasets before running evaluations:**
+
+```bash
+# Step 1: Structural validation (must pass)
+python dataset_validator/validate_dataset_consistency.py datasets/TwinkStart-llama-questions/TwinkStart-llama-questions.jsonl
+
+# Step 2: Quality validation (advisory)
+python dataset_validator/validate_dataset_quality.py datasets/TwinkStart-llama-questions/TwinkStart-llama-questions.jsonl --strict
+```
+
+See [`helper_scripts/README.md`](../helper_scripts/README.md) for full CLI options, default datasets, and troubleshooting (FFmpeg, HF auth, dataset discovery). See [`dataset_validator/README.md`](../dataset_validator/README.md) for validation details.
+
+## Troubleshooting
+
+### FFmpeg Required for Audio Decoding
+
+Some HuggingFace datasets store audio in formats that require FFmpeg:
+```bash
+choco install ffmpeg   # Windows
+brew install ffmpeg    # macOS
+```
+
+### Debug Mode
+
+Enable verbose logging to diagnose audio processing or evaluation issues:
+```bash
+python voice_agent_audio_input_evaluation.py -f dataset.jsonl --verbose
+```
+
 ## Version History
 
 | Version | Description |
