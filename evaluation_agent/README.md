@@ -316,10 +316,10 @@ sequenceDiagram
 | Silence keepalive | Yes (keeps VAD active during processing) | No |
 | Audio send | Concurrent with event collection | Sequential, before event collection |
 | Response trigger | Automatic on `speech_stopped` | Explicit `response.create()` |
-| Results (6 turns) | 6/6 Q, 6/6 R, 1 TC | 4/6 Q, 4/6 R |
+| Response rate | ~90-100% | ~50-60% |
 | Best for | Most accurate results | When explicit turn boundaries needed |
 
-> **Known limitation**: PTT mode achieves 4/6 vs VAD's 6/6 because VoiceLive requires `turn_detection` to always be set (not `None`). PTT uses a hybrid approach with VAD configured, which causes VAD interference on early turns. A feature request has been filed for `turn_detection=None` support to enable true PTT mode.
+> **Known limitation**: PTT mode achieves lower response rates (~50-60%) vs VAD (~90-100%) because VoiceLive requires `turn_detection` to always be set (not `None`). PTT uses a hybrid approach with VAD configured, which can cause `conversation_already_has_active_response` errors when committing audio triggers a response before the commit event fully processes. A feature request has been filed for `turn_detection=None` support to enable true PTT mode.
 
 To compare push-to-talk vs VAD on the same dataset:
 
@@ -661,9 +661,10 @@ For **agent-side tracing** (traces appearing in Foundry portal):
 ## See Also
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Design decisions and diagrams
-- [prototype_v1/](../prototype_v1/) - Original local evaluation scripts
+- [prototype_v1/](../prototype_v1/) - Local evaluation prototype with full pipeline (VoiceLive → Foundry evaluation)
+- [prototype_v1/ARCHITECTURE.md](../prototype_v1/ARCHITECTURE.md) - Prototype architecture with VAD/PTT flow diagrams
 - [Azure AI Foundry Docs](https://learn.microsoft.com/azure/ai-services/agents/)
 
 ---
 
-*Last updated: February 19, 2026*
+*Last updated: February 20, 2026*

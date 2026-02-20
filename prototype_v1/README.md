@@ -4,11 +4,16 @@ Processes pre-recorded audio files through the Azure VoiceLive SDK for evaluatio
 
 ## Features
 
+- **Full evaluation pipeline** — VoiceLive audio processing → evaluation JSONL → Azure AI Foundry evaluation run, all in one command
 - **PTT and VAD mode support** — choose between server-side Voice Activity Detection (default) or push-to-talk sequencing
 - **SDK-pattern tool call handling** — uses `FunctionCallOutputItem` with `previous_item_id` to return results, matching the container-app pattern
 - **Multi-turn conversations** — groups audio files by `conversationID` and processes them sequentially within a persistent session
+- **Batch processor integration** — compatible with `batch_processor.py` for parallel multi-dataset processing with aggregated evaluation
+- **Response audio saving** — saves assistant response audio as WAV files per turn for audio quality review
+- **Operational summaries** — generates JSON metrics per run: turns processed, VAD splitting detection, audio response rate
 - **Late event drain** — after audio finishes, continues collecting events to capture complete responses and trailing transcriptions
-- **JSONL evaluation output** — each turn produces a record with `query`, `response`, `ground_truth`, `tool_calls`, and latency metrics, ready for Azure AI Evaluation SDK
+- **Conversation history tracking** — builds full conversation context (system + user + assistant + tool messages) for multi-turn evaluation
+- **JSONL evaluation output** — each turn produces a record with `query` (as conversation history list), `response`, `ground_truth`, `tool_calls`, and latency metrics
 
 ## Quick Start
 
@@ -75,10 +80,14 @@ python voice_agent_audio_input_evaluation.py -f dataset.jsonl --push-to-talk
 | Argument | Default | Description |
 |---|---|---|
 | `--test-files`, `-f` | *(required)* | JSONL file listing audio files and metadata |
-| `--output-dir`, `-o` | `output/` | Output directory for evaluation results |
-| `--evaluation-dir`, `-e` | `None` | Evaluation data directory (optional) |
+| `--output-dir`, `-o` | `output/` | Output directory for results and response audio |
+| `--evaluation-dir`, `-e` | `None` | Evaluation data directory (defaults to output-dir) |
 | `--session-mode` | `per-conversation` | Session handling: `single`, `per-file`, `per-conversation` |
 | `--push-to-talk` | `False` | Enable push-to-talk mode instead of VAD |
+| `--skip-evaluation` | `False` | Skip running Foundry evaluation after processing |
+| `--session-suffix` | `None` | Session suffix for output naming (used by batch_processor) |
+| `--aggregate-eval-file` | `None` | Shared JSONL file for batch aggregation |
+| `--eval-object-id` | `None` | Existing Foundry eval group ID to reuse |
 | `--model` | `gpt-realtime` | VoiceLive model name |
 | `--voice` | `en-US-Ava:DragonHDLatestNeural` | Azure TTS voice |
 | `--sample-rate` | `24000` | Audio sample rate in Hz |
@@ -103,23 +112,69 @@ Input is a JSONL file where each line is a JSON object:
 
 ## Output Format
 
-Output is a JSONL file in the output directory. Each line represents one conversation turn:
+### Evaluation JSONL
+
+The evaluation data file uses conversation-history-based `query` format, compatible with Azure AI Foundry evaluators:
 
 ```json
 {
-  "query": "What is the weather in Seattle?",
-  "response": "The weather in Seattle is sunny with a high of 75°F.",
+  "query": [
+    {"role": "system", "content": "You are a helpful travel assistant named Tobi."},
+    {"role": "user", "content": [{"type": "input_text", "text": "What is the weather?"}]}
+  ],
+  "response": [{"role": "assistant", "content": "The weather in Seattle is sunny."}],
   "ground_truth": "It is sunny and 75 degrees in Seattle.",
-  "context": "",
-  "tool_calls": [{"name": "get_weather", "arguments": {"location": "Seattle"}, "result": "{\"temperature\": 72, \"condition\": \"sunny\"}"}],
+  "tool_calls": [{"name": "get_weather", "arguments": {"location": "Seattle"}, "result": "{\"temperature\": 72}"}],
   "tool_definitions": [{"type": "function", "name": "get_weather", "description": "Get weather", "parameters": {}}],
-  "audio_file": "audio/turn1.wav",
   "conversation_id": "conv-001",
+  "source_file": "audio/turn1.wav",
   "turn_number": 1,
   "metrics": {
+    "logical_turn_number": 1,
+    "audio_response_received": true,
     "transcription_latency_seconds": 0.82,
     "text_response_latency_seconds": 1.45,
-    "audio_response_latency_seconds": 1.51
+    "audio_response_latency_seconds": 1.51,
+    "tool_call_count": 1
+  }
+}
+```
+
+For multi-turn conversations, subsequent turns include the full conversation history in `query` (system + prior user/assistant/tool messages + current user message).
+
+### Response Audio
+
+Per-turn response audio is saved as WAV files:
+
+```
+output_dir/
+├── conversation_id/
+│   ├── turn_01_response.wav
+│   ├── turn_02_response.wav
+│   └── turn_03_response.wav
+```
+
+### Operational Summary
+
+A JSON summary is written per run with metrics:
+
+```json
+{
+  "operational_metrics": {
+    "turns_processed": "6/6",
+    "expected_turns": 6,
+    "actual_turns": 6,
+    "vad_splitting_detected": false,
+    "turn_expansion_factor": 1.0,
+    "turns_with_audio_response": 6,
+    "turns_with_text_only_response": 0,
+    "audio_response_rate": 1.0
+  },
+  "session_info": {
+    "timestamp": "2026-02-19 16:30:20",
+    "evaluation_mode": "enabled",
+    "session_id": "2026-02-19_16-30-20",
+    "session_suffix": "direct-eiffel"
   }
 }
 ```
@@ -154,25 +209,64 @@ Custom tool definitions from the dataset are registered with the session; if the
 
 ## Environment Variables
 
+The script loads `.env` from its own directory (next to the script) regardless of where you invoke it from.
+
 | Variable | Required | Description |
 |---|---|---|
-| `AZURE_VOICELIVE_ENDPOINT` | Yes | WebSocket endpoint for VoiceLive (e.g. `wss://...azure.com`) |
-| `AZURE_VOICELIVE_MODEL` | No | Model override (default: `gpt-realtime`) |
-| `AZURE_VOICELIVE_API_VERSION` | No | API version override (default: `2025-05-15-preview`) |
+| `AZURE_VOICELIVE_ENDPOINT` | Yes | WebSocket endpoint for VoiceLive (fallback: `AZURE_VOICE_LIVE_ENDPOINT`) |
+| `AZURE_VOICELIVE_MODEL` | No | Model override (default: `gpt-realtime`; fallback: `AZURE_VOICE_LIVE_MODEL`) |
+| `AZURE_VOICELIVE_API_VERSION` | No | API version override (fallback: `AZURE_VOICE_LIVE_API_VERSION`) |
+| `PROJECT_ENDPOINT` | For eval | Azure AI Foundry project endpoint (required for evaluation runs) |
+| `AOAI_DEPLOYMENT_NAME` | For eval | Azure OpenAI deployment for evaluators |
+| `AOAI_REASONING_DEPLOYMENT_NAME` | For eval | Reasoning model deployment for evaluators |
 
 Azure credentials are resolved via `DefaultAzureCredential` — ensure you are logged in with `az login` or have a managed identity configured.
 
+## Evaluation Integration
+
+When `--skip-evaluation` is **not** set, the script automatically runs Azure AI Foundry evaluation after processing:
+
+1. Writes evaluation-ready JSONL with conversation history context
+2. Calls `voice_agent_evaluation.main()` which creates an eval group, uploads dataset, and runs 11 built-in evaluators
+3. Polls for completion and outputs per-item scores + aggregate summary
+
+```bash
+# Full pipeline: VoiceLive processing + Foundry evaluation
+python voice_agent_audio_input_evaluation.py -f dataset.jsonl -o output -e output
+
+# Processing only (skip evaluation)
+python voice_agent_audio_input_evaluation.py -f dataset.jsonl --skip-evaluation
+```
+
+### Batch Processor Integration
+
+Use `batch_processor.py` for parallel multi-dataset/multi-conversation processing:
+
+```bash
+# Process all conversations in parallel, then run one final evaluation
+python batch_processor.py -f dataset.jsonl --session-mode per-conversation -o output -e output
+
+# Process multiple datasets from a folder
+python batch_processor.py --test-files-folder datasets/ --max-workers 4
+```
+
+The batch processor spawns subprocesses that write to a shared aggregated eval JSONL file, then runs a single evaluation on the combined results.
+
 ## Known Limitations
 
-1. **PTT mode constrained by VoiceLive VAD requirement** — the platform always requires `turn_detection` to be set, so pure PTT (`turn_detection=None`) is not achievable; PTT results may miss some turns.
-2. **Tool definitions auto-normalised** — if `tool_definitions` is a `dict` instead of a `list`, it is automatically wrapped in a list.
-3. **No built-in evaluation runner** — this script produces evaluation-ready JSONL; use it with the Azure AI Evaluation SDK (or the `evaluation_agent`) to compute quality metrics.
+1. **PTT mode constrained by VoiceLive VAD requirement** — the platform always requires `turn_detection` to be set, so pure PTT (`turn_detection=None`) is not achievable; PTT results may miss some turns due to `conversation_already_has_active_response` errors.
+2. **PTT response rate lower than VAD** — PTT achieves ~50-60% response rate vs VAD's ~90-100% in multi-turn tests. This is a known race condition in the VoiceLive SDK where committing audio can trigger a response before the commit event fully processes.
+3. **Tool definitions auto-normalised** — if `tool_definitions` is a `dict` instead of a `list`, it is automatically wrapped in a list.
 4. **Audio resampling is linear interpolation** — sufficient for speech evaluation but not audiophile-grade.
+5. **Response audio is partial** — `RESPONSE_AUDIO_DELTA` events may not contain the complete response audio; saved WAVs may be smaller than expected compared to real-time playback.
+6. **Evaluations API regional availability** — the Foundry Evaluations API is not available in all regions (e.g. `southcentralus`). Ensure `PROJECT_ENDPOINT` points to a supported region (e.g. Sweden Central, East US 2).
+7. **No barge-in / interruption handling** — auto-truncation for interrupted responses is not yet implemented (see backlog).
 
 ## Version History
 
 | Version | Description |
 |---|---|
-| **v3** (Current) | Full async rewrite with PTT/VAD modes, SDK-pattern `FunctionCallOutputItem` tool calls, late event drain, `asyncio`-native |
+| **v3.1** (Current) | Full evaluation pipeline integration, batch processor compatibility, response audio saving, operational summaries, conversation history tracking, .env/CWD fixes |
+| **v3** | Full async rewrite with PTT/VAD modes, SDK-pattern `FunctionCallOutputItem` tool calls, late event drain, `asyncio`-native |
 | **v2** | VoiceLive SDK integration with threading wrappers |
 | **v1** | Original WebSocket-based implementation |

@@ -1191,7 +1191,7 @@ Auto-registration in `check_voicelive_job_status` attempts Foundry dataset uploa
 9. ~~**Foundry dataset URI in validate_eval_dataset**~~ — ✅ Fixed. Both `validate_eval_dataset` and `check_dataset_schema` now resolve Foundry URIs (`azureai://...`), plain Foundry dataset names, and blob paths.
 10. ~~**BUG: Eval group comparison runs create separate groups**~~ — ✅ Fixed. `execute_evaluation` now surfaces `eval_id`/`eval_run_id` at top level. `check_evaluation_status` returns `eval_group_id` field. Agent instructions document the chaining workflow: first run → check status → get `eval_group_id` → pass to second run.
 11. **Auto-registration is best-effort** - `check_voicelive_job_status` attempts to register VoiceLive output as a Foundry dataset, but silently fails if the Container App has scaled to zero before status is polled. The `run_voicelive_evaluation` pipeline handles its own upload as the reliable path.
-12. **PTT mode limited by VAD interference** — VoiceLive requires `turn_detection` to always be configured. PTT mode (`push_to_talk=true`) uses VAD + `commit()` + `response.create()` hybrid, achieving 4/6 responses vs VAD's 6/6. Turns 2-3 in multi-turn conversations are consistently lost due to VAD auto-triggering stale responses. Feature request filed for `turn_detection=None` support.
+12. **PTT mode limited by race condition** — VoiceLive requires `turn_detection` to always be configured. PTT mode (`push_to_talk=true`) uses VAD + `commit()` + `response.create()` hybrid, achieving ~50-60% response rate vs VAD's ~90-100%. The `conversation_already_has_active_response` error occurs when committing audio triggers a response before the commit event fully processes. Feature request filed for `turn_detection=None` support.
 13. **Tool definitions normalization** — Dataset JSONL may contain `tool_definitions` as a single dict instead of a list. The processor normalizes this automatically, but datasets should ideally use array format: `"tool_definitions": [{"type":"function",...}]`
 
 ### Future Improvements
@@ -1251,4 +1251,4 @@ configure_azure_monitor(connection_string="InstrumentationKey=...")
 
 ---
 
-*Document last updated: February 19, 2026*
+*Document last updated: February 20, 2026*

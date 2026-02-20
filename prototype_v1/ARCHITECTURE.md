@@ -198,7 +198,7 @@ sequenceDiagram
 | `RESPONSE_TEXT_DONE` | Finalize `assistant_response` | Text complete |
 | `RESPONSE_AUDIO_TRANSCRIPT_DELTA` | Buffer `audio_transcript_buffer` | Streaming audio transcript |
 | `RESPONSE_AUDIO_TRANSCRIPT_DONE` | Finalize `assistant_response` | Audio transcript complete |
-| `RESPONSE_AUDIO_DELTA` | Record `first_audio_response_time` | Audio data timing (not saved) |
+| `RESPONSE_AUDIO_DELTA` | Collect audio bytes in `response_audio_chunks` | Response audio data |
 | `RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE` | Store `pending_tool_call` | Tool arguments ready |
 | `RESPONSE_DONE` | Execute tool or drain late events, break | Turn complete |
 | `ERROR` | Log and break | Error handling |
@@ -242,9 +242,58 @@ the prototype keeps everything in one file for ease of use and portability.
 ## Known Platform Limitations
 
 1. `turn_detection=None` not supported — breaks sessions entirely
-2. PTT achieves 4/6 vs VAD 6/6 due to VAD interference on early turns
+2. PTT achieves ~50-60% response rate vs VAD ~90-100% due to `conversation_already_has_active_response` race condition
 3. No official SDK sample for PTT or pre-recorded audio processing
 4. Tool definitions as single dict silently ignored — normalize to list
+5. `RESPONSE_AUDIO_DELTA` may not deliver complete response audio — saved WAVs can be smaller than real-time playback
+6. Evaluations API not available in all regions (e.g. `southcentralus`) — use Sweden Central or East US 2
+
+## Evaluation Pipeline Integration
+
+After VoiceLive processing, the script optionally runs Azure AI Foundry evaluation:
+
+```mermaid
+flowchart TD
+    A[VoiceLive Processing] --> B[build_evaluation_data]
+    B --> C[Write eval JSONL]
+    C --> D{skip_evaluation?}
+    D -->|Yes| E[Done]
+    D -->|No| F[_run_evaluation]
+    F --> G[voice_agent_evaluation.main]
+    G --> H[Create Eval Group]
+    H --> I[Upload Dataset to Foundry]
+    I --> J[Create Eval Run]
+    J --> K[Poll for Completion]
+    K --> L[Output Scores + Report URL]
+```
+
+### Evaluation Data Format
+
+The `build_evaluation_data()` function constructs `query` as a **conversation history list** (not a plain string), matching the format expected by Azure AI Foundry agent evaluators:
+
+- **Turn 1**: `[system_msg, user_msg]`
+- **Turn 2**: `[system_msg, user_msg_1, assistant_msg_1, user_msg_2]`
+- **Turn 3 (with tools)**: `[system_msg, user_msg_1, assistant_msg_1, user_msg_2, assistant_tool_calls_msg, tool_result_msg, assistant_msg_2, user_msg_3]`
+
+This ensures evaluators like `intent_resolution` and `task_adherence` have full conversation context for accurate scoring.
+
+### Conversation History Tracking
+
+After each turn, the assistant's response (including tool call announcements) and tool results are stored in `conversation_history`. This list is prepended to subsequent turns' `query` messages so the evaluator sees the full multi-turn context.
+
+### Batch Processor Architecture
+
+```mermaid
+flowchart TD
+    BP[batch_processor.py] --> |spawn subprocess| SP1[voice_agent_audio_input_evaluation.py<br/>--session-mode single<br/>--aggregate-eval-file shared.jsonl]
+    BP --> |spawn subprocess| SP2[voice_agent_audio_input_evaluation.py<br/>--session-mode single<br/>--aggregate-eval-file shared.jsonl]
+    SP1 --> AGG[Aggregated eval JSONL]
+    SP2 --> AGG
+    AGG --> EVAL[voice_agent_evaluation.main]
+    EVAL --> RES[Eval Results + Report URL]
+```
+
+Each subprocess writes to a shared `--aggregate-eval-file` and skips per-subprocess evaluation. After all subprocesses complete, the batch processor runs a single final evaluation on the aggregated JSONL.
 
 ## Comparison with Container App
 
@@ -252,10 +301,11 @@ the prototype keeps everything in one file for ease of use and portability.
 |--------|-----------|---------------|
 | Architecture | Single file CLI | FastAPI service (4+ modules) |
 | Storage | Local filesystem | Azure Blob Storage |
-| Job management | None | Async job queue |
-| Concurrency | Sequential conversations | Configurable workers |
+| Job management | None (batch_processor for parallelism) | Async job queue |
+| Concurrency | Sequential conversations (batch_processor for parallel) | Configurable workers |
 | Audio source | Local WAV files | Blob-downloaded WAV |
-| Output | Local JSONL | Blob-uploaded JSONL |
+| Output | Local JSONL + WAV + operational summary | Blob-uploaded JSONL |
+| Evaluation | Integrated (voice_agent_evaluation.py) | Not integrated (separate step) |
 | Core patterns | Identical | Identical |
 | SDK integration | Identical | Identical |
 | PTT/VAD | Identical | Identical |
