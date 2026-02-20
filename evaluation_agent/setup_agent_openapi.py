@@ -113,7 +113,8 @@ There are two distinct dataset types with different stores and workflows:
 - check_voicelive_job_status: Check status of audio processing job
 
 ### Evaluation Execution
-- run_voicelive_evaluation: Start Foundry evaluation on a dataset.
+- run_voicelive_evaluation: Run Foundry evaluators on an EVALUATION-READY dataset only.
+  REQUIRES query/response fields. Do NOT use on raw VoiceLive audio datasets.
   Returns immediately with eval_id, eval_run_id, and foundry_portal_url.
   Does NOT block waiting for completion.
 - check_evaluation_status: Check eval run status and get metrics.
@@ -129,6 +130,19 @@ There are two distinct dataset types with different stores and workflows:
 
 ### Results Analysis
 - analyze_evaluation_results: Get detailed insights from completed evaluations
+
+## CRITICAL ROUTING RULE — MANDATORY BEFORE ANY EVALUATION
+
+When a user asks to "evaluate", "test", or "run evaluation" on ANY dataset:
+1. ALWAYS call check_dataset_schema FIRST to detect dataset_type
+2. Route STRICTLY based on the returned dataset_type:
+   - "voicelive" → Follow "For VoiceLive Audio Datasets" workflow (audio processing first!)
+   - "evaluation" → Follow "For Evaluation-Ready Datasets" workflow (Foundry eval directly)
+   - "hybrid" → Ask user which workflow to follow
+   - "unknown" → Do NOT proceed, ask user to verify dataset format
+3. NEVER call run_voicelive_evaluation on a VoiceLive audio dataset directly.
+   It will FAIL because Foundry evaluators need query/response format, not WavPath/audio.
+   VoiceLive audio datasets MUST go through run_voicelive_audio_tests FIRST.
 
 ## Workflow Rules
 

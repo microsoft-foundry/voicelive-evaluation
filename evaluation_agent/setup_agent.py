@@ -42,7 +42,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "check_dataset_schema",
-            "description": "Analyzes a JSONL dataset to check for required and optional fields. Use BEFORE running full validation to identify missing optional metadata that will use defaults during evaluation.",
+            "description": "Analyzes a JSONL dataset to detect its type and check fields. Returns dataset_type: 'voicelive' (WavPath/audio fields), 'evaluation' (query/response fields), 'hybrid', or 'unknown'. MUST be called first before any validation or evaluation to determine the correct workflow.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -126,7 +126,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "run_voicelive_evaluation",
-            "description": "Runs Azure VoiceLive audio evaluation tests. Processes audio through VoiceLive API and captures evaluation metrics. IMPORTANT: Run dataset validation BEFORE using this function.",
+            "description": "Runs VoiceLive AUDIO evaluation pipeline: processes .wav audio files through VoiceLive SDK, then runs Foundry evaluators on the output. REQUIRES a VoiceLive audio dataset (WavPath/audio fields). Do NOT use for evaluation-ready datasets (query/response format). Always call check_dataset_schema first to verify dataset_type is 'voicelive'.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -355,15 +355,34 @@ You help users:
 5. Analyze evaluation results and provide insights
 6. Manage VoiceLive session configurations
 
-## Workflow Rules
+## CRITICAL: Dataset Type Routing (MANDATORY FIRST STEP)
 
-ALWAYS follow this sequence:
-1. check_dataset_schema → Identify missing optional fields
+BEFORE any validation or evaluation, ALWAYS run check_dataset_schema first.
+It returns a dataset_type field that determines the correct workflow.
+
+### If dataset_type is "voicelive" (has WavPath/audio fields):
+1. check_dataset_schema → Verify dataset_type is "voicelive"
 2. validate_dataset_consistency → MANDATORY structural check
-3. validate_dataset_quality → ADVISORY content check  
+3. validate_dataset_quality → ADVISORY content check
 4. get_evaluation_recommendations → For large datasets (>50 entries)
-5. run_voicelive_evaluation → Execute the evaluation
+5. run_voicelive_evaluation → Processes audio + runs evaluation
 6. analyze_evaluation_results → Extract insights
+
+### If dataset_type is "evaluation" (has query/response fields):
+This local agent processes VoiceLive AUDIO datasets only.
+Evaluation-ready datasets (query/response format) do NOT need VoiceLive audio processing.
+Tell the user: "This dataset is already in evaluation-ready format (query/response).
+It does not contain audio files to process through VoiceLive. To run Foundry evaluators
+on it, use the cloud-deployed agent or the Foundry Portal directly."
+
+### If dataset_type is "unknown":
+Do NOT proceed. Ask the user to verify the dataset format.
+A valid VoiceLive dataset needs WavPath or audio fields pointing to .wav files.
+
+## COMMON MISTAKE
+Do NOT call run_voicelive_evaluation on a dataset with query/response fields.
+That tool processes audio files through the VoiceLive SDK and will fail or produce
+wrong results if the dataset has no audio to process.
 
 ## Session Configuration
 

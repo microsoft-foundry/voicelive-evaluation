@@ -78,14 +78,54 @@ def resolve_dataset_path(dataset_path: str) -> tuple[str, Optional[CloudStorageC
 # Tool Implementations
 # =============================================================================
 
+def _detect_dataset_type(dataset_path: str) -> str:
+    """Detect dataset type by sampling first entries for key fields."""
+    VOICELIVE_FIELDS = {"WavPath", "audio", "audio_path"}
+    EVAL_FIELDS = {"query", "response"}
+    try:
+        resolved = Path(dataset_path)
+        if resolved.is_dir():
+            jsonl_files = list(resolved.glob("*.jsonl"))
+            if not jsonl_files:
+                return "unknown"
+            resolved = jsonl_files[0]
+        all_fields: set = set()
+        with open(resolved, "r", encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                if i >= 5:
+                    break
+                line = line.strip()
+                if not line or line.startswith(("#", "//")):
+                    continue
+                try:
+                    all_fields.update(json.loads(line).keys())
+                except json.JSONDecodeError:
+                    continue
+        has_audio = bool(all_fields & VOICELIVE_FIELDS)
+        has_eval = bool(all_fields & EVAL_FIELDS)
+        if has_audio and has_eval:
+            return "hybrid"
+        elif has_audio:
+            return "voicelive"
+        elif has_eval:
+            return "evaluation"
+        return "unknown"
+    except Exception:
+        return "unknown"
+
+
 def check_dataset_schema(dataset_path: str) -> dict:
-    """Check dataset schema for required and optional fields."""
+    """Check dataset schema for required and optional fields, and detect dataset type."""
     print(f"\n⚙️  Checking dataset schema...", flush=True)
     
     script_path = get_validators_dir() / "check_dataset_schema.py"
     cmd = [sys.executable, str(script_path), dataset_path, "--json"]
     
     env = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+    
+    # Detect dataset type locally (independent of validator output)
+    dataset_type = _detect_dataset_type(dataset_path)
+    print(f"   Dataset type detected: {dataset_type}", flush=True)
     
     try:
         result = subprocess.run(
@@ -104,13 +144,14 @@ def check_dataset_schema(dataset_path: str) -> dict:
         
         return {
             "action": "check_dataset_schema",
+            "dataset_type": dataset_type,
             "status": status,
             "can_proceed": can_proceed,
             "output": output_data,
             "errors": result.stderr if result.returncode != 0 else None
         }
     except Exception as e:
-        return {"action": "check_dataset_schema", "status": "error", "error": str(e)}
+        return {"action": "check_dataset_schema", "dataset_type": dataset_type, "status": "error", "error": str(e)}
 
 
 def validate_dataset_consistency(
