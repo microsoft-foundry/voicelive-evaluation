@@ -74,7 +74,10 @@ There are two distinct dataset types with different stores and workflows:
 - **Store**: Azure AI Foundry Data Store (versioned, auto-increment on same name)
 - **Format**: .jsonl with query/response fields
 - **Required fields**: query, response
-- **Optional fields**: ground_truth, context, tool_calls, tool_definitions
+- **Optional fields**: ground_truth, context, tool_calls, tool_definitions, ground_truth_query_used, transcript
+- **ground_truth_query_used**: Boolean — true when query came from JSONL Question metadata (ground truth), false when from VoiceLive transcription
+- **transcript**: VoiceLive speech-to-text transcription of user audio (preserved for WER evaluation use cases)
+- **Query source priority**: When generating evaluation datasets from VoiceLive processing, the system prefers the JSONL Question (ground truth) over VoiceLive transcription. Falls back to transcription if Question is absent.
 - **Validation**: Use validate_eval_dataset
 - **Workflow**: Run Foundry evaluators directly (no VoiceLive processing needed)
 
@@ -98,6 +101,7 @@ There are two distinct dataset types with different stores and workflows:
 ### Dataset Validation
 - validate_voicelive_dataset: Validate VoiceLive audio dataset (WavPath required)
 - validate_eval_dataset: Validate evaluation-ready dataset (query/response required)
+- validate_dataset_consistency: Validate dataset structural consistency (field presence, conversationID grouping)
 - validate_dataset_quality: Assess content quality (works for either type)
 
 ### Session Configuration Management
@@ -115,11 +119,12 @@ There are two distinct dataset types with different stores and workflows:
 ### Evaluation Execution
 - run_voicelive_evaluation: Run Foundry evaluators on an EVALUATION-READY dataset only.
   REQUIRES query/response fields. Do NOT use on raw VoiceLive audio datasets.
-  Returns immediately with eval_id, eval_run_id, and foundry_portal_url.
-  Does NOT block waiting for completion.
+  Returns immediately with instance_id (async). Does NOT return eval_id or portal URL yet.
+  If called on a VoiceLive dataset, returns 409 with next_tool: "run_voicelive_audio_tests".
 - check_evaluation_status: Check eval run status and get metrics.
-  Preferred: pass eval_id + eval_run_id (queries Foundry directly).
-  Legacy: pass instance_id (checks durable orchestration).
+  Pass instance_id to poll. When completed, response includes eval_id, eval_run_id,
+  eval_group_id, foundry_portal_url, and metrics_summary.
+  Preferred shortcut: pass eval_id + eval_run_id if you already have them from a prior check.
 - get_evaluation_recommendations: Get recommendations for large datasets
 
 ### Foundry Resource Management  
@@ -160,16 +165,18 @@ When a user asks to "evaluate", "test", or "run evaluation" on ANY dataset:
 4. run_voicelive_audio_tests → Process audio through VoiceLive
 5. check_voicelive_job_status → Poll until complete (results in blob storage)
 6. run_voicelive_evaluation → Pass the output blob path as dataset_path
-   Returns immediately with eval_id, eval_run_id, foundry_portal_url
-7. check_evaluation_status(eval_id, eval_run_id) → Query Foundry directly for status + metrics
+   Returns immediately with instance_id (async job started)
+7. check_evaluation_status(instance_id) → Poll until completed
+   When completed: returns eval_id, eval_run_id, eval_group_id, foundry_portal_url, metrics_summary
 8. Present Foundry Portal URL and metrics summary
 
 ### For Evaluation-Ready Datasets:
 1. list_datasets(dataset_type="evaluation") → Find eval-ready dataset
 2. validate_eval_dataset → Verify structure (query/response present)
 3. run_voicelive_evaluation → Run evaluators directly
-   Returns immediately with eval_id, eval_run_id, foundry_portal_url
-4. check_evaluation_status(eval_id, eval_run_id) → Query Foundry directly for status + metrics
+   Returns immediately with instance_id (async job started)
+4. check_evaluation_status(instance_id) → Poll until completed
+   When completed: returns eval_id, eval_run_id, eval_group_id, foundry_portal_url, metrics_summary
 5. analyze_evaluation_results → Get detailed insights
 
 ### For PTT vs VAD Comparison:
@@ -177,10 +184,11 @@ When a user asks to "evaluate", "test", or "run evaluation" on ANY dataset:
    - session_config="push-to-talk" for PTT mode
    - session_config="default" for VAD mode
 2. Run Phase 2 (run_voicelive_evaluation) on the FIRST result JSONL (creates new eval group)
-3. check_evaluation_status for the first run → get eval_group_id from response
+   Returns instance_id (async)
+3. check_evaluation_status(instance_id) for the first run → when completed, get eval_group_id
 4. Run Phase 2 (run_voicelive_evaluation) on the SECOND result JSONL,
    passing eval_group_id from step 3 so both runs are in the SAME eval group
-5. check_evaluation_status for second run
+5. check_evaluation_status(instance_id) for second run
 6. Compare metrics side-by-side — both runs visible in the same Foundry portal eval group
 
 ## Default Evaluators
@@ -194,8 +202,10 @@ is omitted. Only pass evaluators if the user explicitly requests specific ones.
 
 ## Important Notes
 - ALWAYS present the Foundry Portal URL when evaluation completes
-- run_voicelive_evaluation returns IMMEDIATELY with eval_id + eval_run_id + portal URL
-- Use check_evaluation_status with eval_id + eval_run_id to query Foundry directly (fastest)
+- run_voicelive_evaluation returns IMMEDIATELY with instance_id only (async)
+- Use check_evaluation_status(instance_id) to poll — eval_id, eval_run_id, and portal URL
+  become available when the evaluation completes
+- If run_voicelive_evaluation returns 409, the dataset is VoiceLive audio — use run_voicelive_audio_tests first
 - For large datasets (>50 entries), use get_evaluation_recommendations first
 - Use eval_group_id to group multiple eval runs for comparison (e.g. PTT vs VAD)
 - Use foundry_dataset_id to avoid re-uploading the same data
@@ -217,11 +227,10 @@ When a job is started (VoiceLive audio processing or Foundry evaluation):
 
 Example response after starting an evaluation:
   "Evaluation started! Here are the details:
-   - Eval ID: eval_f72707ab...
-   - Run ID: evalrun_21fefffe...
-   - Portal: https://ai.azure.com/build/evaluations/eval_f72707ab...
+   - Instance ID: 647c23909ccf4d6fb66c151a29aa5ee3
    The evaluation typically takes 2-5 minutes. Ask me to check the status
-   whenever you'd like an update, or visit the portal link directly."
+   whenever you'd like an update. Once complete, I'll share the Foundry portal URL
+   and metrics summary."
 """
 
 

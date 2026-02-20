@@ -2,7 +2,7 @@ openapi: 3.0.0
 info:
   title: VoiceLive Evaluation Tools API
   description: HTTP API for VoiceLive evaluation tools, called by Foundry Agent
-  version: 1.0.0
+  version: 1.1.0
 
 servers:
   - url: https://{functionAppName}.azurewebsites.net/api
@@ -11,16 +11,7 @@ servers:
         default: voicelive-eval-tools
         description: Azure Function App name
 
-# Security scheme for Function Key authentication
-components:
-  securitySchemes:
-    functionKey:
-      type: apiKey
-      name: x-functions-key
-      in: header
-      description: Azure Function key for authentication
-
-# Apply security globally (can be overridden per-operation)
+# Security scheme applied globally
 security:
   - functionKey: []
 
@@ -346,14 +337,26 @@ paths:
               properties:
                 test_files_path:
                   type: string
-                  description: Path to dataset in blob storage (e.g., "Eiffel_Tower_Visit_1" or "datasets/sample.jsonl")
+                  description: |
+                    Path to dataset in blob storage (e.g., "Eiffel_Tower_Visit_1" or "datasets/sample.jsonl").
+                    Alias: "dataset_path" is also accepted by the backend.
+                dataset_path:
+                  type: string
+                  description: |
+                    Alias for test_files_path. Use either one — if both are provided, test_files_path takes priority.
                 session_mode:
                   type: string
                   enum: [per-conversation, per-file, single]
-                  description: How to group test files into VoiceLive sessions
+                  description: |
+                    VoiceLive audio processing parameter — IGNORED for evaluation-ready datasets.
+                    Only used if run_voicelive_tests is true (legacy). Use run_voicelive_audio_tests instead.
+                  deprecated: true
                 max_workers:
                   type: integer
-                  description: Number of parallel workers (default 4)
+                  description: |
+                    VoiceLive audio processing parameter — IGNORED for evaluation-ready datasets.
+                    Only used if run_voicelive_tests is true (legacy). Use run_voicelive_audio_tests instead.
+                  deprecated: true
                 evaluators:
                   type: array
                   items:
@@ -375,7 +378,11 @@ paths:
                     If not specified, defaults to: intent_resolution, task_adherence, task_completion, response_completeness, tool_call_accuracy, tool_selection, tool_input_accuracy, tool_output_utilization.
                 run_voicelive_tests:
                   type: boolean
-                  description: Whether to run VoiceLive audio tests (default true). Set false to only run evaluators on existing data.
+                  default: false
+                  description: |
+                    Legacy parameter. Default false — this endpoint is for evaluation-ready datasets only.
+                    Use run_voicelive_audio_tests for VoiceLive audio processing instead.
+                  deprecated: true
                 eval_group_id:
                   type: string
                   description: |
@@ -392,14 +399,23 @@ paths:
                     Get available dataset IDs from list_foundry_datasets.
                     Example: "azureai://accounts/.../data/dataset-name/versions/1"
                 session_config:
-                  type: object
+                  oneOf:
+                    - type: string
+                      description: Name of a session configuration (e.g., "default", "push-to-talk")
+                    - type: object
+                      description: Inline session configuration object
                   description: |
-                    Optional: VoiceLive session configuration for eval group naming.
+                    Session configuration for eval group naming.
+                    Can be a config name (string) resolved via list_session_configs, or an inline object.
                     Eval groups are named based on config: {model}_{voice}_{vad}_{eod}.
-                    Example: {"model": "gpt-realtime", "voice": "alloy", "vad_threshold": "0.5", "end_of_speech_timeout": "500"}
+                    Example string: "push-to-talk"
+                    Example object: {"model": "gpt-realtime", "voice": "alloy", "vad_threshold": "0.5"}
       responses:
         '200':
-          description: Evaluation job started. Returns IDs for status checking via check_evaluation_status.
+          description: |
+            Evaluation job started (async). Returns instance_id for status polling.
+            Use check_evaluation_status to poll — eval_id, eval_run_id, and foundry_portal_url
+            become available once the evaluation completes.
           content:
             application/json:
               schema:
@@ -410,16 +426,31 @@ paths:
                     description: "started"
                   instance_id:
                     type: string
-                    description: Durable orchestration ID (legacy status checking)
-                  eval_id:
+                    description: Durable orchestration ID — pass to check_evaluation_status to poll for completion
+                  message:
                     type: string
-                    description: Foundry eval group ID — use with check_evaluation_status (preferred)
-                  eval_run_id:
+                    description: Human-readable status message
+                  check_status_instruction:
                     type: string
-                    description: Foundry eval run ID — use with check_evaluation_status (preferred)
-                  foundry_portal_url:
+                    description: Instruction on how to check evaluation status
+        '409':
+          description: |
+            Dataset type mismatch — the dataset is a VoiceLive audio dataset, not evaluation-ready.
+            The response includes next_tool indicating which tool to use instead.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
                     type: string
-                    description: Direct link to evaluation results in Foundry portal
+                    description: Error message explaining the dataset type mismatch
+                  dataset_type:
+                    type: string
+                    description: The detected dataset type (e.g., "voicelive")
+                  next_tool:
+                    type: string
+                    description: The tool to use instead (e.g., "run_voicelive_audio_tests")
 
   /check_evaluation_status:
     post:
@@ -441,12 +472,12 @@ paths:
                   type: string
                   description: |
                     Foundry evaluation group ID (e.g., "eval_f72707ab..."). 
-                    Returned by run_voicelive_evaluation. Use with eval_run_id for direct Foundry query (preferred).
+                    Returned by check_evaluation_status when completed. Use with eval_run_id for direct Foundry query (faster re-checks).
                 eval_run_id:
                   type: string
                   description: |
                     Foundry evaluation run ID (e.g., "evalrun_21fefffe...").
-                    Returned by run_voicelive_evaluation. Use with eval_id for direct Foundry query (preferred).
+                    Returned by check_evaluation_status when completed. Use with eval_id for direct Foundry query (faster re-checks).
                 instance_id:
                   type: string
                   description: Legacy — the durable orchestration instance_id from run_voicelive_evaluation
@@ -485,6 +516,16 @@ paths:
                   output:
                     type: object
                     description: Results when completed. Pass instance_id to analyze_evaluation_results for analysis.
+        '404':
+          description: Evaluation not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: "Evaluation not found for the given eval_id/eval_run_id or instance_id"
 
   /analyze_evaluation_results:
     post:
@@ -527,6 +568,7 @@ paths:
       description: |
         Lists all evaluation groups in the Foundry project.
         Use this to find eval_group_id values for reusing existing groups.
+        Supports both GET and POST methods.
       responses:
         '200':
           description: List of evaluation groups
@@ -549,6 +591,18 @@ paths:
                           type: string
                         created_at:
                           type: string
+    post:
+      operationId: list_evaluation_groups_post
+      summary: List Foundry evaluation groups (POST)
+      description: |
+        Same as GET /list_evaluation_groups. POST is supported for compatibility.
+      responses:
+        '200':
+          description: List of evaluation groups
+          content:
+            application/json:
+              schema:
+                type: object
 
   /list_foundry_datasets:
     get:
@@ -558,6 +612,7 @@ paths:
         Lists all datasets in the Foundry project.
         Use this to find foundry_dataset_id values for reusing existing datasets.
         Note: These are Foundry-uploaded datasets, NOT blob storage datasets.
+        Supports both GET and POST methods.
       responses:
         '200':
           description: List of datasets
@@ -582,6 +637,18 @@ paths:
                           type: integer
                         latest_version:
                           type: integer
+    post:
+      operationId: list_foundry_datasets_post
+      summary: List Foundry datasets (POST)
+      description: |
+        Same as GET /list_foundry_datasets. POST is supported for compatibility.
+      responses:
+        '200':
+          description: List of datasets
+          content:
+            application/json:
+              schema:
+                type: object
 
   /delete_evaluation_groups:
     post:
@@ -758,6 +825,22 @@ paths:
                   output_path:
                     type: string
                     description: Path to evaluation dataset in outputs container (when completed)
+                  foundry_dataset:
+                    type: object
+                    description: |
+                      Auto-registered Foundry dataset info (only present when status is "completed"
+                      and auto-registration succeeds). Pass foundry_dataset_id to run_voicelive_evaluation
+                      to skip re-uploading.
+                    properties:
+                      foundry_dataset_id:
+                        type: string
+                        description: Foundry dataset ID (e.g., "azureai://accounts/.../data/name/versions/1")
+                      name:
+                        type: string
+                        description: Foundry dataset name
+                      version:
+                        type: string
+                        description: Foundry dataset version
                   error:
                     type: string
                     description: Error message if failed
@@ -907,9 +990,6 @@ paths:
                     type: string
         '400':
           description: Cannot delete default configuration
-
-security:
-  - functionKey: []
 
 components:
   securitySchemes:
