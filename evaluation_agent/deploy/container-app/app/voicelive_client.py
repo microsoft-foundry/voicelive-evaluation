@@ -74,11 +74,21 @@ class ConversationTurn:
                 ).total_seconds()
         return metrics
     
-    def to_eval_format(self, ground_truth: str = "", tool_definitions: List[Dict] = None) -> Dict[str, Any]:
-        """Convert turn data to evaluation dataset format."""
+    def to_eval_format(self, ground_truth: str = "", tool_definitions: List[Dict] = None,
+                       question: str = "") -> Dict[str, Any]:
+        """Convert turn data to evaluation dataset format.
+        
+        Query source priority:
+          1. Ground-truth question from input JSONL metadata (if present)
+          2. VoiceLive real-time transcription (fallback)
+        """
+        ground_truth_query_used = bool(question)
+        query_text = question if ground_truth_query_used else (self.user_transcription or "")
         return {
-            "query": self.user_transcription,
+            "query": query_text,
             "response": self.assistant_response,
+            "transcript": self.user_transcription or "",
+            "ground_truth_query_used": ground_truth_query_used,
             "tool_calls": self.tool_calls if self.tool_calls else [],
             "tool_definitions": tool_definitions or [],
             "ground_truth": ground_truth,

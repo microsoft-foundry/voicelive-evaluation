@@ -2089,6 +2089,8 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
                     "tool_calls": {"anyOf": [{"type": "object"}, {"type": "array", "items": {"type": "object"}}]},
                     "response": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "object"}}]},
                     "ground_truth": {"type": "string"},
+                    "transcript": {"type": "string"},
+                    "ground_truth_query_used": {"type": "boolean"},
                 },
                 "required": ["query", "response"],
             },

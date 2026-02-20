@@ -661,6 +661,12 @@ def build_evaluation_data(
     The ``query`` field is a conversation-history list of role/content messages
     (system, then prior turns interleaved user/assistant/tool, then current
     user input).  ``response`` contains the current assistant messages.
+
+    Query source priority:
+      1. Ground-truth Question from input JSONL metadata (if present)
+      2. VoiceLive real-time transcription (fallback)
+    The VoiceLive transcription is always stored in ``transcript`` for WER evaluation.
+    ``ground_truth_query_used`` indicates which source was used.
     """
     query_messages: List[Dict[str, Any]] = [
         {"role": "system", "content": system_instructions}
@@ -672,7 +678,12 @@ def build_evaluation_data(
             query_messages.append(msg)
 
     # Current turn — user input
-    user_text = sanitize_text_for_utf8(turn.user_transcription)
+    # Prefer ground-truth question from JSONL; fall back to VoiceLive transcription
+    vl_transcript = sanitize_text_for_utf8(turn.user_transcription)
+    gt_question = sanitize_text_for_utf8(entry.question) if entry.question else ""
+    ground_truth_query_used = bool(gt_question)
+    user_text = gt_question if ground_truth_query_used else vl_transcript
+
     if user_text:
         query_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
 
@@ -706,6 +717,8 @@ def build_evaluation_data(
     return {
         "query": query_messages,
         "response": response_messages,
+        "transcript": vl_transcript or "",
+        "ground_truth_query_used": ground_truth_query_used,
         "metrics": metrics,
         "tool_calls": turn.tool_calls or [],
         "tool_definitions": tool_definitions or [],

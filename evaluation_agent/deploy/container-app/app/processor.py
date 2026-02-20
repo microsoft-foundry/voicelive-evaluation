@@ -156,13 +156,13 @@ async def process_conversation(
             # Convert to evaluation format
             result = turn.to_eval_format(
                 ground_truth=entry.answer or "",
-                tool_definitions=entry.tool_definitions or conversation_config.tool_definitions or []
+                tool_definitions=entry.tool_definitions or conversation_config.tool_definitions or [],
+                question=entry.question or ""
             )
             
             # Add metadata
             result["conversation_id"] = conversation_id
             result["source_file"] = entry.wav_path
-            result["expected_question"] = entry.question
             
             # Fix #8: Only emit results that have meaningful content
             # (don't inflate failure counts with empty turns)

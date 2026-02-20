@@ -297,6 +297,9 @@ def main(
                 "response": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "object"}}]},
                 # Voice metrics fields
                 "metrics": {"type": "object"},
+                # Query source tracking
+                "transcript": {"type": "string"},
+                "ground_truth_query_used": {"type": "boolean"},
             },
             "required": ["query", "response"],
         },
