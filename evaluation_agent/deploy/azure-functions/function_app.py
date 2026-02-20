@@ -510,6 +510,7 @@ def get_session_configs() -> list:
                 "noise_reduction": entity.get("NoiseReduction", "azure_deep_noise_suppression"),
                 "echo_cancellation": entity.get("EchoCancellation", "server_echo_cancellation"),
                 "is_default": entity.get("IsDefault", "false").lower() == "true",
+                "push_to_talk": entity.get("PushToTalk", "false").lower() == "true",
             }
             # Convert threshold to float if present
             if config["vad_threshold"]:
@@ -555,6 +556,7 @@ def get_session_config_by_name(name: str) -> dict:
             "noise_reduction": entity.get("NoiseReduction", "azure_deep_noise_suppression"),
             "echo_cancellation": entity.get("EchoCancellation", "server_echo_cancellation"),
             "is_default": entity.get("IsDefault", "false").lower() == "true",
+            "push_to_talk": entity.get("PushToTalk", "false").lower() == "true",
         }
         if config["vad_threshold"]:
             try:
@@ -601,6 +603,7 @@ def upsert_session_config(config: dict) -> bool:
             "NoiseReduction": config.get("noise_reduction", "azure_deep_noise_suppression"),
             "EchoCancellation": config.get("echo_cancellation", "server_echo_cancellation"),
             "IsDefault": "true" if config.get("is_default", False) else "false",
+            "PushToTalk": "true" if config.get("push_to_talk", False) else "false",
         }
         
         table_client.upsert_entity(entity)
@@ -744,6 +747,7 @@ def create_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             "noise_reduction": body.get("noise_reduction", "azure_deep_noise_suppression"),
             "echo_cancellation": body.get("echo_cancellation", "server_echo_cancellation"),
             "is_default": body.get("is_default", False),
+            "push_to_talk": body.get("push_to_talk", False),
         }
         
         success = upsert_session_config(config)
@@ -801,7 +805,8 @@ def update_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         config = existing.copy()
         for key in ["description", "model", "sample_rate", "voice_name", "voice_type", 
                     "vad_type", "vad_threshold", "silence_duration_ms", "eou_detection",
-                    "eou_model", "transcription_model", "noise_reduction", "echo_cancellation", "is_default"]:
+                    "eou_model", "transcription_model", "noise_reduction", "echo_cancellation", "is_default",
+                    "push_to_talk"]:
             if key in body:
                 config[key] = body[key]
         
@@ -2092,20 +2097,35 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
         
         # Create or reuse eval group
         if eval_group_id:
-            # Reuse existing eval group
+            # Reuse existing eval group by explicit ID
             eval_id = eval_group_id
-            logging.info(f"Reusing existing eval group: {eval_id}")
+            logging.info(f"Reusing existing eval group by ID: {eval_id}")
             eval_group_name = None
         else:
-            # Create new eval group with config-based name
+            # Generate config-based name and check for existing group with same name
             eval_group_name = generate_eval_group_name(session_config)
-            eval_object = openai_client.evals.create(
-                name=eval_group_name,
-                data_source_config=data_source_config,
-                testing_criteria=testing_criteria,
-            )
-            eval_id = eval_object.id
-            logging.info(f"Created eval group: {eval_group_name} ({eval_id})")
+            existing_id = None
+            try:
+                for group in openai_client.evals.list():
+                    if group.name == eval_group_name:
+                        existing_id = group.id
+                        break
+            except Exception as e:
+                logging.warning(f"Could not list eval groups for name lookup: {e}")
+            
+            if existing_id:
+                # Reuse existing eval group found by name
+                eval_id = existing_id
+                logging.info(f"Reusing existing eval group by name match: {eval_group_name} ({eval_id})")
+            else:
+                # Create new eval group
+                eval_object = openai_client.evals.create(
+                    name=eval_group_name,
+                    data_source_config=data_source_config,
+                    testing_criteria=testing_criteria,
+                )
+                eval_id = eval_object.id
+                logging.info(f"Created eval group: {eval_group_name} ({eval_id})")
             
             # Journal the config -> eval group mapping
             journal_eval_group(eval_group_name, session_config or {}, eval_id)
@@ -2170,19 +2190,8 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
         eval_run_id = eval_run.id
         logging.info(f"Created eval run: {run_name} ({eval_run_id})")
         
-        # Wait for completion (with timeout)
-        import time
-        max_wait = 600  # 10 minutes
-        start_time = time.time()
-        
-        while time.time() - start_time < max_wait:
-            run_status = openai_client.evals.runs.retrieve(run_id=eval_run_id, eval_id=eval_id)
-            if run_status.status in ["completed", "failed"]:
-                break
-            time.sleep(10)
-        
-        # Get portal URL from the run object
-        portal_url = getattr(run_status, 'report_url', None)
+        # Get portal URL from the initial run object (available immediately)
+        portal_url = getattr(eval_run, 'report_url', None)
         logging.info(f"SDK report_url: {portal_url}")
         
         # The SDK report_url should be correct format:
@@ -2193,50 +2202,19 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
         
         logging.info(f"Final portal URL: {portal_url}")
         
-        # Get results
-        metrics_summary = {}
-        if run_status.status == "completed":
-            try:
-                output_items = list(openai_client.evals.runs.output_items.list(
-                    run_id=eval_run_id, eval_id=eval_id
-                ))
-                
-                # Aggregate metrics
-                metric_scores = {}
-                metric_counts = {}
-                for item in output_items:
-                    results = item.results if hasattr(item, 'results') else []
-                    for result in results:
-                        name = result.name if hasattr(result, 'name') else result.get("name", "unknown")
-                        score = result.score if hasattr(result, 'score') else result.get("score")
-                        if isinstance(score, (int, float)):
-                            if name not in metric_scores:
-                                metric_scores[name] = 0
-                                metric_counts[name] = 0
-                            metric_scores[name] += score
-                            metric_counts[name] += 1
-                
-                metrics_summary = {
-                    name: round(metric_scores[name] / metric_counts[name], 3)
-                    for name in metric_scores
-                }
-                
-                # Write detailed results to output
-                results_file = os.path.join(output_path, "eval_results.jsonl")
-                with open(results_file, 'w', encoding='utf-8') as f:
-                    for item in output_items:
-                        f.write(json.dumps(item.model_dump(), indent=None) + '\n')
-                        
-            except Exception as e:
-                logging.error(f"Error getting eval results: {e}")
-        
+        # Return immediately — don't block waiting for completion.
+        # The agent can check status later via check_evaluation_status
+        # with eval_id + eval_run_id (queries Foundry directly).
         return {
-            "status": run_status.status,
+            "status": "started",
             "eval_id": eval_id,
             "eval_run_id": eval_run_id,
             "foundry_portal_url": portal_url,
             "evaluators_run": eval_list,
-            "metrics_summary": metrics_summary,
+            "dataset_id": dataset_id,
+            "dataset_version": new_version,
+            "metrics_summary": {},
+            "message": "Evaluation run created. Use check_evaluation_status with eval_id and eval_run_id to poll for results."
         }
         
     except Exception as e:
@@ -2320,11 +2298,14 @@ def execute_evaluation(params: dict) -> dict:
             dataset_name=dataset_name
         )
         
-        # Combine results
+        # Combine results — surface eval_id/eval_run_id at top level
+        # so check_evaluation_status can extract them from durable output
         results = {
             "status": "completed",
             "entries_evaluated": entry_count,
             "instance_id": instance_id,
+            "eval_id": eval_results.get("eval_id"),
+            "eval_run_id": eval_results.get("eval_run_id"),
             "timestamp": datetime.utcnow().isoformat(),
             "voicelive_tests": voicelive_results,
             "foundry_evaluation": eval_results,
@@ -2448,22 +2429,33 @@ async def run_voicelive_evaluation(req: func.HttpRequest, client) -> func.HttpRe
 @app.durable_client_input(client_name="client")
 async def check_evaluation_status(req: func.HttpRequest, client) -> func.HttpResponse:
     """
-    Check the status of a running evaluation job.
+    Check the status of a Foundry evaluation run.
+    
+    Accepts either:
+    - eval_id + eval_run_id: Queries Foundry directly (preferred)
+    - instance_id: Checks durable orchestration status (legacy)
     """
     logging.info("check_evaluation_status called")
     
     try:
         body = req.get_json()
+        eval_id = body.get("eval_id")
+        eval_run_id = body.get("eval_run_id")
         instance_id = body.get("instance_id")
         
+        # Preferred path: query Foundry directly
+        if eval_id and eval_run_id:
+            return _check_foundry_eval_run(eval_id, eval_run_id)
+        
+        # Legacy path: check durable orchestration
         if not instance_id:
             return func.HttpResponse(
-                json.dumps({"error": "instance_id required"}),
+                json.dumps({"error": "Provide eval_id + eval_run_id (preferred) or instance_id"}),
                 status_code=400,
                 mimetype="application/json"
             )
         
-        # Get orchestration status
+        # Check durable status, extract eval_id/eval_run_id if completed
         status = await client.get_status(instance_id)
         
         if status is None:
@@ -2480,6 +2472,13 @@ async def check_evaluation_status(req: func.HttpRequest, client) -> func.HttpRes
         
         runtime_status = status.runtime_status.name if status.runtime_status else "Unknown"
         
+        # If durable completed, try to get live Foundry status
+        if runtime_status == "Completed" and status.output and isinstance(status.output, dict):
+            out_eval_id = status.output.get("eval_id")
+            out_run_id = status.output.get("eval_run_id")
+            if out_eval_id and out_run_id:
+                return _check_foundry_eval_run(out_eval_id, out_run_id)
+        
         response = {
             "action": "check_evaluation_status",
             "instance_id": instance_id,
@@ -2491,13 +2490,11 @@ async def check_evaluation_status(req: func.HttpRequest, client) -> func.HttpRes
         if runtime_status == "Completed":
             response["output"] = status.output
             response["message"] = "Evaluation completed successfully."
-            # Extract and highlight portal URL for agent
             if status.output and isinstance(status.output, dict):
                 portal_url = status.output.get("foundry_portal_url")
                 if portal_url:
                     response["foundry_portal_url"] = portal_url
                     response["message"] = f"Evaluation completed. View detailed results at: {portal_url}"
-                # Also include metrics summary at top level for easy access
                 metrics = status.output.get("metrics")
                 if metrics:
                     response["metrics_summary"] = metrics
@@ -2518,6 +2515,88 @@ async def check_evaluation_status(req: func.HttpRequest, client) -> func.HttpRes
         logging.error(f"check_evaluation_status error: {e}")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+
+def _check_foundry_eval_run(eval_id: str, eval_run_id: str) -> func.HttpResponse:
+    """Query Foundry directly for eval run status and metrics."""
+    from azure.ai.projects import AIProjectClient
+    
+    project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT") or os.environ.get("PROJECT_ENDPOINT")
+    if not project_endpoint:
+        return func.HttpResponse(
+            json.dumps({"error": "AZURE_AI_PROJECT_ENDPOINT not configured"}),
+            status_code=500,
+            mimetype="application/json"
+        )
+    
+    try:
+        project_client = AIProjectClient(
+            credential=DefaultAzureCredential(),
+            endpoint=project_endpoint
+        )
+        openai_client = project_client.get_openai_client()
+        
+        run_status = openai_client.evals.runs.retrieve(run_id=eval_run_id, eval_id=eval_id)
+        
+        portal_url = getattr(run_status, 'report_url', None)
+        if not portal_url:
+            portal_url = f"https://ai.azure.com/build/evaluations/{eval_id}"
+        
+        response = {
+            "action": "check_evaluation_status",
+            "eval_id": eval_id,
+            "eval_run_id": eval_run_id,
+            "eval_group_id": eval_id,  # Same as eval_id — pass to run_voicelive_evaluation to add runs to this group
+            "status": run_status.status,
+            "foundry_portal_url": portal_url,
+        }
+        
+        if run_status.status == "completed":
+            # Collect metrics
+            metrics_summary = {}
+            try:
+                output_items = list(openai_client.evals.runs.output_items.list(
+                    run_id=eval_run_id, eval_id=eval_id
+                ))
+                metric_scores = {}
+                metric_counts = {}
+                for item in output_items:
+                    results = item.results if hasattr(item, 'results') else []
+                    for result in results:
+                        name = result.name if hasattr(result, 'name') else result.get("name", "unknown")
+                        score = result.score if hasattr(result, 'score') else result.get("score")
+                        if isinstance(score, (int, float)):
+                            if name not in metric_scores:
+                                metric_scores[name] = 0
+                                metric_counts[name] = 0
+                            metric_scores[name] += score
+                            metric_counts[name] += 1
+                metrics_summary = {
+                    name: round(metric_scores[name] / metric_counts[name], 3)
+                    for name in metric_scores
+                }
+            except Exception as e:
+                logging.warning(f"Could not retrieve eval metrics: {e}")
+            
+            response["metrics_summary"] = metrics_summary
+            response["message"] = f"Evaluation completed. View results at: {portal_url}"
+        elif run_status.status == "failed":
+            response["message"] = "Evaluation run failed."
+            response["error"] = getattr(run_status, 'error', None)
+        else:
+            response["message"] = f"Evaluation is {run_status.status}. Check again in a few moments."
+        
+        return func.HttpResponse(
+            json.dumps(response),
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"Foundry eval run check error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": f"Failed to query Foundry: {str(e)}"}),
             status_code=500,
             mimetype="application/json"
         )
@@ -3010,10 +3089,27 @@ async def run_voicelive_audio_tests(req: func.HttpRequest) -> func.HttpResponse:
                     endpoint=table_url,
                     credential=DefaultAzureCredential()
                 ).get_table_client("sessionconfigs")
-                entity = table_client.get_entity(partition_key="config", row_key=config_value)
-                # Build session config dict from table entity
-                config_dict = {k: v for k, v in entity.items() 
-                             if k not in ("PartitionKey", "RowKey", "Timestamp", "odata.etag")}
+                entity = table_client.get_entity(partition_key="voicelive", row_key=config_value)
+                # Transform table entity to Container App session config format
+                config_dict = {
+                    "model": entity.get("Model", "gpt-realtime"),
+                    "transcription_model": entity.get("TranscriptionModel", "gpt-4o-transcribe"),
+                    "voice": {
+                        "name": entity.get("VoiceName", "alloy"),
+                        "type": entity.get("VoiceType", "preset"),
+                    },
+                    "audio": {
+                        "sample_rate": int(entity.get("SampleRate", 24000)),
+                        "noise_reduction": entity.get("NoiseReduction", "azure_deep_noise_suppression"),
+                        "echo_cancellation": entity.get("EchoCancellation", "server_echo_cancellation"),
+                    },
+                    "turn_detection": {
+                        "type": entity.get("VadType", "azure_semantic_vad_multilingual"),
+                        "use_eou_detection": entity.get("EouDetection", "true").lower() == "true",
+                        "eou_model": entity.get("EouModel", "azure_semantic_v1_multilingual"),
+                    },
+                    "push_to_talk": entity.get("PushToTalk", "false").lower() == "true",
+                }
                 body["session_config"] = config_dict
                 logging.info(f"Resolved session config '{config_value}' to dict")
             except Exception as e:

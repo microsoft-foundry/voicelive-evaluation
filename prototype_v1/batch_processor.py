@@ -194,7 +194,7 @@ def run_session_subprocess(
             sys.executable, str(v3_script_path),
             '--test-files', temp_file_path,
             '--output-dir', base_args['output_dir'],
-            '--evaluation', base_args['evaluation_dir'],
+            '--evaluation-dir', base_args['evaluation_dir'],
             '--session-mode', 'single'  # Each subprocess runs in single mode
         ]
         
@@ -496,7 +496,7 @@ Examples:
     )
     
     parser.add_argument(
-        '--evaluation', '-e',
+        '--evaluation-dir', '-e',
         dest='evaluation_dir',
         default='./output',
         help='Directory to store JSONL evaluation data'

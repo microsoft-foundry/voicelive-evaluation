@@ -37,7 +37,7 @@ param voiceLiveEndpoint string = ''
 param voiceLiveModel string = 'gpt-realtime'
 
 @description('Voice Live API version')
-param voiceLiveApiVersion string = '2025-10-01'
+param voiceLiveApiVersion string = '2026-01-01-preview'
 
 @description('Model deployment name')
 param modelDeploymentName string = 'gpt-4.1-mini'

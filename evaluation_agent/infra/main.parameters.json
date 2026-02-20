@@ -36,7 +36,7 @@
       "value": "${AZURE_VOICE_LIVE_MODEL=gpt-realtime}"
     },
     "voiceLiveApiVersion": {
-      "value": "${AZURE_VOICE_LIVE_API_VERSION=2025-10-01}"
+      "value": "${AZURE_VOICE_LIVE_API_VERSION=2026-01-01-preview}"
     },
     "modelDeploymentName": {
       "value": "${MODEL_DEPLOYMENT_NAME=gpt-4.1-mini}"

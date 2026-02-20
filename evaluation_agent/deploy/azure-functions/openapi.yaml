@@ -375,7 +375,10 @@ paths:
                   type: string
                   description: |
                     Optional: Reuse an existing Foundry evaluation group instead of creating a new one.
-                    Get available eval group IDs from list_evaluation_groups.
+                    For comparison runs (e.g., PTT vs VAD): run the first evaluation, then use
+                    check_evaluation_status to get the eval_group_id from the response. Pass that
+                    eval_group_id here so the second run is added to the same group for comparison.
+                    Get available IDs from list_evaluation_groups or check_evaluation_status.
                     Example: "eval_4609a79f9f2f458fbc6f37248bfb2e9d"
                 foundry_dataset_id:
                   type: string
@@ -391,7 +394,7 @@ paths:
                     Example: {"model": "gpt-realtime", "voice": "alloy", "vad_threshold": "0.5", "end_of_speech_timeout": "500"}
       responses:
         '200':
-          description: Evaluation job started (returns instance_id for status checking)
+          description: Evaluation job started. Returns IDs for status checking via check_evaluation_status.
           content:
             application/json:
               schema:
@@ -402,28 +405,46 @@ paths:
                     description: "started"
                   instance_id:
                     type: string
-                    description: ID to use with check_evaluation_status
+                    description: Durable orchestration ID (legacy status checking)
+                  eval_id:
+                    type: string
+                    description: Foundry eval group ID — use with check_evaluation_status (preferred)
+                  eval_run_id:
+                    type: string
+                    description: Foundry eval run ID — use with check_evaluation_status (preferred)
+                  foundry_portal_url:
+                    type: string
+                    description: Direct link to evaluation results in Foundry portal
 
   /check_evaluation_status:
     post:
       operationId: check_evaluation_status
       summary: Check evaluation job status
       description: |
-        Checks the status of a running evaluation job. Use the instance_id 
-        returned from run_voicelive_evaluation to poll for completion.
-        When completed, includes foundry_portal_url for detailed results viewing.
+        Checks the status of a Foundry evaluation run. Supports two modes:
+        1. Preferred: Pass eval_id + eval_run_id to query Foundry directly (fast, no timeout issues)
+        2. Legacy: Pass instance_id to check durable orchestration status
+        When completed, includes foundry_portal_url and metrics_summary.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - instance_id
               properties:
+                eval_id:
+                  type: string
+                  description: |
+                    Foundry evaluation group ID (e.g., "eval_f72707ab..."). 
+                    Returned by run_voicelive_evaluation. Use with eval_run_id for direct Foundry query (preferred).
+                eval_run_id:
+                  type: string
+                  description: |
+                    Foundry evaluation run ID (e.g., "evalrun_21fefffe...").
+                    Returned by run_voicelive_evaluation. Use with eval_id for direct Foundry query (preferred).
                 instance_id:
                   type: string
-                  description: The instance_id returned from run_voicelive_evaluation
+                  description: Legacy — the durable orchestration instance_id from run_voicelive_evaluation
       responses:
         '200':
           description: Evaluation status
@@ -436,12 +457,26 @@ paths:
                     type: string
                     enum: [pending, running, completed, failed]
                     description: When 'completed', use instance_id with analyze_evaluation_results
+                  eval_id:
+                    type: string
+                    description: Foundry evaluation group ID
+                  eval_run_id:
+                    type: string
+                    description: Foundry evaluation run ID
+                  eval_group_id:
+                    type: string
+                    description: |
+                      Same as eval_id. Pass this as eval_group_id to run_voicelive_evaluation
+                      to add additional runs (e.g., PTT vs VAD comparison) to the same eval group.
                   instance_id:
                     type: string
                     description: Use this with analyze_evaluation_results when status is completed
                   foundry_portal_url:
                     type: string
                     description: URL to view evaluation results in Azure AI Foundry portal. ALWAYS present this URL to the user when evaluation completes.
+                  metrics_summary:
+                    type: object
+                    description: Average scores per evaluator metric when status is completed.
                   output:
                     type: object
                     description: Results when completed. Pass instance_id to analyze_evaluation_results for analysis.

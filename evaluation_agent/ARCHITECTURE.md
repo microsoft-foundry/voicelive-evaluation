@@ -275,7 +275,7 @@ flowchart TD
         G --> H["Output → blob outputs/voicelive_jobs/{job_id}/"]
     end
 
-    subgraph Register["3. Auto-Registration"]
+    subgraph Register["3. Auto-Registration (best-effort)"]
         H --> I[check_voicelive_job_status]
         I --> J{status = completed?}
         J -- Yes --> K[Download from blob outputs/]
@@ -284,14 +284,14 @@ flowchart TD
         J -- No --> N[Return status: running]
     end
 
-    subgraph Evaluate["4. Foundry Evaluation"]
+    subgraph Evaluate["4. Foundry Evaluation (run_voicelive_evaluation)"]
         M --> O[run_voicelive_evaluation]
         O --> P{foundry_dataset_id<br/>provided?}
         P -- Yes --> Q[Reuse existing Foundry dataset]
-        P -- No --> R["Download from blob → Upload to Foundry<br/>(fallback)"]
-        Q --> S[Run Foundry evaluators]
+        P -- No --> R["Download from blob → Upload to Foundry<br/>(always works)"]
+        Q --> S["Create/reuse eval group → Run evaluators"]
         R --> S
-        S --> T[Results in Foundry Portal]
+        S --> T["Results + portal URL in Foundry Portal"]
     end
 
     style Upload fill:#e6f3ff,stroke:#333
@@ -441,6 +441,123 @@ The system separates concerns across three primary services:
 | **Azure Functions** | Dataset validation, Foundry evaluations | 10 min (Durable) | Function Key |
 | **Foundry Agent** | Natural language orchestration | N/A | Foundry Connection |
 
+## VoiceLive Audio Processing
+
+The VoiceLive Container App processes audio files through the VoiceLive SDK in two modes: **VAD mode** (default) uses server-side Voice Activity Detection to auto-detect speech boundaries and trigger responses, while **PTT mode** (`push_to_talk=true`) has the client send audio, commit the buffer, and explicitly call `response.create()`. Both modes support tool calls via the SDK pattern of `FunctionCallOutputItem` with `previous_item_id`, executed after `RESPONSE_DONE`.
+
+### VAD Mode Flow
+
+In VAD mode, audio sending and event collection run concurrently. VAD detects speech boundaries and auto-triggers responses. A silence keepalive loop runs after audio completes to keep the VAD active until the response finishes.
+
+```mermaid
+graph TD
+    A[Start VAD Processing] --> B[Create VoiceLive Session<br/>turn_detection = AzureSemanticVad]
+    B --> C[Start Concurrent Tasks]
+    C --> D[Task 1: Send Audio Chunks]
+    C --> E[Task 2: Collect Events]
+    D --> D1[Send chunk via audio stream]
+    D1 --> D2{More chunks?}
+    D2 -->|Yes| D1
+    D2 -->|No| D3[Start Silence Keepalive<br/>send silent frames to keep VAD active]
+    D3 --> D4{Response done<br/>flag set?}
+    D4 -->|No| D3
+    D4 -->|Yes| D5[Stop Keepalive]
+    E --> E1{Event type?}
+    E1 -->|CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED| E2[Store query transcription]
+    E1 -->|RESPONSE_TEXT_DELTA / RESPONSE_AUDIO_TRANSCRIPT_DELTA| E3[Accumulate response text]
+    E1 -->|RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE| E4[Store pending tool call]
+    E1 -->|CONVERSATION_ITEM_CREATED| E5[Capture item.id as<br/>previous_item_id]
+    E1 -->|RESPONSE_DONE| E6[Set response_done flag]
+    E1 -->|SESSION_ERROR| E7[Log error, continue]
+    E2 --> E1
+    E3 --> E1
+    E4 --> E1
+    E5 --> E1
+    E6 --> E8[Late Event Drain<br/>collect remaining events]
+    E7 --> E1
+    E8 --> F{Pending tool call?}
+    F -->|Yes| G[Execute Tool Call Flow]
+    F -->|No| H[Return Results]
+    G --> H
+```
+
+### PTT Mode Flow
+
+In PTT mode, audio is sent synchronously before event collection begins. After all audio is sent, the client commits the buffer and explicitly requests a response. This sequential pattern prevents the worst race conditions between VAD-triggered and explicitly-requested responses.
+
+```mermaid
+graph TD
+    A[Start PTT Processing] --> B[Create VoiceLive Session<br/>turn_detection = AzureSemanticVad<br/>push_to_talk = true]
+    B --> C[Send All Audio Chunks<br/>sequentially]
+    C --> C1[Send chunk via audio stream]
+    C1 --> C2{More chunks?}
+    C2 -->|Yes| C1
+    C2 -->|No| D[commit<br/>signal end of user audio]
+    D --> E["response.create()<br/>explicitly request response"]
+    E --> F[Start Event Collection]
+    F --> F1{Event type?}
+    F1 -->|CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED| F2[Store query transcription]
+    F1 -->|RESPONSE_TEXT_DELTA / RESPONSE_AUDIO_TRANSCRIPT_DELTA| F3[Accumulate response text]
+    F1 -->|RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE| F4[Store pending tool call]
+    F1 -->|CONVERSATION_ITEM_CREATED| F5[Capture item.id as<br/>previous_item_id]
+    F1 -->|RESPONSE_DONE| F6[Stop event collection]
+    F1 -->|SESSION_ERROR| F7[Log error, continue]
+    F2 --> F1
+    F3 --> F1
+    F4 --> F1
+    F5 --> F1
+    F6 --> F8[Late Event Drain]
+    F7 --> F1
+    F8 --> G{Pending tool call?}
+    G -->|Yes| H[Execute Tool Call Flow]
+    G -->|No| I[Return Results]
+    H --> I
+```
+
+### Tool Call Handling (Both Modes)
+
+Tool calls are executed after `RESPONSE_DONE`, not during the response stream. The SDK pattern uses `FunctionCallOutputItem` with the `previous_item_id` captured from the `CONVERSATION_ITEM_CREATED` event.
+
+```mermaid
+graph TD
+    A[CONVERSATION_ITEM_CREATED event] --> A1[Capture item.id as<br/>previous_item_id]
+    A1 --> B[RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE]
+    B --> B1[Store function name + args<br/>as pending tool call]
+    B1 --> C[RESPONSE_DONE]
+    C --> C1[Execute tool function NOW<br/>not during response stream]
+    C1 --> C2{Tool execution<br/>succeeded?}
+    C2 -->|Yes| D[Create FunctionCallOutputItem<br/>with previous_item_id + result]
+    C2 -->|No| D1[Create FunctionCallOutputItem<br/>with previous_item_id + error]
+    D --> E[Send FunctionCallOutputItem<br/>to session]
+    D1 --> E
+    E --> F["response.create()<br/>request follow-up response"]
+    F --> G[Collect Follow-up Events]
+    G --> G1{Event type?}
+    G1 -->|RESPONSE_TEXT_DELTA / RESPONSE_AUDIO_TRANSCRIPT_DELTA| G2[Accumulate follow-up response]
+    G1 -->|RESPONSE_DONE| G3[Follow-up complete]
+    G2 --> G1
+    G3 --> H[Return Combined Results]
+```
+
+### Test Results
+
+| Version | PTT Q | PTT R | PTT TC | VAD Q | VAD R | VAD TC | Changes |
+|---------|-------|-------|--------|-------|-------|--------|---------|
+| Baseline | 5/6 | 2/6 | 0 | 6/6 | 5/6 | 1 | Initial implementation |
+| + response.create | 4/6 | 4/6 | 0 | - | - | - | Added response.create after commit |
+| + Sequential send | 4/6 | 4/6 | 0 | - | - | - | PTT sends audio before event loop |
+| + Tool normalization | 4/6 | 4/6 | 0 | 6/6 | 6/6 | 1 | Fixed tool_definitions dict→list |
+
+### Known Platform Limitation: PTT and turn_detection
+
+The VoiceLive SDK requires `turn_detection` to **always** be set — setting it to `None` breaks sessions entirely (sessions complete in ~6.39s with all empty responses). This means PTT mode cannot use true push-to-talk where VAD is disabled. Instead, PTT uses a **hybrid approach**: VAD is configured via `turn_detection = AzureSemanticVad`, but the client also calls `commit()` + `response.create()` to explicitly request responses.
+
+This hybrid causes **VAD interference** on early turns (turns 2-3 in multi-turn conversations are consistently empty) because VAD-triggered responses race with explicitly-requested responses. The prototype_v1 code never used PTT — it always relied on VAD with silence keepalive.
+
+**No official SDK sample exists** for PTT or pre-recorded audio processing. The `azure-sdk-for-python` samples only demonstrate server VAD with real-time microphone input.
+
+**Feature request**: VoiceLive should support `turn_detection=None` to enable true PTT mode without VAD interference.
+
 ## Design Decisions
 
 ### 1. Why Separate Container App for VoiceLive Audio?
@@ -519,8 +636,8 @@ sequenceDiagram
 **Reasoning**:
 - **Serverless cost model**: Pay only for execution time
 - **Auto-scaling**: Handles variable load automatically
-- **Durable Functions**: Overcomes 10-minute timeout for Foundry evaluations
-- **Async pattern**: Natural fit for AI agent workflows (start job → poll status)
+- **Durable Functions**: Orchestrates multi-step evaluation pipeline (download → upload → create eval → return)
+- **Non-blocking eval**: `run_foundry_evaluation` returns immediately with eval_id/eval_run_id; `check_evaluation_status` queries Foundry directly
 
 **Durable Functions Flow**:
 ```mermaid
@@ -533,9 +650,10 @@ stateDiagram-v2
     finalize_evaluation --> [*]: Return results
     
     state check_status <<fork>>
-    [*] --> check_status: HTTP POST
-    check_status --> Running: status polling
-    check_status --> Completed: get output
+    [*] --> check_status: HTTP POST (eval_id + eval_run_id)
+    check_status --> Foundry: Query run status directly
+    Foundry --> Completed: Return metrics + portal URL
+    Foundry --> Running: Return in_progress
 ```
 
 ---
@@ -677,8 +795,8 @@ Fields: EvalGroupId, Model, Voice, VadThreshold, EndOfSpeechTimeout, CreatedAt
 | `validate_dataset_consistency` | HTTP | Backward-compat alias for validate_voicelive_dataset |
 | `validate_dataset_quality` | HTTP | Assess content quality (either type) |
 | `get_evaluation_recommendations` | HTTP | Suggest settings for large datasets |
-| `run_voicelive_evaluation` | HTTP+Durable | Start async Foundry evaluation |
-| `check_evaluation_status` | HTTP | Poll evaluation status |
+| `run_voicelive_evaluation` | HTTP+Durable | Full eval pipeline: download blob results → upload Foundry dataset → create/reuse eval group → run evaluators → return portal URL |
+| `check_evaluation_status` | HTTP | Query Foundry eval run status + metrics (accepts eval_id+eval_run_id or instance_id) |
 | `analyze_evaluation_results` | HTTP | Analyze completed results |
 | `list_evaluation_groups` | HTTP | List Foundry eval groups |
 | `list_foundry_datasets` | HTTP | List Foundry datasets |
@@ -894,24 +1012,26 @@ sequenceDiagram
     User->>Agent: "Check the job status"
     
     rect rgb(220, 240, 200)
-        Note over Agent,FD: Phase 2: Auto-Registration
+        Note over Agent,FD: Phase 2: Auto-Registration (best-effort)
         Agent->>CA: POST /check_voicelive_job_status
         CA-->>Functions: {status: "completed", output_path}
         Functions->>Blob: Download from outputs/
         Functions->>FD: Auto-register as Foundry dataset
         Functions-->>Agent: {status: completed, foundry_dataset: {foundry_dataset_id, version}}
+        Note over Functions: Auto-registration may silently fail<br/>(e.g. Container App scaled to 0)
     end
     
     Agent-->>User: "Audio complete! Output registered as Foundry dataset. Run evaluation?"
     User->>Agent: "Yes, run evaluation"
     
     rect rgb(240, 220, 240)
-        Note over Agent,Foundry: Phase 3: Foundry Evaluation (reuses dataset)
-        Agent->>Functions: POST /run_voicelive_evaluation<br/>{foundry_dataset_id: "...from step 2..."}
-        Note over Functions: Skips re-upload, reuses Foundry dataset
-        Functions->>Foundry: Run evaluators
-        Foundry-->>Functions: Metrics
-        Functions-->>Agent: {portal_url, metrics_summary}
+        Note over Agent,Foundry: Phase 3: Foundry Evaluation
+        Agent->>Functions: POST /run_voicelive_evaluation<br/>{dataset_path: "voicelive_jobs/{id}/results.jsonl"}
+        Functions->>Blob: Download results JSONL
+        Functions->>FD: Upload as Foundry dataset (if no foundry_dataset_id)
+        Functions->>Foundry: Create/reuse eval group + run evaluators
+        Foundry-->>Functions: Metrics + portal URL
+        Functions-->>Agent: {portal_url, metrics_summary, eval_group_id}
     end
     
     Agent-->>User: "Complete! Portal: https://ai.azure.com/..."
@@ -1024,18 +1144,19 @@ sequenceDiagram
 - [x] **Track lineage metadata** — `_register_voicelive_output_as_foundry_dataset` sets `description=f"VoiceLive processing output (job: {job_id})"`. Run metadata includes `instance_id`, `source`, `dataset_version`, `evaluators`. Config journal tracks eval group → session config mapping.
 - [x] **Return version info** — `run_foundry_evaluation` returns `dataset_id`, `dataset_version`, `eval_group_id`, `eval_run_id`, `portal_url`. Auto-register returns `foundry_dataset_id`, `name`, `version`. Upload finalize returns `foundry_dataset_id`, `version`.
 
-#### ~~Phase 2: Move Upload to Container App~~ ✅ Achieved
-Auto-registration in `check_voicelive_job_status` achieves the same result — Function App registers VoiceLive output as Foundry dataset on job completion via `_register_voicelive_output_as_foundry_dataset()`. No intermediate copy needed.
+#### ~~Phase 2: Move Upload to Container App~~ ✅ Partially Achieved
+Auto-registration in `check_voicelive_job_status` attempts Foundry dataset upload on job completion via `_register_voicelive_output_as_foundry_dataset()`. However, this is **best-effort** — it silently fails if the Container App has scaled to zero before status is checked. The `run_voicelive_evaluation` pipeline handles its own Foundry dataset upload as the reliable path.
 
 ### Other High Priority
 - [x] **Add RBAC assignments to azd automation** - Post-provision hook assigns Azure AI Developer + Cognitive Services User roles
 - [x] **Fix VoiceLive Container App progress tracking** - Per-file progress updates via callback in process_conversation
 - [x] **Add Foundry connection creation to azd** - Post-provision hook creates CustomKeys connection via ARM
 - [ ] **Add webhook notifications** - Notify when long evaluations complete
+- [x] ~~**BUG: Eval group reuse requires ID not name**~~ ✅ Fixed — `run_foundry_evaluation` now looks up existing eval groups by config-based name before creating. If a name match is found, its ID is reused automatically. Explicit `eval_group_id` parameter still works for direct ID reuse.
 
 ### Feature Backlog
-- [ ] **VAD Default End Detection** — Change VoiceLive processor default to NOT send `audio_input_finished` event; rely on VAD to detect end of audio input (simulates real-world voice interaction)
-- [ ] **Push-to-Talk Flag** — Add optional `--push-to-talk` flag to enable explicit `audio_input_finished` event (current behavior), for push-to-talk scenario evaluation. Depends on VAD default change.
+- [x] **VAD Default End Detection** ✅ — VoiceLive processor default uses VAD (server-side Voice Activity Detection) to detect end of audio input. No explicit `audio_input_finished` event is sent. VAD mode achieves 6/6 queries, 6/6 responses, 1/1 tool calls.
+- [x] **Push-to-Talk Flag** ✅ — `push_to_talk=true` in session config enables PTT mode with `commit()` + `response.create()`. Achieves 4/6 responses due to VAD interference (platform limitation — `turn_detection=None` not supported). See "VoiceLive Audio Processing" section for details.
 - [ ] **Blob Output Cleanup** — Endpoint to delete old VoiceLive output blobs from the `outputs` container (Foundry dataset and eval group deletion already implemented)
 
 ### Medium Priority
@@ -1068,11 +1189,15 @@ Auto-registration in `check_voicelive_job_status` achieves the same result — F
 7. **Cognitive Services soft-delete** - Deleting an AI Services account soft-deletes it; recreating with same name requires `az cognitiveservices account purge` first
 8. **ARM role assignment idempotency** - `Microsoft.Authorization/roleAssignments` in Bicep can throw `RoleAssignmentExists` on re-provision; all service RBAC is done via PowerShell scripts instead
 9. ~~**Foundry dataset URI in validate_eval_dataset**~~ — ✅ Fixed. Both `validate_eval_dataset` and `check_dataset_schema` now resolve Foundry URIs (`azureai://...`), plain Foundry dataset names, and blob paths.
+10. ~~**BUG: Eval group comparison runs create separate groups**~~ — ✅ Fixed. `execute_evaluation` now surfaces `eval_id`/`eval_run_id` at top level. `check_evaluation_status` returns `eval_group_id` field. Agent instructions document the chaining workflow: first run → check status → get `eval_group_id` → pass to second run.
+11. **Auto-registration is best-effort** - `check_voicelive_job_status` attempts to register VoiceLive output as a Foundry dataset, but silently fails if the Container App has scaled to zero before status is polled. The `run_voicelive_evaluation` pipeline handles its own upload as the reliable path.
+12. **PTT mode limited by race condition** — VoiceLive requires `turn_detection` to always be configured. PTT mode (`push_to_talk=true`) uses VAD + `commit()` + `response.create()` hybrid, achieving ~50-60% response rate vs VAD's ~90-100%. The `conversation_already_has_active_response` error occurs when committing audio triggers a response before the commit event fully processes. Feature request filed for `turn_detection=None` support.
+13. **Tool definitions normalization** — Dataset JSONL may contain `tool_definitions` as a single dict instead of a list. The processor normalizes this automatically, but datasets should ideally use array format: `"tool_definitions": [{"type":"function",...}]`
 
 ### Future Improvements
 1. **Managed Identity auth for Foundry → Function App** - Code path exists (`--entra-auth --client-id` in `setup_agent_openapi.py` using `OpenApiManagedAuthDetails`), but deployment currently uses connection-based API key auth via `postdeploy.ps1`. Activating requires: create a separate app registration for the Function App, enable EasyAuth on Function App, update postdeploy to use `--entra-auth` instead of `--connection-name`.
 2. **Private VNet architecture** - All backend services (Functions, Container App, Storage) on private endpoints for enhanced security
-3. **VAD-based end detection** - Change default from sending explicit `audio_input_finished` to relying on VAD; add `--push-to-talk` flag for current behavior
+3. ~~**VAD-based end detection**~~ ✅ Implemented - Default behavior now uses VAD (no explicit `audio_input_finished`). `push_to_talk` flag enables explicit commit for comparison testing.
 
 ### SDK Limitations (Confirmed via Source Review)
 
@@ -1126,4 +1251,4 @@ configure_azure_monitor(connection_string="InstrumentationKey=...")
 
 ---
 
-*Document last updated: February 6, 2026*
+*Document last updated: February 20, 2026*

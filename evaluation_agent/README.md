@@ -225,6 +225,108 @@ python test_agent_cloud.py --list-tests
 
 **Available tests**: `list_datasets`, `list_evaluators`, `list_session_configs`, `check_dataset_schema`, `validate_dataset`, `list_evaluation_groups`, `streaming`
 
+## Evaluation Pipeline Flow
+
+The evaluation pipeline is a **two-phase process** with clear ownership boundaries:
+
+### Phase 1: VoiceLive Audio Processing (Container App)
+
+```
+run_voicelive_audio_tests → Container App → VoiceLive SDK → blob storage
+```
+
+1. Function App proxy (`run_voicelive_audio_tests`) resolves session config and forwards to Container App
+2. Container App downloads audio dataset from `datasets/` container
+3. Container App sends each audio file to VoiceLive SDK, collects transcriptions and responses
+4. Results JSONL + metadata uploaded to `outputs/voicelive_jobs/{job_id}/`
+
+**Output**: JSONL with `query` (transcription), `response` (agent reply), `ground_truth`, processing metadata
+
+### Phase 2: Foundry Evaluation (Function App)
+
+```
+run_voicelive_evaluation → download blob results → Foundry dataset → eval group → evaluators → portal URL
+```
+
+1. Function App downloads results JSONL from blob storage (or accepts evaluation-ready JSONL directly)
+2. Uploads dataset to Foundry via `datasets.upload_file()`
+3. Creates or reuses an eval group (`evaluations.create()`)
+4. Runs Foundry evaluators (coherence, fluency, intent resolution, task adherence)
+5. Polls for completion and returns metrics summary + Foundry portal URL
+
+**Output**: Eval group with runs visible in [AI Foundry portal](https://ai.azure.com), metrics, portal URL
+
+### Comparison Workflow (PTT vs VAD)
+
+#### Audio Processing Modes
+
+The VoiceLive Container App supports two audio processing modes that control how speech boundaries are detected and responses are triggered:
+
+- **VAD mode** (default): Server-side Voice Activity Detection auto-detects when the user stops speaking and triggers a response automatically. Audio sending and event collection run concurrently, with a silence keepalive loop to maintain the VAD session.
+- **PTT mode** (`push_to_talk=true`): The client sends all audio, commits the buffer, and explicitly calls `response.create()`. Audio is sent sequentially before event collection begins.
+
+#### VAD Mode Sequence
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant V as VoiceLive SDK
+    participant A as AI Model
+
+    C->>V: Create session (turn_detection=AzureSemanticVad)
+    par Send audio & Collect events
+        C->>V: Send audio chunks (concurrent)
+        C->>V: Send silence keepalive frames
+    and
+        V->>A: VAD detects speech_stopped → auto-trigger
+        A-->>V: Response (text/audio deltas)
+        V-->>C: Transcription + Response events
+    end
+    V-->>C: RESPONSE_DONE
+    C->>C: Late event drain
+    C->>C: Return results
+```
+
+#### PTT Mode Sequence
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant V as VoiceLive SDK
+    participant A as AI Model
+
+    C->>V: Create session (turn_detection=AzureSemanticVad, push_to_talk=true)
+    C->>V: Send all audio chunks (sequential)
+    C->>V: commit()
+    C->>V: response.create()
+    V->>A: Process audio
+    A-->>V: Response (text/audio deltas)
+    V-->>C: Transcription + Response events
+    V-->>C: RESPONSE_DONE
+    C->>C: Late event drain
+    C->>C: Return results
+```
+
+#### Mode Comparison
+
+| Aspect | VAD Mode | PTT Mode |
+|--------|----------|----------|
+| Turn detection | Server auto-detects speech boundaries | Client commits + `response.create()` |
+| Session config | `turn_detection = AzureSemanticVad` | `turn_detection = AzureSemanticVad` (required) |
+| Silence keepalive | Yes (keeps VAD active during processing) | No |
+| Audio send | Concurrent with event collection | Sequential, before event collection |
+| Response trigger | Automatic on `speech_stopped` | Explicit `response.create()` |
+| Response rate | ~90-100% | ~50-60% |
+| Best for | Most accurate results | When explicit turn boundaries needed |
+
+> **Known limitation**: PTT mode achieves lower response rates (~50-60%) vs VAD (~90-100%) because VoiceLive requires `turn_detection` to always be set (not `None`). PTT uses a hybrid approach with VAD configured, which can cause `conversation_already_has_active_response` errors when committing audio triggers a response before the commit event fully processes. A feature request has been filed for `turn_detection=None` support to enable true PTT mode.
+
+To compare push-to-talk vs VAD on the same dataset:
+
+1. Run Phase 1 twice with different session configs (`push-to-talk` and `default`)
+2. Run Phase 2 on each result, passing the same `eval_group_id` to group runs together
+3. Compare metrics side-by-side in the Foundry portal
+
 ## Available Tools
 
 ### Session Configuration Management
@@ -259,8 +361,10 @@ python test_agent_cloud.py --list-tests
 
 | Tool | Description |
 |------|-------------|
-| `run_voicelive_audio_tests` | Process audio files through VoiceLive SDK |
-| `check_voicelive_job_status` | Check audio processing job status (auto-registers output as Foundry dataset) |
+| `run_voicelive_audio_tests` | Process audio files through VoiceLive SDK (results saved to blob storage) |
+| `check_voicelive_job_status` | Check audio processing job status |
+
+> **Note:** The Container App only writes results to blob storage (`outputs/voicelive_jobs/{job_id}/`). It does **not** upload to Foundry. Use `run_voicelive_evaluation` to create Foundry datasets and run evaluators on the results.
 
 > **Note:** The agent cannot autonomously poll for status updates. When checking job or evaluation status, ask the agent explicitly — it will not loop or track status on its own.
 
@@ -268,8 +372,8 @@ python test_agent_cloud.py --list-tests
 
 | Tool | Description |
 |------|-------------|
-| `run_voicelive_evaluation` | Run Foundry evaluators on dataset |
-| `check_evaluation_status` | Poll evaluation job status |
+| `run_voicelive_evaluation` | Full pipeline: download blob results → upload Foundry dataset → create eval group → start evaluators → return `eval_id`, `eval_run_id`, portal URL **immediately** (non-blocking) |
+| `check_evaluation_status` | Query eval run status + metrics. Accepts `eval_id` + `eval_run_id` (queries Foundry directly) or `instance_id` (legacy durable check) |
 | `get_evaluation_recommendations` | Get settings for large datasets |
 | `analyze_evaluation_results` | Analyze completed evaluation |
 
@@ -557,9 +661,10 @@ For **agent-side tracing** (traces appearing in Foundry portal):
 ## See Also
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Design decisions and diagrams
-- [prototype_v1/](../prototype_v1/) - Original local evaluation scripts
+- [prototype_v1/](../prototype_v1/) - Local evaluation prototype with full pipeline (VoiceLive → Foundry evaluation)
+- [prototype_v1/ARCHITECTURE.md](../prototype_v1/ARCHITECTURE.md) - Prototype architecture with VAD/PTT flow diagrams
 - [Azure AI Foundry Docs](https://learn.microsoft.com/azure/ai-services/agents/)
 
 ---
 
-*Last updated: February 16, 2026*
+*Last updated: February 20, 2026*

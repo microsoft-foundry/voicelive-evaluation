@@ -651,7 +651,6 @@ def main(eval_input_path: str, referenceTranscriptFilePath: str = "", output_fol
             print(f"Eval Run Report URL: {run.report_url}")
             break
         sleep(5)
-        time.sleep(5)
         print("Waiting for eval run to complete...")
     
     if setupCustomEvaluators:

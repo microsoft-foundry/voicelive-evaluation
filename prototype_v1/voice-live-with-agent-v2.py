@@ -266,7 +266,7 @@ class BasicVoiceAssistant:
             "project_name": project_name,
             "conversation_id": conversation_id if conversation_id else None,
             "foundry_resource_override": foundry_resource_override if foundry_resource_override else None, 
-            "authentication_identity_client_id": agent_authentication_identity_client_id if agent_authentication_identity_client_id else None,                
+            "authentication_identity_client_id": agent_authentication_identity_client_id if agent_authentication_identity_client_id and foundry_resource_override else None,                
         }        
 
         self.connection: Optional["VoiceLiveConnection"] = None
