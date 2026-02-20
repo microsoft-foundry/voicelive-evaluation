@@ -69,11 +69,13 @@ paths:
   /check_dataset_schema:
     post:
       operationId: check_dataset_schema
-      summary: Check dataset schema and detect type
+      summary: Check dataset schema and detect type — MUST be called FIRST before any evaluation
       description: |
-        Analyzes a JSONL dataset to detect its type (voicelive or evaluation)
-        and list all fields found. Use this to determine which validation
-        and workflow to use.
+        MANDATORY FIRST STEP. Analyzes a JSONL dataset to detect its type (voicelive or evaluation)
+        and list all fields found. Returns dataset_type which MUST be used to route to the correct
+        workflow. VoiceLive audio datasets (WavPath/audio fields) must go through
+        run_voicelive_audio_tests FIRST, then run_voicelive_evaluation. Evaluation-ready datasets
+        (query/response fields) can go directly to run_voicelive_evaluation.
       requestBody:
         required: true
         content:
@@ -325,9 +327,12 @@ paths:
   /run_voicelive_evaluation:
     post:
       operationId: run_voicelive_evaluation
-      summary: Run VoiceLive evaluation
+      summary: Run Foundry evaluation on EVALUATION-READY datasets ONLY
       description: |
-        Runs Azure VoiceLive audio evaluation tests followed by Foundry evaluators.
+        Runs Azure AI Foundry evaluators on an EVALUATION-READY dataset (must have query/response fields).
+        DO NOT call this on VoiceLive audio datasets (WavPath/audio) — those must first be processed
+        through run_voicelive_audio_tests to produce an evaluation-ready dataset.
+        ALWAYS call check_dataset_schema first to verify dataset_type is "evaluation" before calling this.
         This is an async operation - use check_evaluation_status to poll for completion.
         When complete, results include a Foundry portal URL for detailed analysis.
       requestBody:

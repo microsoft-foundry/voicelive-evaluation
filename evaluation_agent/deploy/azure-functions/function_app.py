@@ -2360,6 +2360,45 @@ def finalize_evaluation(params: dict) -> dict:
         return {"status": "completed_with_errors", "error": str(e), **params.get("eval_result", {})}
 
 
+def _detect_dataset_type_from_blob(dataset_path: str) -> str:
+    """Quick dataset type detection by sampling first 5 lines from blob storage."""
+    try:
+        local_path = _download_dataset_flexible(dataset_path)
+        voicelive_markers = {"WavPath", "audio", "audio_path"}
+        eval_markers = {"query", "response"}
+        has_audio = False
+        has_eval = False
+        count = 0
+        with open(local_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('//') or line.startswith('#'):
+                    continue
+                try:
+                    entry = json.loads(line)
+                    keys = set(entry.keys())
+                    if keys & voicelive_markers:
+                        has_audio = True
+                    if keys & eval_markers:
+                        has_eval = True
+                    count += 1
+                    if count >= 5:
+                        break
+                except json.JSONDecodeError:
+                    pass
+        os.unlink(local_path)
+        if has_audio and not has_eval:
+            return "voicelive"
+        if has_eval and not has_audio:
+            return "evaluation"
+        if has_audio and has_eval:
+            return "hybrid"
+        return "unknown"
+    except Exception as e:
+        logging.warning(f"_detect_dataset_type_from_blob failed: {e}")
+        return "unknown"
+
+
 # HTTP trigger to start evaluation (Durable Functions client)
 @app.route(route="run_voicelive_evaluation", methods=["POST"])
 @app.durable_client_input(client_name="client")
@@ -2379,6 +2418,22 @@ async def run_voicelive_evaluation(req: func.HttpRequest, client) -> func.HttpRe
             return func.HttpResponse(
                 json.dumps({"error": "dataset_path or test_files_path required"}),
                 status_code=400,
+                mimetype="application/json"
+            )
+        
+        # Guard: reject VoiceLive audio datasets sent here by mistake
+        # Agent should route these to run_voicelive_audio_tests first
+        detected_type = _detect_dataset_type_from_blob(dataset_path)
+        if detected_type == "voicelive":
+            return func.HttpResponse(
+                json.dumps({
+                    "error": "Dataset contains VoiceLive audio fields (WavPath/audio). "
+                             "Use run_voicelive_audio_tests first to process audio, "
+                             "then run_voicelive_evaluation on the resulting evaluation dataset.",
+                    "dataset_type": detected_type,
+                    "next_tool": "run_voicelive_audio_tests"
+                }),
+                status_code=409,
                 mimetype="application/json"
             )
         
