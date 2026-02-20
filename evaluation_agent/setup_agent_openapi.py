@@ -289,13 +289,15 @@ def create_agent_with_openapi(function_url: str, function_key: str = None, entra
     
     # Configure authentication
     if connection_name:
-        # Use Foundry connection for API key auth (recommended for production)
+        # Resolve connection name to full resource ID (required by Foundry API)
+        conn = client.connections.get(connection_name)
+        connection_id = conn.id
         auth = OpenApiProjectConnectionAuthDetails(
             security_scheme=OpenApiProjectConnectionSecurityScheme(
-                project_connection_id=connection_name
+                project_connection_id=connection_id
             )
         )
-        auth_desc = f"Connection-based API Key (connection: {connection_name})"
+        auth_desc = f"Connection-based API Key (connection: {connection_name}, id: ...{connection_id[-60:]})"
     elif entra_auth:
         # Use managed identity to get token for the Function App
         auth = OpenApiManagedAuthDetails(
@@ -384,12 +386,15 @@ def update_agent_with_openapi(function_url: str, function_key: str = None, entra
     
     # Configure authentication
     if connection_name:
+        # Resolve connection name to full resource ID (required by Foundry API)
+        conn = client.connections.get(connection_name)
+        connection_id = conn.id
         auth = OpenApiProjectConnectionAuthDetails(
             security_scheme=OpenApiProjectConnectionSecurityScheme(
-                project_connection_id=connection_name
+                project_connection_id=connection_id
             )
         )
-        auth_desc = f"Connection-based API Key (connection: {connection_name})"
+        auth_desc = f"Connection-based API Key (connection: {connection_name}, id: ...{connection_id[-60:]})"
     elif entra_auth:
         auth = OpenApiManagedAuthDetails(
             security_scheme=OpenApiManagedSecurityScheme(
