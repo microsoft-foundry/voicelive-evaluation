@@ -2057,6 +2057,7 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
     
     # Use provided evaluators or defaults
     eval_list = evaluators if evaluators else DEFAULT_EVALUATORS
+    logging.info(f"Evaluators: {'user-specified' if evaluators else 'defaults'} → {eval_list}")
     
     try:
         # Create project client

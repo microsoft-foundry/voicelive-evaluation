@@ -188,6 +188,10 @@ If user doesn't specify, use these 8 evaluators aligned with VoiceLive best prac
 - intent_resolution, task_adherence, task_completion, response_completeness
 - tool_call_accuracy, tool_selection, tool_input_accuracy, tool_output_utilization
 
+IMPORTANT: To use the defaults, do NOT pass the evaluators parameter at all in the
+run_voicelive_evaluation request. The server applies defaults automatically when evaluators
+is omitted. Only pass evaluators if the user explicitly requests specific ones.
+
 ## Important Notes
 - ALWAYS present the Foundry Portal URL when evaluation completes
 - run_voicelive_evaluation returns IMMEDIATELY with eval_id + eval_run_id + portal URL
