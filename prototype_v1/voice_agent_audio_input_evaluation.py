@@ -1087,8 +1087,9 @@ def _run_evaluation(
 
 def main() -> None:
     """Parse arguments and run."""
-    # Change to script directory before anything else (ensures .env loading works)
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    # Save original CWD so user-provided relative paths resolve correctly
+    original_cwd = os.getcwd()
+    script_dir = os.path.dirname(os.path.abspath(__file__))
 
     parser = argparse.ArgumentParser(
         description="Process audio files through the Azure VoiceLive SDK for evaluation"
@@ -1148,15 +1149,21 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Resolve paths relative to the (now current) script directory
+    # Resolve paths relative to the ORIGINAL working directory (where user invoked)
     if not os.path.isabs(args.test_files_path):
-        args.test_files_path = os.path.abspath(args.test_files_path)
+        args.test_files_path = os.path.normpath(os.path.join(original_cwd, args.test_files_path))
     if not os.path.isabs(args.output_dir):
-        args.output_dir = os.path.abspath(args.output_dir)
+        args.output_dir = os.path.normpath(os.path.join(original_cwd, args.output_dir))
     if args.evaluation_dir and not os.path.isabs(args.evaluation_dir):
-        args.evaluation_dir = os.path.abspath(args.evaluation_dir)
+        args.evaluation_dir = os.path.normpath(os.path.join(original_cwd, args.evaluation_dir))
     if args.aggregate_eval_file and not os.path.isabs(args.aggregate_eval_file):
-        args.aggregate_eval_file = os.path.abspath(args.aggregate_eval_file)
+        args.aggregate_eval_file = os.path.normpath(os.path.join(original_cwd, args.aggregate_eval_file))
+
+    # Now change to script directory — .env, logs, and defaults are relative to here
+    os.chdir(script_dir)
+
+    # Load env from script directory (.env lives next to the script)
+    load_dotenv(os.path.join(script_dir, ".env"), override=True)
 
     # Logging — file handler + console
     log_level = logging.DEBUG if args.verbose else logging.INFO
@@ -1169,9 +1176,6 @@ def main() -> None:
     console_handler.setLevel(log_level)
     console_handler.setFormatter(logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s'))
     logging.basicConfig(level=log_level, format='%(asctime)s:%(name)s:%(levelname)s:%(message)s', handlers=[file_handler, console_handler])
-
-    # Load env — explicit path to .env in the script directory
-    load_dotenv("./.env", override=True)
 
     asyncio.run(main_async(args))
 
