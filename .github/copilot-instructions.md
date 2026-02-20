@@ -117,6 +117,29 @@ The `evaluation_agent/skills/` directory contains skill definitions discoverable
 
 Skills include `when_to_use` metadata for intelligent agent decision-making.
 
+## Cross-Solution Sync Rules
+
+This repo contains two VoiceLive audio processing implementations that must stay aligned:
+
+| Solution | Path | Description |
+|----------|------|-------------|
+| **evaluation_agent** | `evaluation_agent/` | Cloud-deployed agent with Azure Functions backend |
+| **prototype_v1** | `prototype_v1/` | Local standalone evaluation script |
+
+### New Features & Changes
+When implementing new features or behavior changes to VoiceLive audio processing in **either** solution:
+- **Always ask the user** whether the change should also be applied to the partner solution.
+- Do not silently skip the partner — prompt explicitly (e.g., "Should this also be applied to prototype_v1?").
+
+### Bug Fixes
+When fixing a bug in VoiceLive audio processing in **either** solution:
+- **Automatically check** whether the same bug exists in the partner solution.
+- If it does, **propose a fix** for the partner in the same PR/commit.
+- If the partner code is structured differently and the bug doesn't apply, note that explicitly.
+
+### What Counts as VoiceLive Audio Processing
+Any change touching: audio sending, silence handling, VAD/PTT mode logic, session lifecycle, conversation turn management, response collection, timeout behavior, or VoiceLive SDK usage.
+
 ## Conventions
 
 ### Authentication
