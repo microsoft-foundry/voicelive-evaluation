@@ -689,9 +689,9 @@ auth = OpenApiProjectConnectionAuthDetails(
 
 ---
 
-### 5. Why 10 Default Evaluators?
+### 5. Why 8 Default Evaluators?
 
-**Decision**: Align with prototype_v1's evaluator set for consistency.
+**Decision**: Focus on agent-specific evaluation criteria for VoiceLive voice agents.
 
 **Default Evaluators**:
 | Evaluator | Model Type | Purpose |
@@ -700,12 +700,12 @@ auth = OpenApiProjectConnectionAuthDetails(
 | task_adherence | Reasoning | Did agent follow instructions? |
 | task_completion | Reasoning | Did agent complete the task? |
 | response_completeness | Reasoning | Was response complete? |
-| groundedness | Standard | Is response grounded in context? |
-| relevance | Reasoning | Is response relevant to query? |
 | tool_call_accuracy | Reasoning | Were tool calls correct? |
 | tool_selection | Reasoning | Did agent pick right tools? |
 | tool_input_accuracy | Reasoning | Were tool inputs correct? |
 | tool_output_utilization | Reasoning | Did agent use tool outputs well? |
+
+**Additional evaluators** (available on request): groundedness, relevance, fluency, coherence.
 
 **Flexibility**: Users can specify custom subset via `evaluators` parameter.
 

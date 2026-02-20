@@ -184,9 +184,8 @@ When a user asks to "evaluate", "test", or "run evaluation" on ANY dataset:
 6. Compare metrics side-by-side — both runs visible in the same Foundry portal eval group
 
 ## Default Evaluators
-If user doesn't specify, use these 10 evaluators aligned with VoiceLive best practices:
+If user doesn't specify, use these 8 evaluators aligned with VoiceLive best practices:
 - intent_resolution, task_adherence, task_completion, response_completeness
-- groundedness, relevance
 - tool_call_accuracy, tool_selection, tool_input_accuracy, tool_output_utilization
 
 ## Important Notes

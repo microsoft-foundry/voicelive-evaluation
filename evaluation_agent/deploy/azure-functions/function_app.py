@@ -1827,14 +1827,12 @@ def prepare_evaluation(params: dict) -> dict:
         return {"error": str(e)}
 
 
-# Default evaluators list - aligned with prototype_v1
+# Default evaluators list - aligned with VoiceLive agent evaluation best practices
 DEFAULT_EVALUATORS = [
     "intent_resolution",
     "task_adherence", 
     "task_completion",
     "response_completeness",
-    "groundedness",
-    "relevance",
     "tool_call_accuracy",
     "tool_selection",
     "tool_input_accuracy",

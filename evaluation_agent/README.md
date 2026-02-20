@@ -388,7 +388,7 @@ To compare push-to-talk vs VAD on the same dataset:
 
 ## Default Evaluators
 
-The agent uses 10 evaluators aligned with VoiceLive best practices:
+The agent uses 8 evaluators focused on agent-specific evaluation:
 
 | Evaluator | Model | Purpose |
 |-----------|-------|---------|
@@ -396,12 +396,12 @@ The agent uses 10 evaluators aligned with VoiceLive best practices:
 | task_adherence | Reasoning | Did agent follow instructions? |
 | task_completion | Reasoning | Did agent complete the task? |
 | response_completeness | Reasoning | Was response complete? |
-| groundedness | Standard | Is response grounded? |
-| relevance | Reasoning | Is response relevant? |
 | tool_call_accuracy | Reasoning | Were tool calls correct? |
 | tool_selection | Reasoning | Did agent pick right tools? |
 | tool_input_accuracy | Reasoning | Were tool inputs correct? |
 | tool_output_utilization | Reasoning | Did agent use tool outputs? |
+
+Additional evaluators (available on request): groundedness, relevance, fluency, coherence.
 
 Specify custom subset via `evaluators` parameter:
 ```json

@@ -13,7 +13,7 @@ Push-to-Talk (PTT) sends an explicit `audio_input_finished` event after each aud
 | API Version | `2026-01-01-preview` |
 | SDK Version | `azure-ai-voicelive 1.2.0b4` |
 | Session Mode | `per-conversation` |
-| Foundry Evaluators | intent_resolution, task_adherence, task_completion, response_completeness, groundedness, relevance, tool_call_accuracy, tool_selection, tool_input_accuracy, tool_output_utilization |
+| Foundry Evaluators | intent_resolution, task_adherence, task_completion, response_completeness, tool_call_accuracy, tool_selection, tool_input_accuracy, tool_output_utilization |
 
 ### Session Configurations Used
 
