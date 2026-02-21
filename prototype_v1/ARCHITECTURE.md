@@ -39,6 +39,7 @@ classDiagram
         +str voice_type
         +int sample_rate
         +bool push_to_talk
+        +bool enable_barge_in
         +Optional~List~ tools
         +Optional~List~ tool_definitions
     }
@@ -47,6 +48,8 @@ classDiagram
         +str user_transcription
         +str assistant_response
         +bool assistant_audio_received
+        +bool was_truncated
+        +str response_full
         +List~Dict~ tool_calls
         +List~Dict~ tool_results
         +List~bytes~ response_audio_chunks
@@ -62,6 +65,7 @@ classDiagram
         +Optional~List~ tool_definitions
         +str conversation_id
         +Optional~str~ system_prompt
+        +Optional~bool~ barge_in
     }
     DatasetEntry --> SessionConfig : configures
     SessionConfig --> ConversationTurn : produces
@@ -202,6 +206,7 @@ sequenceDiagram
 | `RESPONSE_AUDIO_DELTA` | Collect audio bytes in `response_audio_chunks` | Response audio data |
 | `RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE` | Store `pending_tool_call` | Tool arguments ready |
 | `RESPONSE_DONE` | Execute tool or drain late events, break | Turn complete |
+| `CONVERSATION_ITEM_TRUNCATED` | Set `was_truncated`, save `response_full`, slice response | Barge-in truncation |
 | `ERROR` | Log and break | Error handling |
 
 ## Late Event Drain

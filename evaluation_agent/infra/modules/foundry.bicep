@@ -46,7 +46,7 @@ resource deployments 'Microsoft.CognitiveServices/accounts/deployments@2025-06-0
     parent: aiAccount
     name: deployment.name
     sku: {
-      name: 'Standard'
+      name: deployment.?sku ?? 'Standard'
       capacity: deployment.?capacity ?? 1
     }
     properties: {

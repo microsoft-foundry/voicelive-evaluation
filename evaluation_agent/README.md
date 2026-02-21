@@ -388,7 +388,7 @@ To compare push-to-talk vs VAD on the same dataset:
 
 ## Default Evaluators
 
-The agent uses 10 evaluators aligned with VoiceLive best practices:
+The agent uses 8 evaluators focused on agent-specific evaluation:
 
 | Evaluator | Model | Purpose |
 |-----------|-------|---------|
@@ -396,12 +396,12 @@ The agent uses 10 evaluators aligned with VoiceLive best practices:
 | task_adherence | Reasoning | Did agent follow instructions? |
 | task_completion | Reasoning | Did agent complete the task? |
 | response_completeness | Reasoning | Was response complete? |
-| groundedness | Standard | Is response grounded? |
-| relevance | Reasoning | Is response relevant? |
 | tool_call_accuracy | Reasoning | Were tool calls correct? |
 | tool_selection | Reasoning | Did agent pick right tools? |
 | tool_input_accuracy | Reasoning | Were tool inputs correct? |
 | tool_output_utilization | Reasoning | Did agent use tool outputs? |
+
+Additional evaluators (available on request): groundedness, relevance, fluency, coherence.
 
 Specify custom subset via `evaluators` parameter:
 ```json
@@ -459,6 +459,7 @@ Stored in blob `datasets/` container. Contains audio files for VoiceLive process
 | conversationID | No | Group files by conversation |
 | system_prompt | No | Agent instructions |
 | tool_definitions | No | Available tools for agent |
+| barge_in | No | Mark turns designed to interrupt prior response |
 
 ### Evaluation-Ready Datasets (Foundry Data Store)
 
@@ -477,6 +478,9 @@ Stored in Foundry Data Store (versioned). Ready for direct Foundry evaluation.
 | context | No | Additional context for grounding |
 | tool_calls | No | Tool calls made by agent |
 | tool_definitions | No | Available tools |
+| barge_in | No | Whether turn was designed to interrupt prior response |
+| was_truncated | No | Whether auto-truncation occurred (runtime) |
+| response_full | No | Full response before truncation |
 
 ### Upload Workflow
 
@@ -577,6 +581,19 @@ Create custom configurations via the agent:
 "Create a new session config named 'low-latency' with model gpt-realtime-mini, sample_rate 16000, and vad_type server_vad"
 ```
 
+### Barge-In / Auto-Truncation
+
+All session configs have barge-in enabled by default (`enable_barge_in: true`). When enabled:
+
+- **Auto-truncation**: VoiceLive detects when the user speaks during agent audio playback and truncates the agent response
+- **Interrupt response**: The agent stops generating further audio output on user interruption
+- **Evaluation tracking**: Truncation events are tracked in evaluation output via `was_truncated`, `response_full`, and `barge_in` fields
+
+To disable barge-in for a specific config:
+```
+"Update session config 'default' and set enable_barge_in to false"
+```
+
 ## Deployed Resources
 
 After `azd up`, the following resources are created:
@@ -595,6 +612,12 @@ After `azd up`, the following resources are created:
 | Table: configjournal | Evaluation group → config mapping |
 
 ## Troubleshooting
+
+### Foundry Agent UX does not accept .jsonl files
+- The Foundry NEXTGEN Agent portal file upload only supports: `.c, .cpp, .cs, .css, .doc, .docx, .go, .html, .java, .js, .json, .md, .pdf, .php, .pptx, .py, .rb, .sh, .tex, .ts, .txt`
+- `.jsonl` is **not** in the list — you cannot attach JSONL files in the agent chat
+- **Workaround**: Ask the agent to provide an upload URL (`get_upload_url`), upload via the SAS URL, then call `finalize_upload`
+- A custom web frontend is planned to handle this natively
 
 ### "Blob not found" errors
 - Check path format - agent may send various formats

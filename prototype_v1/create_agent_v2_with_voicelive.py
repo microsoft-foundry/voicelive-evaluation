@@ -7,7 +7,6 @@ from azure.ai.projects.models import PromptAgentDefinition
 
 load_dotenv()
 
-
 # Helper functions for Voice Live configuration chunking (512-char metadata limit)
 def chunk_config(config_json: str, limit: int = 512) -> dict:
     """Split config into chunked metadata entries."""
@@ -20,7 +19,6 @@ def chunk_config(config_json: str, limit: int = 512) -> dict:
         chunk_num += 1
     return metadata
 
-
 def reassemble_config(metadata: dict) -> str:
     """Reassemble chunked Voice Live configuration."""
     config = metadata.get("microsoft.voice-live.configuration", "")
@@ -29,7 +27,6 @@ def reassemble_config(metadata: dict) -> str:
         config += metadata[f"microsoft.voice-live.configuration.{chunk_num}"]
         chunk_num += 1
     return config
-
 
 # Setup client
 project_client = AIProjectClient(

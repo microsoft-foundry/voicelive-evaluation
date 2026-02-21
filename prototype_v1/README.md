@@ -92,6 +92,8 @@ python voice_agent_audio_input_evaluation.py -f dataset.jsonl --push-to-talk
 | `--voice` | `en-US-Ava:DragonHDLatestNeural` | Azure TTS voice |
 | `--sample-rate` | `24000` | Audio sample rate in Hz |
 | `--verbose`, `-v` | `False` | Enable DEBUG logging |
+| `--enable-barge-in` | `True` | Enable auto-truncation for barge-in (default) |
+| `--disable-barge-in` | | Disable auto-truncation for barge-in |
 
 ## Dataset Format
 
@@ -109,6 +111,7 @@ Input is a JSONL file where each line is a JSON object:
 | `conversationID` | No | Groups files into multi-turn conversations (default: `"default"`) |
 | `system_prompt` | No | Per-conversation system instruction |
 | `tool_definitions` | No | Tool/function definitions to register with the session |
+| `barge_in` | No | Mark turns designed to interrupt prior agent response (enables truncation tracking) |
 
 ## Output Format
 
@@ -136,7 +139,10 @@ The evaluation data file uses conversation-history-based `query` format, compati
     "text_response_latency_seconds": 1.45,
     "audio_response_latency_seconds": 1.51,
     "tool_call_count": 1
-  }
+  },
+  "barge_in": false,
+  "was_truncated": false,
+  "response_full": ""
 }
 ```
 
@@ -260,10 +266,54 @@ The batch processor spawns subprocesses that write to a shared aggregated eval J
 4. **Audio resampling is linear interpolation** — sufficient for speech evaluation but not audiophile-grade.
 5. **Response audio is partial** — `RESPONSE_AUDIO_DELTA` events may not contain the complete response audio; saved WAVs may be smaller than expected compared to real-time playback.
 6. **Evaluations API regional availability** — the Foundry Evaluations API is not available in all regions (e.g. `southcentralus`). Ensure `PROJECT_ENDPOINT` points to a supported region (e.g. Sweden Central, East US 2).
-7. **No barge-in / interruption handling** — auto-truncation for interrupted responses is not yet implemented (see backlog).
+7. ~~**No barge-in / interruption handling**~~ — **Implemented** (v1.2.0b4+): auto-truncation enabled by default (`--enable-barge-in`). Tracks `was_truncated`, `response_full`, and `barge_in` in evaluation output.
 8. **Evaluation polling has no timeout** — `voice_agent_evaluation.py` polls indefinitely for eval run completion with no maximum attempt cap; a stuck run will block the process.
 9. **Evaluation output is pretty-printed JSON** — the `*_eval_output.jsonl` files use `indent=4` formatting, so each record spans multiple lines (not strict one-record-per-line JSONL).
 10. **Batch processor shared file writes** — parallel subprocess workers append to a shared aggregate JSONL file without inter-process locking; unlikely but possible write contention under high parallelism.
+
+## Preparing Test Datasets
+
+Use the helper script to download HuggingFace audio datasets as evaluation-ready JSONL:
+
+```bash
+# Download all 3 default TwinkStart datasets
+python helper_scripts/hf_dataset_to_jsonl.py
+
+# Download with a sample limit
+python helper_scripts/hf_dataset_to_jsonl.py TwinkStart/llama-questions --limit 50
+
+# Then run evaluation
+python prototype_v1/voice_agent_audio_input_evaluation.py -f datasets/TwinkStart-llama-questions/TwinkStart-llama-questions.jsonl
+```
+
+**Always validate datasets before running evaluations:**
+
+```bash
+# Step 1: Structural validation (must pass)
+python dataset_validator/validate_dataset_consistency.py datasets/TwinkStart-llama-questions/TwinkStart-llama-questions.jsonl
+
+# Step 2: Quality validation (advisory)
+python dataset_validator/validate_dataset_quality.py datasets/TwinkStart-llama-questions/TwinkStart-llama-questions.jsonl --strict
+```
+
+See [`helper_scripts/README.md`](../helper_scripts/README.md) for full CLI options, default datasets, and troubleshooting (FFmpeg, HF auth, dataset discovery). See [`dataset_validator/README.md`](../dataset_validator/README.md) for validation details.
+
+## Troubleshooting
+
+### FFmpeg Required for Audio Decoding
+
+Some HuggingFace datasets store audio in formats that require FFmpeg:
+```bash
+choco install ffmpeg   # Windows
+brew install ffmpeg    # macOS
+```
+
+### Debug Mode
+
+Enable verbose logging to diagnose audio processing or evaluation issues:
+```bash
+python voice_agent_audio_input_evaluation.py -f dataset.jsonl --verbose
+```
 
 ## Version History
 

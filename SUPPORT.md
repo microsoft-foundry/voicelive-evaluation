@@ -1,25 +1,32 @@
-# TODO: The maintainer of this repo has not yet edited this file
-
-**REPO OWNER**: Do you want Customer Service & Support (CSS) support for this product/project?
-
-- **No CSS support:** Fill out this template with information about how to file issues and get help.
-- **Yes CSS support:** Fill out an intake form at [aka.ms/onboardsupport](https://aka.ms/onboardsupport). CSS will work with/help you to determine next steps.
-- **Not sure?** Fill out an intake as though the answer were "Yes". CSS will help you decide.
-
-*Then remove this first heading from this SUPPORT.MD file before publishing your repo.*
-
 # Support
 
 ## How to file issues and get help  
 
-This project uses GitHub Issues to track bugs and feature requests. Please search the existing 
-issues before filing new issues to avoid duplicates.  For new issues, file your bug or 
-feature request as a new Issue.
+This project uses GitHub Issues to track bugs and feature requests. Please search the existing issues before filing new issues to avoid duplicates. For new issues, file your bug or feature request as a new Issue.
 
-For help and questions about using this project, please **REPO MAINTAINER: INSERT INSTRUCTIONS HERE 
-FOR HOW TO ENGAGE REPO OWNERS OR COMMUNITY FOR HELP. COULD BE A STACK OVERFLOW TAG OR OTHER
-CHANNEL. WHERE WILL YOU HELP PEOPLE?**.
+For help and questions about using this project:
+
+- **GitHub Issues**: For bug reports, feature requests, and evaluation-related questions
+- **Speech Service Documentation**: For voice live documentation, visit [Azure AI Speech Service - Voice Live](https://learn.microsoft.com/azure/ai-services/speech-service/voice-live)
+- **Azure Support**: For Azure subscription and service-level support, visit [Azure Support](https://azure.microsoft.com/support/options/)
+
+## Contributing
+
+We welcome contributions to improve the evaluation framework! To contribute:
+
+1. **Fork the repository** to your own GitHub account
+2. **Create a new branch** for your changes (`git checkout -b feature/my-improvement`)
+3. **Make your changes** and ensure they follow the existing code style
+4. **Test your changes** thoroughly
+5. **Commit your changes** with clear, descriptive commit messages
+6. **Push to your fork** (`git push origin feature/my-improvement`)
+7. **Create a Pull Request** from your fork back to this repository
+
+Please include:
+- A clear description of the changes and their purpose
+- Any relevant issue numbers
+- Screenshots or examples if applicable
 
 ## Microsoft Support Policy  
 
-Support for this **PROJECT or PRODUCT** is limited to the resources listed above.
+Support for this sample repository is limited to the resources listed above. These samples are provided as-is for educational and demonstration purposes. For production support of Azure AI Foundry services, please refer to your Azure support plan.

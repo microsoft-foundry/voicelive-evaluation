@@ -293,7 +293,6 @@ class BasicVoiceAssistant:
             async with connect(
                 endpoint=self.endpoint,
                 credential=self.credential,
-                api_version="2026-01-01-preview",
                 agent_config=self.agent_config,
             ) as connection:
                 conn = connection
@@ -330,7 +329,8 @@ class BasicVoiceAssistant:
         interim_response_config = LlmInterimResponseConfig(
             triggers=[InterimResponseTrigger.TOOL, InterimResponseTrigger.LATENCY],
             latency_threshold_ms=100,
-            instructions="Create friendly interim responses indicating wait time due to ongoing processing, if any. Do not include in all responses!"
+            instructions="""Create friendly interim responses indicating wait time due to ongoing processing, if any. Do not include
+                            in all responses! Do not say you don't have real-time access to information when calling tools!"""
         )
 
         # Create session configuration
@@ -338,7 +338,7 @@ class BasicVoiceAssistant:
             modalities=[Modality.TEXT, Modality.AUDIO],
             input_audio_format=InputAudioFormat.PCM16,
             output_audio_format=OutputAudioFormat.PCM16,
-            interim_response=interim_response_config,
+            # interim_response=interim_response_config,
             # Uncomment the following, if not stored with agent configuration on the service side
             # voice=AzureStandardVoice(name=self.voice),
             # turn_detection=AzureSemanticVadMultilingual(),

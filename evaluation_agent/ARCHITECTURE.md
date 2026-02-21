@@ -451,7 +451,7 @@ In VAD mode, audio sending and event collection run concurrently. VAD detects sp
 
 ```mermaid
 graph TD
-    A[Start VAD Processing] --> B[Create VoiceLive Session<br/>turn_detection = AzureSemanticVad]
+    A[Start VAD Processing] --> B[Create VoiceLive Session<br/>turn_detection = AzureSemanticVad<br/>auto_truncate + interrupt_response = enable_barge_in]
     B --> C[Start Concurrent Tasks]
     C --> D[Task 1: Send Audio Chunks]
     C --> E[Task 2: Collect Events]
@@ -557,6 +557,24 @@ This hybrid causes **VAD interference** on early turns (turns 2-3 in multi-turn 
 **No official SDK sample exists** for PTT or pre-recorded audio processing. The `azure-sdk-for-python` samples only demonstrate server VAD with real-time microphone input.
 
 **Feature request**: VoiceLive should support `turn_detection=None` to enable true PTT mode without VAD interference.
+
+### Barge-In / Auto-Truncation
+
+When barge-in is enabled (`enable_barge_in: true`, the default), the VoiceLive session is configured with:
+
+- `auto_truncate=True` on the VAD config — detects when the user speaks during agent audio playback and truncates the agent response in session context
+- `interrupt_response=True` — stops the agent from generating further audio output
+
+When a `CONVERSATION_ITEM_TRUNCATED` event fires:
+1. `was_truncated` is set to `True` on the turn
+2. The full (pre-truncation) response is saved to `response_full`
+3. `assistant_response` is sliced to the truncated content (using `content_index`)
+
+In evaluation output, barge-in turns include:
+- `barge_in: true` — from the input dataset, marking turns designed to interrupt
+- `was_truncated: true` — runtime indicator that truncation actually occurred
+- `response_full` — the complete response text before truncation
+- `response` — the truncated text (what the user actually heard)
 
 ## Design Decisions
 
@@ -689,9 +707,9 @@ auth = OpenApiProjectConnectionAuthDetails(
 
 ---
 
-### 5. Why 10 Default Evaluators?
+### 5. Why 8 Default Evaluators?
 
-**Decision**: Align with prototype_v1's evaluator set for consistency.
+**Decision**: Focus on agent-specific evaluation criteria for VoiceLive voice agents.
 
 **Default Evaluators**:
 | Evaluator | Model Type | Purpose |
@@ -700,12 +718,12 @@ auth = OpenApiProjectConnectionAuthDetails(
 | task_adherence | Reasoning | Did agent follow instructions? |
 | task_completion | Reasoning | Did agent complete the task? |
 | response_completeness | Reasoning | Was response complete? |
-| groundedness | Standard | Is response grounded in context? |
-| relevance | Reasoning | Is response relevant to query? |
 | tool_call_accuracy | Reasoning | Were tool calls correct? |
 | tool_selection | Reasoning | Did agent pick right tools? |
 | tool_input_accuracy | Reasoning | Were tool inputs correct? |
 | tool_output_utilization | Reasoning | Did agent use tool outputs well? |
+
+**Additional evaluators** (available on request): groundedness, relevance, fluency, coherence.
 
 **Flexibility**: Users can specify custom subset via `evaluators` parameter.
 
@@ -1193,6 +1211,7 @@ Auto-registration in `check_voicelive_job_status` attempts Foundry dataset uploa
 11. **Auto-registration is best-effort** - `check_voicelive_job_status` attempts to register VoiceLive output as a Foundry dataset, but silently fails if the Container App has scaled to zero before status is polled. The `run_voicelive_evaluation` pipeline handles its own upload as the reliable path.
 12. **PTT mode limited by race condition** — VoiceLive requires `turn_detection` to always be configured. PTT mode (`push_to_talk=true`) uses VAD + `commit()` + `response.create()` hybrid, achieving ~50-60% response rate vs VAD's ~90-100%. The `conversation_already_has_active_response` error occurs when committing audio triggers a response before the commit event fully processes. Feature request filed for `turn_detection=None` support.
 13. **Tool definitions normalization** — Dataset JSONL may contain `tool_definitions` as a single dict instead of a list. The processor normalizes this automatically, but datasets should ideally use array format: `"tool_definitions": [{"type":"function",...}]`
+14. **Foundry Agent UX does not support .jsonl file uploads** — The Foundry NEXTGEN Agent portal chat UI only accepts a limited set of file types (.json, .txt, .pdf, etc.) for attachment. `.jsonl` is **not** in the supported list. Users cannot drag-and-drop JSONL files into the agent conversation. **Workaround**: Use the SAS URL upload pattern (get_upload_url → finalize_upload) or upload datasets via the SDK/API. A custom web frontend is planned to remove this limitation.
 
 ### Future Improvements
 1. **Managed Identity auth for Foundry → Function App** - Code path exists (`--entra-auth --client-id` in `setup_agent_openapi.py` using `OpenApiManagedAuthDetails`), but deployment currently uses connection-based API key auth via `postdeploy.ps1`. Activating requires: create a separate app registration for the Function App, enable EasyAuth on Function App, update postdeploy to use `--entra-auth` instead of `--connection-name`.

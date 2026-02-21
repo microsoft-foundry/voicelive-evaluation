@@ -39,6 +39,7 @@ from azure.ai.voicelive.models import (
     EouDetection,
     FunctionCallOutputItem,
     ItemType,
+    ServerEventConversationItemTruncated,
 )
 
 # Force UTF-8 encoding for stdout/stderr to handle international characters
@@ -97,6 +98,7 @@ class SessionConfig:
     voice_type: str = "azure-standard"
     sample_rate: int = 24000
     push_to_talk: bool = False
+    enable_barge_in: bool = True
     tools: Optional[List[Dict[str, Any]]] = None
     tool_definitions: Optional[List[Dict[str, Any]]] = None
 
@@ -129,6 +131,10 @@ class ConversationTurn:
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     tool_results: List[Dict[str, Any]] = field(default_factory=list)
     response_audio_chunks: List[bytes] = field(default_factory=list)
+
+    # Barge-in / auto-truncation
+    was_truncated: bool = False
+    response_full: str = ""  # Full response before truncation
 
     # Timing
     audio_send_end_time: Optional[datetime] = None
@@ -164,6 +170,7 @@ class DatasetEntry:
     tool_definitions: Optional[List[Dict[str, Any]]] = None
     conversation_id: str = "default"
     system_prompt: Optional[str] = None
+    barge_in: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +289,7 @@ def read_dataset(path: str) -> List[DatasetEntry]:
                 tool_definitions=tool_defs if tool_defs else [],
                 conversation_id=record.get('conversationID') or record.get('conversation_id') or 'default',
                 system_prompt=record.get('system_prompt'),
+                barge_in=bool(record.get('barge_in', False)),
             ))
 
     logger.info(f"Loaded {len(entries)} entries from {path}")
@@ -329,9 +337,14 @@ async def configure_session(connection: Any, config: SessionConfig) -> None:
     if config.supports_eou_detection():
         sdk_turn_detection = AzureSemanticVadMultilingual(
             end_of_utterance_detection=EouDetection(model="semantic_detection_v1_multilingual"),
+            auto_truncate=config.enable_barge_in,
+            interrupt_response=config.enable_barge_in,
         )
     else:
-        sdk_turn_detection = AzureSemanticVadMultilingual()
+        sdk_turn_detection = AzureSemanticVadMultilingual(
+            auto_truncate=config.enable_barge_in,
+            interrupt_response=config.enable_barge_in,
+        )
 
     sdk_session = RequestSession(
         modalities=[Modality.TEXT, Modality.AUDIO],
@@ -347,7 +360,7 @@ async def configure_session(connection: Any, config: SessionConfig) -> None:
         input_audio_sampling_rate=config.sample_rate,
     )
     await connection.session.update(session=sdk_session)
-    logger.info(f"Session configured: model={config.model}, voice={config.voice}, ptt={config.push_to_talk}")
+    logger.info(f"Session configured: model={config.model}, voice={config.voice}, ptt={config.push_to_talk}, barge_in={config.enable_barge_in}")
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +510,19 @@ async def process_audio(
                             turn.response_audio_chunks.append(base64.b64decode(event.delta))
                         except Exception:
                             pass  # Skip malformed audio chunks
+
+                # Auto-truncation: user interrupted during agent playback
+                elif etype == ServerEventType.CONVERSATION_ITEM_TRUNCATED:
+                    turn.was_truncated = True
+                    # Preserve full response before overwriting with truncated version
+                    if turn.assistant_response and not turn.response_full:
+                        turn.response_full = turn.assistant_response
+                    content_index = getattr(event, 'content_index', None)
+                    logger.info(f"Response truncated (barge-in): content_index={content_index}")
+                    # The truncated text will be reflected in session context;
+                    # we slice our captured response to match what the user heard
+                    if content_index is not None and turn.response_full:
+                        turn.assistant_response = turn.response_full[:content_index]
 
                 elif etype == ServerEventType.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE:
                     if hasattr(event, 'call_id') and hasattr(event, 'arguments'):
@@ -661,6 +687,12 @@ def build_evaluation_data(
     The ``query`` field is a conversation-history list of role/content messages
     (system, then prior turns interleaved user/assistant/tool, then current
     user input).  ``response`` contains the current assistant messages.
+
+    Query source priority:
+      1. Ground-truth Question from input JSONL metadata (if present)
+      2. VoiceLive real-time transcription (fallback)
+    The VoiceLive transcription is always stored in ``transcript`` for WER evaluation.
+    ``ground_truth_query_used`` indicates which source was used.
     """
     query_messages: List[Dict[str, Any]] = [
         {"role": "system", "content": system_instructions}
@@ -672,7 +704,12 @@ def build_evaluation_data(
             query_messages.append(msg)
 
     # Current turn — user input
-    user_text = sanitize_text_for_utf8(turn.user_transcription)
+    # Prefer ground-truth question from JSONL; fall back to VoiceLive transcription
+    vl_transcript = sanitize_text_for_utf8(turn.user_transcription)
+    gt_question = sanitize_text_for_utf8(entry.question) if entry.question else ""
+    ground_truth_query_used = bool(gt_question)
+    user_text = gt_question if ground_truth_query_used else vl_transcript
+
     if user_text:
         query_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
 
@@ -706,6 +743,11 @@ def build_evaluation_data(
     return {
         "query": query_messages,
         "response": response_messages,
+        "transcript": vl_transcript or "",
+        "ground_truth_query_used": ground_truth_query_used,
+        "barge_in": getattr(entry, 'barge_in', False),
+        "was_truncated": turn.was_truncated,
+        "response_full": sanitize_text_for_utf8(turn.response_full) if turn.response_full else "",
         "metrics": metrics,
         "tool_calls": turn.tool_calls or [],
         "tool_definitions": tool_definitions or [],
@@ -963,6 +1005,7 @@ async def main_async(args: argparse.Namespace) -> None:
         voice=args.voice,
         sample_rate=args.sample_rate,
         push_to_talk=args.push_to_talk,
+        enable_barge_in=getattr(args, 'enable_barge_in', True),
     )
 
     # Evaluation output file — aggregate file (batch mode) or auto-generated
@@ -1130,6 +1173,14 @@ def main() -> None:
     parser.add_argument(
         '--push-to-talk', dest='push_to_talk', action='store_true',
         help='Enable push-to-talk mode (default: VAD)',
+    )
+    parser.add_argument(
+        '--enable-barge-in', dest='enable_barge_in', action='store_true', default=True,
+        help='Enable auto-truncation for barge-in support (default: enabled)',
+    )
+    parser.add_argument(
+        '--disable-barge-in', dest='enable_barge_in', action='store_false',
+        help='Disable auto-truncation for barge-in support',
     )
     parser.add_argument(
         '--model', default='gpt-realtime',
