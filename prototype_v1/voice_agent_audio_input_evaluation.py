@@ -1005,7 +1005,7 @@ async def main_async(args: argparse.Namespace) -> None:
         voice=args.voice,
         sample_rate=args.sample_rate,
         push_to_talk=args.push_to_talk,
-        enable_barge_in=getattr(args, 'enable_barge_in', False),
+        enable_barge_in=getattr(args, 'enable_barge_in', True),
     )
 
     # Evaluation output file — aggregate file (batch mode) or auto-generated
