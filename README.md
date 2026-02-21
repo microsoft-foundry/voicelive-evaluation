@@ -1,4 +1,26 @@
-# Setup
+# VoiceLive Evaluation
+
+Evaluation tools and frameworks for Azure VoiceLive (Speech-to-Speech-to-Text) voice agents. Combines VoiceLive API testing with Azure AI Foundry evaluators to assess voice assistant performance across quality dimensions like intent resolution, task adherence, and response completeness.
+
+## Repository Structure
+
+| Directory | Status | Description |
+|-----------|--------|-------------|
+| [`evaluation_agent/`](evaluation_agent/) | **Active** | Cloud-native AI agent for automating VoiceLive evaluation workflows. Backed by Azure Functions (27 endpoints), a Container App for long-running audio processing, and an AI Foundry Agent with OpenAPI tools. Supports dataset management, session configuration, VoiceLive audio testing (PTT/VAD), Foundry evaluation, and results analysis. |
+| [`prototype_v1/`](prototype_v1/) | **Active** | Local evaluation prototype for processing pre-recorded audio through the VoiceLive SDK. Supports Push-to-Talk and Voice Activity Detection modes with batch processing and Azure AI Foundry evaluation integration. Useful for local development and debugging. |
+| [`dataset_validator/`](dataset_validator/) | **Active** | CLI tools for validating JSONL evaluation datasets. Includes consistency validation (syntax, required fields, audio file presence) and quality validation (content metrics, alignment checks). |
+| [`helper_scripts/`](helper_scripts/) | **Active** | Utility scripts for dataset preparation, including a HuggingFace audio dataset downloader that converts datasets to evaluation-ready JSONL format. |
+| [`TranscriptEvaluator/`](TranscriptEvaluator/) | Experimental | Early experiment for testing transcription evaluation with Azure AI Foundry custom evaluators. Contains evaluator prompts and sample datasets. |
+| [`UltraEval-Audio/`](UltraEval-Audio/) | Archived | Based on an external open-source audio evaluation framework. Used in early stages of VoiceLive evaluation experimentation but is not up to date and currently unused. |
+| [`voicelive_quickstarts/`](voicelive_quickstarts/) | Temporary | Temporary test scripts for VoiceLive API quickstarts, pending cleanup. |
+
+## Getting Started
+
+The primary solution is the **evaluation agent** — see [`evaluation_agent/README.md`](evaluation_agent/README.md) for full setup and usage instructions.
+
+For local development and testing with pre-recorded audio, see [`prototype_v1/README.md`](prototype_v1/README.md).
+
+## Setup
 
 ```pwsh
 python -m venv .venv
@@ -7,17 +29,7 @@ python.exe -m pip install --upgrade pip
 pip install -r .\requirements.txt
 ```
 
-# Project
-
-> This repo has been populated by an initial template to help get you started. Please
-> make sure to update the content to build a great experience for community-building.
-
-As the maintainer of this project, please make a few updates:
-
-- Improving this README.MD file to provide a great experience
-- Updating SUPPORT.MD with content about this project's support experience
-- Understanding the security reporting process in SECURITY.MD
-- Remove this section from the README
+> **Note:** Each subdirectory has its own `requirements.txt` — install from the directory you are working in.
 
 ## Contributing
 
