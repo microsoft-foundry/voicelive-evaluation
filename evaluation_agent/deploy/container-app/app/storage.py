@@ -33,6 +33,9 @@ class DatasetEntry:
     query: Optional[str] = None
     response: Optional[str] = None
     
+    # Barge-in metadata
+    barge_in: bool = False
+    
     # Raw entry for passthrough
     raw: Dict[str, Any] = None
     
@@ -47,6 +50,7 @@ class DatasetEntry:
             tool_definitions=data.get("tool_definitions"),
             query=data.get("query"),
             response=data.get("response"),
+            barge_in=bool(data.get("barge_in", False)),
             raw=data
         )
     

@@ -33,6 +33,7 @@ from azure.ai.voicelive.models import (
     EouDetection,
     FunctionCallOutputItem,
     ItemType,
+    ServerEventConversationItemTruncated,
 )
 
 from .config import SessionConfig, VadType, EouModel
@@ -49,6 +50,10 @@ class ConversationTurn:
     assistant_audio_received: bool = False
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     tool_results: List[Dict[str, Any]] = field(default_factory=list)
+    
+    # Barge-in / auto-truncation
+    was_truncated: bool = False
+    response_full: str = ""  # Full response before truncation
     
     # Timing metrics
     audio_send_end_time: Optional[datetime] = None
@@ -75,7 +80,7 @@ class ConversationTurn:
         return metrics
     
     def to_eval_format(self, ground_truth: str = "", tool_definitions: List[Dict] = None,
-                       question: str = "") -> Dict[str, Any]:
+                       question: str = "", barge_in: bool = False) -> Dict[str, Any]:
         """Convert turn data to evaluation dataset format.
         
         Query source priority:
@@ -89,6 +94,9 @@ class ConversationTurn:
             "response": self.assistant_response,
             "transcript": self.user_transcription or "",
             "ground_truth_query_used": ground_truth_query_used,
+            "barge_in": barge_in,
+            "was_truncated": self.was_truncated,
+            "response_full": self.response_full if self.response_full else "",
             "tool_calls": self.tool_calls if self.tool_calls else [],
             "tool_definitions": tool_definitions or [],
             "ground_truth": ground_truth,
@@ -180,18 +188,23 @@ class VoiceLiveClient:
         # we additionally use commit() + response.create() for explicit
         # turn boundaries, but keep VAD as the base turn detection.
         if config.turn_detection.type == VadType.AZURE_SEMANTIC:
+            barge_in = config.turn_detection.enable_barge_in
             if config.supports_eou_detection() and config.turn_detection.use_eou_detection:
                 sdk_turn_detection = AzureSemanticVadMultilingual(
                     threshold=config.turn_detection.threshold,
                     prefix_padding_ms=config.turn_detection.prefix_padding_ms,
                     silence_duration_ms=config.turn_detection.silence_duration_ms,
-                    end_of_utterance_detection=EouDetection(model=config.turn_detection.eou_model.value)
+                    end_of_utterance_detection=EouDetection(model=config.turn_detection.eou_model.value),
+                    auto_truncate=barge_in,
+                    interrupt_response=True,
                 )
             else:
                 sdk_turn_detection = AzureSemanticVadMultilingual(
                     threshold=config.turn_detection.threshold,
                     prefix_padding_ms=config.turn_detection.prefix_padding_ms,
                     silence_duration_ms=config.turn_detection.silence_duration_ms,
+                    auto_truncate=barge_in,
+                    interrupt_response=True,
                 )
         else:
             sdk_turn_detection = ServerVad(
@@ -410,6 +423,16 @@ class VoiceLiveClient:
                         if turn.first_audio_response_time is None:
                             turn.first_audio_response_time = datetime.now()
                             turn.assistant_audio_received = True
+                    
+                    # Auto-truncation: user interrupted during agent playback
+                    elif event_type == ServerEventType.CONVERSATION_ITEM_TRUNCATED:
+                        turn.was_truncated = True
+                        if turn.assistant_response and not turn.response_full:
+                            turn.response_full = turn.assistant_response
+                        content_index = getattr(event, 'content_index', None)
+                        logger.info(f"Response truncated (barge-in): content_index={content_index}")
+                        if content_index is not None and turn.response_full:
+                            turn.assistant_response = turn.response_full[:content_index]
                     
                     # Function call arguments done — store as pending
                     # SDK sample: Do NOT execute yet; wait for RESPONSE_DONE first

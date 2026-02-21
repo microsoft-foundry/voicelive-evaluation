@@ -157,7 +157,8 @@ async def process_conversation(
             result = turn.to_eval_format(
                 ground_truth=entry.answer or "",
                 tool_definitions=entry.tool_definitions or conversation_config.tool_definitions or [],
-                question=entry.question or ""
+                question=entry.question or "",
+                barge_in=entry.barge_in
             )
             
             # Add metadata
