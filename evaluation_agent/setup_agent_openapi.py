@@ -310,15 +310,16 @@ def create_agent_with_openapi(function_url: str, function_key: str = None, entra
     
     # Configure authentication
     if connection_name:
-        # Resolve connection name to full resource ID (required by Foundry API)
-        conn = client.connections.get(connection_name)
+        # Extract short name if full ARM resource ID was provided
+        short_name = connection_name.rsplit("/", 1)[-1] if "/" in connection_name else connection_name
+        conn = client.connections.get(short_name)
         connection_id = conn.id
         auth = OpenApiProjectConnectionAuthDetails(
             security_scheme=OpenApiProjectConnectionSecurityScheme(
                 project_connection_id=connection_id
             )
         )
-        auth_desc = f"Connection-based API Key (connection: {connection_name}, id: ...{connection_id[-60:]})"
+        auth_desc = f"Connection-based API Key (connection: {short_name}, id: ...{connection_id[-60:]})"
     elif entra_auth:
         # Use managed identity to get token for the Function App
         auth = OpenApiManagedAuthDetails(
@@ -407,15 +408,16 @@ def update_agent_with_openapi(function_url: str, function_key: str = None, entra
     
     # Configure authentication
     if connection_name:
-        # Resolve connection name to full resource ID (required by Foundry API)
-        conn = client.connections.get(connection_name)
+        # Extract short name if full ARM resource ID was provided
+        short_name = connection_name.rsplit("/", 1)[-1] if "/" in connection_name else connection_name
+        conn = client.connections.get(short_name)
         connection_id = conn.id
         auth = OpenApiProjectConnectionAuthDetails(
             security_scheme=OpenApiProjectConnectionSecurityScheme(
                 project_connection_id=connection_id
             )
         )
-        auth_desc = f"Connection-based API Key (connection: {connection_name}, id: ...{connection_id[-60:]})"
+        auth_desc = f"Connection-based API Key (connection: {short_name}, id: ...{connection_id[-60:]})"
     elif entra_auth:
         auth = OpenApiManagedAuthDetails(
             security_scheme=OpenApiManagedSecurityScheme(

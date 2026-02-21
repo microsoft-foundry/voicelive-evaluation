@@ -1,6 +1,7 @@
 {
   "agent_id": "voicelive-evaluation-agent-cloud",
   "name": "voicelive-evaluation-agent-cloud",
-  "function_url": "https://func-v3g7ywvldzjeo.azurewebsites.net/api",
-  "mode": "openapi"
+  "function_url": "https://func-vh7j24h6z2pgw.azurewebsites.net/api",
+  "mode": "openapi",
+  "auth": "connection"
 }
