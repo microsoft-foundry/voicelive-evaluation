@@ -451,7 +451,7 @@ In VAD mode, audio sending and event collection run concurrently. VAD detects sp
 
 ```mermaid
 graph TD
-    A[Start VAD Processing] --> B[Create VoiceLive Session<br/>turn_detection = AzureSemanticVad]
+    A[Start VAD Processing] --> B[Create VoiceLive Session<br/>turn_detection = AzureSemanticVad<br/>auto_truncate + interrupt_response = enable_barge_in]
     B --> C[Start Concurrent Tasks]
     C --> D[Task 1: Send Audio Chunks]
     C --> E[Task 2: Collect Events]
@@ -557,6 +557,24 @@ This hybrid causes **VAD interference** on early turns (turns 2-3 in multi-turn 
 **No official SDK sample exists** for PTT or pre-recorded audio processing. The `azure-sdk-for-python` samples only demonstrate server VAD with real-time microphone input.
 
 **Feature request**: VoiceLive should support `turn_detection=None` to enable true PTT mode without VAD interference.
+
+### Barge-In / Auto-Truncation
+
+When barge-in is enabled (`enable_barge_in: true`, the default), the VoiceLive session is configured with:
+
+- `auto_truncate=True` on the VAD config — detects when the user speaks during agent audio playback and truncates the agent response in session context
+- `interrupt_response=True` — stops the agent from generating further audio output
+
+When a `CONVERSATION_ITEM_TRUNCATED` event fires:
+1. `was_truncated` is set to `True` on the turn
+2. The full (pre-truncation) response is saved to `response_full`
+3. `assistant_response` is sliced to the truncated content (using `content_index`)
+
+In evaluation output, barge-in turns include:
+- `barge_in: true` — from the input dataset, marking turns designed to interrupt
+- `was_truncated: true` — runtime indicator that truncation actually occurred
+- `response_full` — the complete response text before truncation
+- `response` — the truncated text (what the user actually heard)
 
 ## Design Decisions
 

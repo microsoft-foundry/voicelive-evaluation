@@ -459,6 +459,7 @@ Stored in blob `datasets/` container. Contains audio files for VoiceLive process
 | conversationID | No | Group files by conversation |
 | system_prompt | No | Agent instructions |
 | tool_definitions | No | Available tools for agent |
+| barge_in | No | Mark turns designed to interrupt prior response |
 
 ### Evaluation-Ready Datasets (Foundry Data Store)
 
@@ -477,6 +478,9 @@ Stored in Foundry Data Store (versioned). Ready for direct Foundry evaluation.
 | context | No | Additional context for grounding |
 | tool_calls | No | Tool calls made by agent |
 | tool_definitions | No | Available tools |
+| barge_in | No | Whether turn was designed to interrupt prior response |
+| was_truncated | No | Whether auto-truncation occurred (runtime) |
+| response_full | No | Full response before truncation |
 
 ### Upload Workflow
 
@@ -575,6 +579,19 @@ The agent supports 7 pre-configured VoiceLive settings:
 Create custom configurations via the agent:
 ```
 "Create a new session config named 'low-latency' with model gpt-realtime-mini, sample_rate 16000, and vad_type server_vad"
+```
+
+### Barge-In / Auto-Truncation
+
+All session configs have barge-in enabled by default (`enable_barge_in: true`). When enabled:
+
+- **Auto-truncation**: VoiceLive detects when the user speaks during agent audio playback and truncates the agent response
+- **Interrupt response**: The agent stops generating further audio output on user interruption
+- **Evaluation tracking**: Truncation events are tracked in evaluation output via `was_truncated`, `response_full`, and `barge_in` fields
+
+To disable barge-in for a specific config:
+```
+"Update session config 'default' and set enable_barge_in to false"
 ```
 
 ## Deployed Resources

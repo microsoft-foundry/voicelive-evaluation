@@ -1050,6 +1050,13 @@ components:
         echo_cancellation:
           type: string
           description: Echo cancellation type
+        enable_barge_in:
+          type: boolean
+          description: >
+            Enable auto-truncation for barge-in support (default: true).
+            When enabled, the VAD detects when the user starts speaking during agent playback
+            and truncates the agent response. Tracked via was_truncated and response_full fields
+            in evaluation output.
         is_default:
           type: boolean
           description: Whether this is the default configuration
@@ -1093,5 +1100,7 @@ components:
           type: string
         echo_cancellation:
           type: string
+        enable_barge_in:
+          type: boolean
         is_default:
           type: boolean

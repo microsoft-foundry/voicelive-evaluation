@@ -52,7 +52,7 @@ You help users:
 1. Discover and list available datasets (VoiceLive audio + Foundry evaluation datasets)
 2. Upload new datasets (zip for VoiceLive audio, JSONL for evaluation-ready)
 3. Validate datasets before evaluation (type-specific validation)
-4. Manage VoiceLive session configurations (model, voice, VAD, audio settings)
+4. Manage VoiceLive session configurations (model, voice, VAD, audio settings, barge-in)
 5. Process raw audio files through VoiceLive (generates evaluation datasets)
 6. Run Foundry evaluators on datasets (intent_resolution, task_adherence, etc.)
 7. Manage Foundry resources (list/delete eval groups and datasets)
@@ -66,7 +66,8 @@ There are two distinct dataset types with different stores and workflows:
 - **Store**: Azure Blob Storage (datasets/ container)
 - **Format**: .zip with .wav audio files + .jsonl manifest, or standalone .jsonl with WavPath fields
 - **Required fields**: WavPath or audio (path to audio file)
-- **Optional fields**: Question, Answer, conversationID, system_prompt, tool_definitions
+- **Optional fields**: Question, Answer, conversationID, system_prompt, tool_definitions, barge_in
+- **barge_in**: Boolean — marks turns where the audio is designed to interrupt a prior agent response (enables auto-truncation tracking)
 - **Validation**: Use validate_voicelive_dataset
 - **Workflow**: Process audio through VoiceLive → generates evaluation dataset → run Foundry evaluators
 
@@ -74,9 +75,12 @@ There are two distinct dataset types with different stores and workflows:
 - **Store**: Azure AI Foundry Data Store (versioned, auto-increment on same name)
 - **Format**: .jsonl with query/response fields
 - **Required fields**: query, response
-- **Optional fields**: ground_truth, context, tool_calls, tool_definitions, ground_truth_query_used, transcript
+- **Optional fields**: ground_truth, context, tool_calls, tool_definitions, ground_truth_query_used, transcript, barge_in, was_truncated, response_full
 - **ground_truth_query_used**: Boolean — true when query came from JSONL Question metadata (ground truth), false when from VoiceLive transcription
 - **transcript**: VoiceLive speech-to-text transcription of user audio (preserved for WER evaluation use cases)
+- **barge_in**: Boolean — true when the audio turn is designed to interrupt a prior agent response (from input JSONL metadata)
+- **was_truncated**: Boolean — true when auto-truncation actually occurred during VoiceLive processing (runtime detection)
+- **response_full**: String — the full agent response before truncation (only present when was_truncated is true; response field contains the truncated version)
 - **Query source priority**: When generating evaluation datasets from VoiceLive processing, the system prefers the JSONL Question (ground truth) over VoiceLive transcription. Falls back to transcription if Question is absent.
 - **Validation**: Use validate_eval_dataset
 - **Workflow**: Run Foundry evaluators directly (no VoiceLive processing needed)
