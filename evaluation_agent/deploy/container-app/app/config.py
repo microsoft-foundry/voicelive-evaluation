@@ -52,7 +52,7 @@ class TurnDetectionConfig:
     silence_duration_ms: Optional[int] = None
     use_eou_detection: bool = True  # End-of-utterance detection (non-GPT models only)
     eou_model: EouModel = EouModel.SEMANTIC_V1_MULTILINGUAL  # EOU detection model
-    enable_barge_in: bool = False  # Auto-truncation for interrupt handling
+    enable_barge_in: bool = True  # Auto-truncation for interrupt handling
 
 
 @dataclass
@@ -200,7 +200,7 @@ class SessionConfig:
                 silence_duration_ms=td_data.get("silence_duration_ms"),
                 use_eou_detection=td_data.get("use_eou_detection", True),
                 eou_model=eou_model,
-                enable_barge_in=bool(td_data.get("enable_barge_in", False))
+                enable_barge_in=bool(td_data.get("enable_barge_in", True))
             )
         
         # Tools

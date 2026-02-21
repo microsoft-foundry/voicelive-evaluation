@@ -196,7 +196,7 @@ class VoiceLiveClient:
                     silence_duration_ms=config.turn_detection.silence_duration_ms,
                     end_of_utterance_detection=EouDetection(model=config.turn_detection.eou_model.value),
                     auto_truncate=barge_in,
-                    interrupt_response=True,
+                    interrupt_response=barge_in,
                 )
             else:
                 sdk_turn_detection = AzureSemanticVadMultilingual(
@@ -204,7 +204,7 @@ class VoiceLiveClient:
                     prefix_padding_ms=config.turn_detection.prefix_padding_ms,
                     silence_duration_ms=config.turn_detection.silence_duration_ms,
                     auto_truncate=barge_in,
-                    interrupt_response=True,
+                    interrupt_response=barge_in,
                 )
         else:
             sdk_turn_detection = ServerVad(

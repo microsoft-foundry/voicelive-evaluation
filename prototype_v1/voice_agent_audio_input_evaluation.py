@@ -98,7 +98,7 @@ class SessionConfig:
     voice_type: str = "azure-standard"
     sample_rate: int = 24000
     push_to_talk: bool = False
-    enable_barge_in: bool = False
+    enable_barge_in: bool = True
     tools: Optional[List[Dict[str, Any]]] = None
     tool_definitions: Optional[List[Dict[str, Any]]] = None
 
@@ -338,12 +338,12 @@ async def configure_session(connection: Any, config: SessionConfig) -> None:
         sdk_turn_detection = AzureSemanticVadMultilingual(
             end_of_utterance_detection=EouDetection(model="semantic_detection_v1_multilingual"),
             auto_truncate=config.enable_barge_in,
-            interrupt_response=True,
+            interrupt_response=config.enable_barge_in,
         )
     else:
         sdk_turn_detection = AzureSemanticVadMultilingual(
             auto_truncate=config.enable_barge_in,
-            interrupt_response=True,
+            interrupt_response=config.enable_barge_in,
         )
 
     sdk_session = RequestSession(
@@ -1175,8 +1175,12 @@ def main() -> None:
         help='Enable push-to-talk mode (default: VAD)',
     )
     parser.add_argument(
-        '--enable-barge-in', dest='enable_barge_in', action='store_true',
-        help='Enable auto-truncation for barge-in support (VAD mode only)',
+        '--enable-barge-in', dest='enable_barge_in', action='store_true', default=True,
+        help='Enable auto-truncation for barge-in support (default: enabled)',
+    )
+    parser.add_argument(
+        '--disable-barge-in', dest='enable_barge_in', action='store_false',
+        help='Disable auto-truncation for barge-in support',
     )
     parser.add_argument(
         '--model', default='gpt-realtime',
