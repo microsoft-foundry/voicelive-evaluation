@@ -287,7 +287,8 @@ class DatasetQualityValidator:
         
         aligned = 0
         unaligned = 0
-        domain_stats = defaultdict(lambda: {'total': 0, 'aligned': 0})
+        domain_stats = defaultdict(lambda: {'total': 0, 'aligned': 0, 'category': 'general_advisory'})
+        category_stats = defaultdict(lambda: {'total': 0, 'aligned': 0})
         
         for conv_id, entries in conversations.items():
             first_turn = entries[0]
@@ -295,16 +296,19 @@ class DatasetQualityValidator:
             question = first_turn.get('Question', '').lower()
             answer = first_turn.get('Answer', '').lower()
             
-            # Identify domain from system prompt
-            domain = self._identify_domain(prompt)
+            # Identify domain and category from system prompt
+            domain, category = self._identify_domain(prompt)
             
             # Check alignment
             is_aligned = self._check_domain_alignment(domain, question, answer)
             
             domain_stats[domain]['total'] += 1
+            domain_stats[domain]['category'] = category
+            category_stats[category]['total'] += 1
             if is_aligned:
                 aligned += 1
                 domain_stats[domain]['aligned'] += 1
+                category_stats[category]['aligned'] += 1
             else:
                 unaligned += 1
             
@@ -313,6 +317,7 @@ class DatasetQualityValidator:
                 self.detailed_results.append({
                     'conversation_id': conv_id,
                     'domain': domain,
+                    'category': category,
                     'aligned': is_aligned,
                     'question_preview': first_turn.get('Question', '')[:80],
                     'prompt_preview': prompt[:100]
@@ -323,27 +328,46 @@ class DatasetQualityValidator:
         
         mode_indicator = " (STRICT MODE)" if self.strict_mode else ""
         print(f"  Total conversations: {total_conv}{mode_indicator}")
-        print(f"  ✅ Aligned: {aligned}/{total_conv} ({alignment_pct:.1f}%)")
-        print(f"  ⚠  Needs review: {unaligned}/{total_conv} ({100-alignment_pct:.1f}%)")
+        print(f"  Aligned: {aligned}/{total_conv} ({alignment_pct:.1f}%)")
+        print(f"  Needs review: {unaligned}/{total_conv} ({100-alignment_pct:.1f}%)")
         
+        # Category breakdown
+        print(f"\n  Category Breakdown:")
+        for cat in ["customer_service", "voice_agent", "general_advisory"]:
+            stats = category_stats.get(cat, {'total': 0, 'aligned': 0})
+            if stats['total'] == 0:
+                continue
+            label = self.CATEGORY_LABELS.get(cat, cat)
+            cpct = (stats['aligned'] / stats['total'] * 100) if stats['total'] > 0 else 0
+            cov = (stats['total'] / total_conv * 100) if total_conv > 0 else 0
+            print(f"    {label}: {stats['total']} convos ({cov:.0f}% of dataset) - {cpct:.0f}% aligned")
+        
+        # Domain breakdown grouped by category
         print(f"\n  Domain Breakdown:")
-        for domain, stats in sorted(domain_stats.items(), key=lambda x: x[1]['total'], reverse=True):
-            pct = (stats['aligned'] / stats['total'] * 100) if stats['total'] > 0 else 0
-            print(f"    • {domain}: {stats['total']} conversations ({stats['aligned']} aligned - {pct:.0f}%)")
+        for cat in ["customer_service", "voice_agent", "general_advisory"]:
+            cat_domains = {d: s for d, s in domain_stats.items() if s['category'] == cat}
+            if not cat_domains:
+                continue
+            label = self.CATEGORY_LABELS.get(cat, cat)
+            print(f"\n    {label}:")
+            for domain, stats in sorted(cat_domains.items(), key=lambda x: x[1]['total'], reverse=True):
+                pct = (stats['aligned'] / stats['total'] * 100) if stats['total'] > 0 else 0
+                print(f"      {domain}: {stats['total']} conversations ({stats['aligned']} aligned - {pct:.0f}%)")
         
         if alignment_pct >= 70:
-            print(f"\n  ✅ GOOD: {alignment_pct:.1f}% alignment indicates strong prompt-content matching")
+            print(f"\n  GOOD: {alignment_pct:.1f}% alignment indicates strong prompt-content matching")
         elif alignment_pct >= 50:
-            print(f"\n  ⚠  MODERATE: {alignment_pct:.1f}% alignment - consider reviewing prompts")
+            print(f"\n  MODERATE: {alignment_pct:.1f}% alignment - consider reviewing prompts")
         else:
-            print(f"\n  ❌ LOW: {alignment_pct:.1f}% alignment - prompts may not match conversations")
+            print(f"\n  LOW: {alignment_pct:.1f}% alignment - prompts may not match conversations")
         
         # Verbose output
         if self.verbose_mode and self.detailed_results:
-            print(f"\n  📋 DETAILED PER-CONVERSATION RESULTS:")
+            print(f"\n  DETAILED PER-CONVERSATION RESULTS:")
             for result in self.detailed_results:
-                status = "✅" if result['aligned'] else "❌"
-                print(f"    {status} {result['conversation_id']} ({result['domain']})")
+                status = "[OK]" if result['aligned'] else "[!!]"
+                cat_label = self.CATEGORY_LABELS.get(result['category'], result['category'])
+                print(f"    {status} {result['conversation_id']} ({result['domain']} | {cat_label})")
                 if not result['aligned']:
                     print(f"       Q: {result['question_preview']}...")
         
@@ -352,42 +376,289 @@ class DatasetQualityValidator:
             'aligned': aligned,
             'unaligned': unaligned,
             'alignment_percentage': alignment_pct,
-            'domains': dict(domain_stats)
+            'domains': dict(domain_stats),
+            'categories': dict(category_stats)
         }
     
-    def _identify_domain(self, prompt: str) -> str:
-        """Identify domain from system prompt."""
-        if re.search(r'smart home|iot device', prompt):
-            return "Smart Home Tech Support"
-        elif re.search(r'electric vehicle|ev|connected car', prompt):
-            return "Electric Vehicle Support"
-        elif re.search(r'language learning|learn.*language', prompt):
-            return "Language Learning"
-        elif re.search(r'cybersecurity|password|phishing', prompt):
-            return "Cybersecurity"
-        elif re.search(r'fountain pen', prompt):
-            return "Fountain Pen Care"
-        elif re.search(r'stand-up comedy|joke|humor', prompt):
-            return "Comedy Writing"
-        elif re.search(r'garden|plant|soil', prompt):
-            return "Gardening"
-        elif re.search(r'coffee|brew|espresso', prompt):
-            return "Coffee"
-        elif re.search(r'coding|programming|software', prompt):
-            return "Coding/Programming"
-        elif re.search(r'board game|game rules', prompt):
-            return "Board Games"
-        elif re.search(r'vintage.*cloth|fashion', prompt):
-            return "Vintage Clothing"
-        elif re.search(r'air quality|indoor air', prompt):
-            return "Air Quality"
-        elif re.search(r'event|activities|local', prompt):
-            return "Event Finding"
-        elif re.search(r'astronomy|telescope|star', prompt):
-            return "Astronomy"
-        else:
-            return "Other/Diverse"
-    
+    # ── Domain Registry ────────────────────────────────────────────────────
+    # Data-driven domain configuration. Each entry defines:
+    #   category       : "customer_service" | "voice_agent" | "general_advisory"
+    #   prompt_pattern : regex matched against system_prompt (case-insensitive)
+    #   question_kw    : regex matched against questions for strict alignment
+    #
+    # To add a domain: append a new dict entry — no code changes needed.
+    # Order matters: first match wins, so place specific patterns before
+    # broad catch-all patterns (e.g., General Service Hotline last).
+    # ────────────────────────────────────────────────────────────────────────
+
+    DOMAIN_REGISTRY = [
+        # ── Customer Service domains ──────────────────────────────────────
+        {
+            "name": "Smart Home Tech Support",
+            "category": "customer_service",
+            "prompt_pattern": r"smart home|iot device|home theater|home entertainment",
+            "question_kw": r"smart|light|device|iot|wifi|thermostat|camera|speaker|sensor|doorbell|vacuum|motion|alert|soundbar|hdmi|tv|arc"
+        },
+        {
+            "name": "Electric Vehicle Support",
+            "category": "customer_service",
+            "prompt_pattern": r"electric vehicle|\bev\b|connected car",
+            "question_kw": r"car|vehicle|ev|navigation|touchscreen|bluetooth|charge|battery|drive|cruise|lane|assist|voice command|address|accent"
+        },
+        {
+            "name": "Banking Service Hotline",
+            "category": "customer_service",
+            "prompt_pattern": r"bank|banking|account.*service|financial.*service",
+            "question_kw": r"account|balance|transfer|transaction|overdraft|loan|statement|card|atm|deposit|withdraw"
+        },
+        {
+            "name": "Insurance Service Hotline",
+            "category": "customer_service",
+            "prompt_pattern": r"insurance|policy|claim|underwrit",
+            "question_kw": r"claim|policy|premium|coverage|deductible|renewal|beneficiary|accident|reimburse"
+        },
+        {
+            "name": "Telecom Service Hotline",
+            "category": "customer_service",
+            "prompt_pattern": r"telecom|mobile.*plan|phone.*plan|internet.*provider|broadband",
+            "question_kw": r"plan|data|roaming|signal|bill|upgrade|outage|coverage|sim|network"
+        },
+        {
+            "name": "Healthcare Service Line",
+            "category": "customer_service",
+            "prompt_pattern": r"healthcare|medical.*support|patient.*service|appointment.*schedul",
+            "question_kw": r"appointment|prescription|referral|symptom|doctor|copay|lab|test result|insurance|bill"
+        },
+        {
+            "name": "Airline Customer Service",
+            "category": "customer_service",
+            "prompt_pattern": r"airline|flight.*support|booking.*support|travel.*support",
+            "question_kw": r"flight|booking|cancel|delay|baggage|seat|boarding|refund|check.in|luggage"
+        },
+        {
+            "name": "Utilities Service Hotline",
+            "category": "customer_service",
+            "prompt_pattern": r"utilit|power.*company|water.*service|electric.*company|energy.*provider",
+            "question_kw": r"bill|outage|meter|usage|disconnect|service|payment|rate|power"
+        },
+        {
+            "name": "Cybersecurity",
+            "category": "customer_service",
+            "prompt_pattern": r"cybersecurity|password|phishing",
+            "question_kw": r"password|security|phish|hack|safe|credential|breach|encrypt|virus|malware"
+        },
+        {
+            "name": "Air Quality",
+            "category": "customer_service",
+            "prompt_pattern": r"air quality|indoor air",
+            "question_kw": r"air|quality|ventilation|filter|purif|monitor|sensor|particulate"
+        },
+        # Catch-all for generic service/support prompts — must come after
+        # specific service domains to avoid stealing their matches.
+        {
+            "name": "General Service Hotline",
+            "category": "customer_service",
+            "prompt_pattern": r"(customer|technical|product).*(support|service|hotline|helpdesk|help desk|call center)",
+            "question_kw": r"issue|problem|help|resolve|ticket|case|escalat|status|account|return|refund|warranty"
+        },
+        # ── Voice Agent domains ───────────────────────────────────────────
+        {
+            "name": "Language Learning",
+            "category": "voice_agent",
+            "prompt_pattern": r"language learning|learn.*language",
+            "question_kw": r"learn|language|vocabulary|grammar|practice|fluent|pronounc|speak|spanish|french"
+        },
+        {
+            "name": "Fitness Coach",
+            "category": "voice_agent",
+            "prompt_pattern": r"fitness|workout|exercise.*coach|personal.*train",
+            "question_kw": r"workout|exercise|rep|set|warm.up|stretch|muscle|routine|cardio|squat"
+        },
+        {
+            "name": "Travel Concierge",
+            "category": "voice_agent",
+            "prompt_pattern": r"travel.*concierge|trip.*plan|itinerary|travel.*assist",
+            "question_kw": r"trip|destination|hotel|flight|itinerary|recommend|visit|book|travel|resort"
+        },
+        {
+            "name": "Cooking Assistant",
+            "category": "voice_agent",
+            "prompt_pattern": r"cook|recipe|chef|meal.*plan",
+            "question_kw": r"recipe|ingredient|cook|bake|prep|minute|temperature|serve|stir|chop"
+        },
+        {
+            "name": "Personal Finance Advisor",
+            "category": "voice_agent",
+            "prompt_pattern": r"budget|financial.*plan|saving.*goal|money.*manag",
+            "question_kw": r"budget|save|spend|debt|invest|goal|expense|income|retire|fund"
+        },
+        {
+            "name": "Public Speaking Coach",
+            "category": "voice_agent",
+            "prompt_pattern": r"public.*speak|presentation.*coach|speech.*coach",
+            "question_kw": r"speak|presentation|audience|nervous|stage|confidence|body language|voice|talk"
+        },
+        {
+            "name": "Meditation Guide",
+            "category": "voice_agent",
+            "prompt_pattern": r"meditat|mindful|breathing.*exercis|relaxat.*guide",
+            "question_kw": r"meditat|mindful|breath|relax|calm|posture|focus|stress|anxious"
+        },
+        {
+            "name": "Event Finder",
+            "category": "voice_agent",
+            "prompt_pattern": r"event.*find|activit.*recommend|local.*suggest|things.*to.*do",
+            "question_kw": r"event|activity|weekend|local|happen|suggest|hike|outdoor|nearby"
+        },
+        {
+            "name": "Podcast Recommender",
+            "category": "voice_agent",
+            "prompt_pattern": r"podcast.*recommend|podcast.*suggest|podcast.*assist",
+            "question_kw": r"podcast|episode|listen|show|recommend|genre|series|host"
+        },
+        # ── General Advisory domains ──────────────────────────────────────
+        {
+            "name": "Fountain Pen Care",
+            "category": "general_advisory",
+            "prompt_pattern": r"fountain pen",
+            "question_kw": r"pen|ink|nib|skip|flow|cartridge|write"
+        },
+        {
+            "name": "Comedy Writing",
+            "category": "general_advisory",
+            "prompt_pattern": r"stand-up comedy|joke|humor",
+            "question_kw": r"joke|comedy|funny|punchline|premise|laugh"
+        },
+        {
+            "name": "Gardening",
+            "category": "general_advisory",
+            "prompt_pattern": r"garden|plant|soil",
+            "question_kw": r"plant|garden|soil|grow|seed|weed|water|pest|leaf|yellow"
+        },
+        {
+            "name": "Coffee",
+            "category": "general_advisory",
+            "prompt_pattern": r"coffee|brew|espresso",
+            "question_kw": r"coffee|brew|bean|grind|roast|espresso"
+        },
+        {
+            "name": "Coding/Programming",
+            "category": "general_advisory",
+            "prompt_pattern": r"coding|programming|software",
+            "question_kw": r"code|program|variable|function|class|syntax|debug|error"
+        },
+        {
+            "name": "Board Games",
+            "category": "general_advisory",
+            "prompt_pattern": r"board game|game rules",
+            "question_kw": r"game|board|rules|play|turn|dice|card|settlement|build"
+        },
+        {
+            "name": "Vintage Clothing",
+            "category": "general_advisory",
+            "prompt_pattern": r"vintage.*cloth|fashion|thrift",
+            "question_kw": r"vintage|cloth|fabric|wash|care|silk|quality|thrift|damage"
+        },
+        {
+            "name": "Astronomy",
+            "category": "general_advisory",
+            "prompt_pattern": r"astronomy|telescope|star.*gaz",
+            "question_kw": r"telescope|star|planet|celestial|sky|observe|milky way"
+        },
+        {
+            "name": "Pet Training",
+            "category": "general_advisory",
+            "prompt_pattern": r"pet.*train|dog.*behav|dog.*train",
+            "question_kw": r"dog|leash|pull|bark|train|command|treat|walk|behav"
+        },
+        {
+            "name": "Music Theory",
+            "category": "general_advisory",
+            "prompt_pattern": r"music.*theory|music.*tutor|scale|chord",
+            "question_kw": r"scale|chord|note|key|major|minor|music|melody|rhythm"
+        },
+        {
+            "name": "DIY / Home Repair",
+            "category": "general_advisory",
+            "prompt_pattern": r"diy|furniture.*assembl|home.*repair|handyman",
+            "question_kw": r"assembl|tool|screw|drill|nail|fix|repair|install|build|cam lock"
+        },
+        {
+            "name": "Songwriting",
+            "category": "general_advisory",
+            "prompt_pattern": r"songwrit|lyric|composing.*music",
+            "question_kw": r"lyric|melody|song|write|verse|chorus|rhyme|hook"
+        },
+        {
+            "name": "Home Canning / Preserving",
+            "category": "general_advisory",
+            "prompt_pattern": r"canning|preserv|jam|pickle",
+            "question_kw": r"jar|can|seal|boil|jam|pickle|preserve|lid|water.bath"
+        },
+        {
+            "name": "Bike Repair",
+            "category": "general_advisory",
+            "prompt_pattern": r"bike.*repair|bicycle|cycling.*maint",
+            "question_kw": r"tire|brake|chain|pedal|gear|pump|wheel|flat|lubric"
+        },
+        {
+            "name": "Cryptocurrency Basics",
+            "category": "general_advisory",
+            "prompt_pattern": r"cryptocurrenc|bitcoin|blockchain|crypto.*invest",
+            "question_kw": r"crypto|wallet|bitcoin|token|blockchain|volatile|hodl|exchange"
+        },
+        {
+            "name": "Car Detailing",
+            "category": "general_advisory",
+            "prompt_pattern": r"car.*detail|car.*clean|auto.*detail",
+            "question_kw": r"clean|stain|interior|wax|polish|upholster|dashboard|cup holder"
+        },
+        {
+            "name": "Soldering / Electronics",
+            "category": "general_advisory",
+            "prompt_pattern": r"solder|electron.*project|circuit",
+            "question_kw": r"solder|iron|wire|component|circuit|flux|tin|joint"
+        },
+        {
+            "name": "Pottery / Clay Work",
+            "category": "general_advisory",
+            "prompt_pattern": r"pottery|clay|ceramic|wedg",
+            "question_kw": r"clay|pottery|wedg|wheel|kiln|glaze|air bubble|mold|shape"
+        },
+        {
+            "name": "Watch Repair",
+            "category": "general_advisory",
+            "prompt_pattern": r"watch.*batter|watch.*repair|horology",
+            "question_kw": r"watch|battery|case.*back|tool|replace|crystal|strap|movement"
+        },
+        {
+            "name": "Graphic Design",
+            "category": "general_advisory",
+            "prompt_pattern": r"graphic.*design|layout|font.*pair|present.*design",
+            "question_kw": r"font|color|layout|design|slide|white space|palette|visual"
+        },
+    ]
+
+    # Category display labels and emoji
+    CATEGORY_LABELS = {
+        "customer_service": "🎧 Customer Service",
+        "voice_agent":      "🤖 Voice Agent",
+        "general_advisory": "💬 General Advisory",
+    }
+
+    def _identify_domain(self, prompt: str) -> Tuple[str, str]:
+        """
+        Identify domain and category from system prompt.
+
+        Returns:
+            Tuple of (domain_name, category). Falls back to
+            ("Other/Diverse", "general_advisory") when no pattern matches.
+        """
+        for entry in self.DOMAIN_REGISTRY:
+            if re.search(entry["prompt_pattern"], prompt, re.IGNORECASE):
+                return entry["name"], entry["category"]
+        return "Other/Diverse", "general_advisory"
+
     def _check_domain_alignment(self, domain: str, question: str, answer: str) -> bool:
         """Check if question/answer align with domain."""
         # In strict mode, skip generic patterns - only match domain keywords
@@ -396,29 +667,12 @@ class DatasetQualityValidator:
             if re.search(r'(let\'?s|can help|suggest|recommend|try|first|start)', answer, re.IGNORECASE):
                 if len(answer) > 100:  # Substantial support response
                     return True
-        
-        # Domain-specific checks
-        domain_patterns = {
-            "Smart Home Tech Support": r'smart|light|device|iot|wifi|thermostat|camera|speaker|sensor',
-            "Electric Vehicle Support": r'car|vehicle|ev|navigation|touchscreen|bluetooth|charge|battery',
-            "Language Learning": r'learn|language|vocabulary|grammar|practice|fluent|spanish|french',
-            "Cybersecurity": r'password|security|phish|hack|safe|credential|breach',
-            "Fountain Pen Care": r'pen|ink|nib|skip|flow|cartridge|write',
-            "Comedy Writing": r'joke|comedy|funny|punchline|premise|laugh',
-            "Gardening": r'plant|garden|soil|grow|seed|weed|water|pest',
-            "Coffee": r'coffee|brew|bean|grind|roast|espresso',
-            "Coding/Programming": r'code|program|variable|function|class|syntax',
-            "Board Games": r'game|board|rules|play|turn|dice|card',
-            "Vintage Clothing": r'vintage|cloth|fabric|wash|care|silk',
-            "Air Quality": r'air|quality|ventilation|filter|purif',
-            "Event Finding": r'event|activity|weekend|local|happen',
-            "Astronomy": r'telescope|star|planet|celestial|sky|observe'
-        }
-        
-        pattern = domain_patterns.get(domain)
-        if pattern:
-            return bool(re.search(pattern, question, re.IGNORECASE))
-        
+
+        # Look up question keywords from registry
+        for entry in self.DOMAIN_REGISTRY:
+            if entry["name"] == domain:
+                return bool(re.search(entry["question_kw"], question, re.IGNORECASE))
+
         return False  # Conservative for unknown domains
     
     def _validate_tool_definitions(self) -> Dict:
