@@ -717,7 +717,7 @@ def build_evaluation_data(
     for tr in turn.tool_results:
         query_messages.append({
             "role": "assistant",
-            "content": None,
+            "content": "",
             "tool_calls": [{"id": tr["call_id"], "type": "function",
                             "function": {"name": tr["name"], "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}],
         })
@@ -851,7 +851,7 @@ async def process_conversation(
             if turn.tool_results:
                 turn_messages.append({
                     "role": "assistant",
-                    "content": None,
+                    "content": "",
                     "tool_calls": [
                         {"id": tr["call_id"], "type": "function",
                          "function": {"name": tr["name"],

@@ -179,7 +179,7 @@ async def process_conversation(
                 turn_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
             for tr in (turn.tool_results or []):
                 turn_messages.append({
-                    "role": "assistant", "content": None,
+                    "role": "assistant", "content": "",
                     "tool_calls": [{"id": tr["call_id"], "type": "function",
                                     "function": {"name": tr["name"],
                                                  "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}],
