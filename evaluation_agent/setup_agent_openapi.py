@@ -26,7 +26,7 @@ from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import (
     PromptAgentDefinition,
-    OpenApiAgentTool,
+    OpenApiTool,
     OpenApiFunctionDefinition,
     OpenApiAnonymousAuthDetails,
     OpenApiManagedAuthDetails,
@@ -240,6 +240,25 @@ When a job is started (VoiceLive audio processing or Foundry evaluation):
 - Do NOT promise continuous or automatic status tracking — you cannot do this
 - When the user asks for a status update, call the appropriate check endpoint
 
+## Automatic Step Chaining Within a Turn — CRITICAL
+When a status check reveals a job is COMPLETED and there are remaining steps in
+the user's original request, AUTOMATICALLY proceed to the next step IN THE SAME
+TURN — do NOT stop and ask for permission.
+
+Key scenario: User asks to "evaluate" a VoiceLive audio dataset.
+- Turn 1: You start audio processing → tell user to check back.
+- Turn 2+: User asks for status → check_voicelive_job_status returns "completed".
+  → IMMEDIATELY call run_voicelive_evaluation with the output_path and
+    foundry_dataset_id from the completed job. Do NOT say "processing is done,
+    shall I run evaluation?" — the user already asked to evaluate.
+- Turn 3+: User asks for status → check_evaluation_status returns "completed".
+  → Present Foundry Portal URL and metrics summary.
+
+Only stop and ask the user BEFORE chaining when:
+- You need a decision (e.g., which evaluators to use)
+- A step FAILED and you need guidance
+- The user explicitly asked for only ONE step (e.g., "just process the audio")
+
 Example response after starting an evaluation:
   "Evaluation started! Here are the details:
    - Instance ID: 647c23909ccf4d6fb66c151a29aa5ee3
@@ -341,7 +360,7 @@ def create_agent_with_openapi(function_url: str, function_key: str = None, entra
     )
     
     # Create OpenAPI tool
-    openapi_tool = OpenApiAgentTool(openapi=openapi_def)
+    openapi_tool = OpenApiTool(openapi=openapi_def)
     
     # Create agent definition
     agent_def = PromptAgentDefinition(
@@ -438,7 +457,7 @@ def update_agent_with_openapi(function_url: str, function_key: str = None, entra
     )
     
     # Create OpenAPI tool
-    openapi_tool = OpenApiAgentTool(openapi=openapi_def)
+    openapi_tool = OpenApiTool(openapi=openapi_def)
     
     # Create agent definition
     agent_def = PromptAgentDefinition(
