@@ -6,6 +6,7 @@ Orchestrates the processing of audio files through VoiceLive.
 
 import os
 import asyncio
+import json
 import logging
 import tempfile
 import wave
@@ -95,6 +96,7 @@ async def process_conversation(
         List of evaluation-ready result entries
     """
     results = []
+    conversation_history: List[Dict[str, Any]] = []
     
     # Configure session (may include conversation-specific settings)
     conversation_config = config
@@ -110,6 +112,9 @@ async def process_conversation(
         if isinstance(tool_defs, dict):
             tool_defs = [tool_defs]
         conversation_config.tools = tool_defs
+    
+    # System instructions for conversation-history format
+    system_instructions = conversation_config.instructions or ""
     
     await client.configure_session(conversation_config)
     
@@ -153,17 +158,36 @@ async def process_conversation(
             if i < len(entries) - 1:
                 await asyncio.sleep(0.5)
             
-            # Convert to evaluation format
+            # Convert to evaluation format (conversation-history)
             result = turn.to_eval_format(
                 ground_truth=entry.answer or "",
                 tool_definitions=entry.tool_definitions or conversation_config.tool_definitions or [],
                 question=entry.question or "",
-                barge_in=entry.barge_in
+                barge_in=entry.barge_in,
+                system_instructions=system_instructions,
+                conversation_history=conversation_history
             )
             
             # Add metadata
             result["conversation_id"] = conversation_id
             result["source_file"] = entry.wav_path
+            
+            # Build history entry for subsequent turns
+            turn_messages = []
+            user_text = (entry.question or "") if entry.question else (turn.user_transcription or "")
+            if user_text:
+                turn_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
+            for tr in (turn.tool_results or []):
+                turn_messages.append({
+                    "role": "assistant", "content": None,
+                    "tool_calls": [{"id": tr["call_id"], "type": "function",
+                                    "function": {"name": tr["name"],
+                                                 "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}],
+                })
+                turn_messages.append({"role": "tool", "tool_call_id": tr["call_id"], "content": tr["result"]})
+            if turn.assistant_response:
+                turn_messages.append({"role": "assistant", "content": turn.assistant_response})
+            conversation_history.append({"messages": turn_messages})
             
             # Fix #8: Only emit results that have meaningful content
             # (don't inflate failure counts with empty turns)

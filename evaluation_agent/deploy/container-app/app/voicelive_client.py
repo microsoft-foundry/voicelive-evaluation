@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import base64
 from datetime import datetime
 from typing import Optional, List, Dict, Any, AsyncIterator
@@ -39,6 +40,25 @@ from azure.ai.voicelive.models import (
 from .config import SessionConfig, VadType, EouModel
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_text_for_utf8(text: str) -> str:
+    """Sanitize text to valid UTF-8, replacing smart quotes and control chars."""
+    if not isinstance(text, str) or not text:
+        return text or ""
+    replacements = {
+        '\u2018': "'", '\u2019': "'", '\u201A': "'", '\u201B': "'",
+        '\u201C': '"', '\u201D': '"', '\u201E': '"', '\u201F': '"',
+        '\u2013': '-', '\u2014': '-', '\u2015': '-',
+        '\u2026': '...', '\u00A0': ' ',
+    }
+    for uc, asc in replacements.items():
+        text = text.replace(uc, asc)
+    text = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', text)
+    text = text.replace('\ufffd', '').replace('\u0000', '')
+    text = text.encode('utf-8', errors='replace').decode('utf-8')
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 
 @dataclass
@@ -80,29 +100,77 @@ class ConversationTurn:
         return metrics
     
     def to_eval_format(self, ground_truth: str = "", tool_definitions: List[Dict] = None,
-                       question: str = "", barge_in: bool = False) -> Dict[str, Any]:
+                       question: str = "", barge_in: bool = False,
+                       system_instructions: str = "",
+                       conversation_history: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Convert turn data to evaluation dataset format.
+        
+        Produces conversation-history format matching prototype_v1:
+          query: [{role, content}, ...]  (system + prior turns + current user input)
+          response: [{role, content}]    (current assistant response)
         
         Query source priority:
           1. Ground-truth question from input JSONL metadata (if present)
           2. VoiceLive real-time transcription (fallback)
         """
-        ground_truth_query_used = bool(question)
-        query_text = question if ground_truth_query_used else (self.user_transcription or "")
+        # Build query as conversation-history message list
+        query_messages: List[Dict[str, Any]] = []
+        if system_instructions:
+            query_messages.append({"role": "system", "content": system_instructions})
+
+        # Prior turns (chronological)
+        for hist in (conversation_history or []):
+            for msg in hist.get("messages", []):
+                query_messages.append(msg)
+
+        # Current turn — user input
+        vl_transcript = sanitize_text_for_utf8(self.user_transcription)
+        gt_question = sanitize_text_for_utf8(question) if question else ""
+        ground_truth_query_used = bool(gt_question)
+        user_text = gt_question if ground_truth_query_used else vl_transcript
+
+        if user_text:
+            query_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
+
+        # Current turn — tool messages woven into query
+        for tr in (self.tool_results or []):
+            query_messages.append({
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{"id": tr["call_id"], "type": "function",
+                                "function": {"name": tr["name"],
+                                             "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}],
+            })
+            query_messages.append({
+                "role": "tool",
+                "tool_call_id": tr["call_id"],
+                "content": tr["result"],
+            })
+
+        # Build response as message list
+        response_messages: List[Dict[str, Any]] = []
+        resp_text = sanitize_text_for_utf8(self.assistant_response)
+        if resp_text:
+            response_messages.append({"role": "assistant", "content": resp_text})
+
+        metrics = self.calculate_metrics()
+        metrics["logical_turn_number"] = self.turn_number
+        metrics["audio_response_received"] = self.assistant_audio_received
+
         return {
-            "query": query_text,
-            "response": self.assistant_response,
-            "transcript": self.user_transcription or "",
+            "query": query_messages,
+            "response": response_messages,
+            "transcript": vl_transcript or "",
             "ground_truth_query_used": ground_truth_query_used,
             "barge_in": barge_in,
             "was_truncated": self.was_truncated,
-            "response_full": self.response_full if self.response_full else "",
+            "response_full": sanitize_text_for_utf8(self.response_full) if self.response_full else "",
             "tool_calls": self.tool_calls if self.tool_calls else [],
             "tool_definitions": tool_definitions or [],
             "ground_truth": ground_truth,
-            "metrics": self.calculate_metrics(),
+            "metrics": metrics,
             "audio_response_received": self.assistant_audio_received,
-            "turn_number": self.turn_number
+            "turn_number": self.turn_number,
         }
 
 
