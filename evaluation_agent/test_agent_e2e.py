@@ -39,7 +39,7 @@ def ask_agent(openai_client, agent_name: str, prompt: str, label: str) -> tuple[
     try:
         resp = openai_client.responses.create(
             input=[{"role": "user", "content": prompt}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         text = resp.output_text
         preview = text[:500]
@@ -301,7 +301,7 @@ def test_streaming(client, agent_name: str) -> bool:
         stream = client.responses.create(
             stream=True,
             input=[{"role": "user", "content": "List datasets briefly"}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         chunks = 0
         for event in stream:
@@ -326,7 +326,7 @@ def test_conversation(client, agent_name: str) -> bool:
         print("  Turn 1: List datasets")
         r1 = client.responses.create(
             input=[{"role": "user", "content": "List all datasets"}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"  Got response ({len(r1.output_text)} chars)")
 
@@ -340,7 +340,7 @@ def test_conversation(client, agent_name: str) -> bool:
                 {"role": "assistant", "content": r1.output_text},
                 {"role": "user", "content": "Check the schema of the first eval-ready dataset you listed"},
             ],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"  Got response ({len(r2.output_text)} chars)")
         # Should reference a specific dataset from the list

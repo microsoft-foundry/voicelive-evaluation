@@ -34,7 +34,7 @@ def test_list_datasets(openai_client, agent_name: str) -> bool:
     try:
         response = openai_client.responses.create(
             input=[{"role": "user", "content": "List available datasets"}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"Response:\n{response.output_text}")
         return True
@@ -52,7 +52,7 @@ def test_list_evaluators(openai_client, agent_name: str) -> bool:
     try:
         response = openai_client.responses.create(
             input=[{"role": "user", "content": "What evaluators are available?"}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"Response:\n{response.output_text}")
         return True
@@ -70,7 +70,7 @@ def test_list_session_configs(openai_client, agent_name: str) -> bool:
     try:
         response = openai_client.responses.create(
             input=[{"role": "user", "content": "Show me the available VoiceLive session configurations"}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"Response:\n{response.output_text}")
         return True
@@ -87,8 +87,8 @@ def test_check_dataset_schema(openai_client, agent_name: str) -> bool:
     
     try:
         response = openai_client.responses.create(
-            input=[{"role": "user", "content": "Check the schema of the minimal_test dataset"}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            input=[{"role": "user", "content": "Check the schema of the eval_ready_test dataset"}],
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"Response:\n{response.output_text}")
         return True
@@ -105,8 +105,8 @@ def test_validate_dataset(openai_client, agent_name: str) -> bool:
     
     try:
         response = openai_client.responses.create(
-            input=[{"role": "user", "content": "Validate the minimal_test dataset for consistency"}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            input=[{"role": "user", "content": "Validate the eval_ready_test dataset"}],
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"Response:\n{response.output_text}")
         return True
@@ -124,7 +124,7 @@ def test_list_evaluation_groups(openai_client, agent_name: str) -> bool:
     try:
         response = openai_client.responses.create(
             input=[{"role": "user", "content": "List evaluation groups"}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"Response:\n{response.output_text}")
         return True
@@ -143,7 +143,7 @@ def test_streaming(openai_client, agent_name: str) -> bool:
         stream = openai_client.responses.create(
             stream=True,
             input=[{"role": "user", "content": "List available datasets briefly"}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         
         print("Streaming response: ", end="", flush=True)
@@ -158,15 +158,15 @@ def test_streaming(openai_client, agent_name: str) -> bool:
 
 
 def test_run_evaluation(openai_client, agent_name: str) -> bool:
-    """Test: Run a quick evaluation on minimal_test dataset."""
+    """Test: Run a quick evaluation on eval_ready_test dataset."""
     print("\n" + "=" * 60)
     print("TEST: Run Evaluation (fluency only for speed)")
     print("=" * 60)
     
     try:
         response = openai_client.responses.create(
-            input=[{"role": "user", "content": "Run evaluation on minimal_test dataset with only fluency evaluator"}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            input=[{"role": "user", "content": "Run evaluation on eval_ready_test dataset with only fluency evaluator"}],
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"Response:\n{response.output_text}")
         # Check for success indicators
@@ -190,7 +190,7 @@ def test_conversation_flow(openai_client, agent_name: str) -> bool:
         print("Turn 1: Asking about datasets...")
         response1 = openai_client.responses.create(
             input=[{"role": "user", "content": "What datasets do I have?"}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"  Response: {response1.output_text[:200]}...")
         
@@ -203,7 +203,7 @@ def test_conversation_flow(openai_client, agent_name: str) -> bool:
         ]
         response2 = openai_client.responses.create(
             input=messages,
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         print(f"  Response: {response2.output_text[:200]}...")
         
