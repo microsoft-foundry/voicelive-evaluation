@@ -136,7 +136,7 @@ class ConversationTurn:
         for tr in (self.tool_results or []):
             query_messages.append({
                 "role": "assistant",
-                "content": "",
+                "content": f"Calling function: {tr['name']}",
                 "tool_calls": [{"id": tr["call_id"], "type": "function",
                                 "function": {"name": tr["name"],
                                              "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}],

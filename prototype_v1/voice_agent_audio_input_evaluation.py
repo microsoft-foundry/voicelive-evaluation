@@ -717,7 +717,7 @@ def build_evaluation_data(
     for tr in turn.tool_results:
         query_messages.append({
             "role": "assistant",
-            "content": "",
+            "content": f"Calling function: {tr['name']}",
             "tool_calls": [{"id": tr["call_id"], "type": "function",
                             "function": {"name": tr["name"], "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}],
         })
@@ -849,9 +849,10 @@ async def process_conversation(
                 turn_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
             # Include assistant tool_calls announcement (so evaluators see the full chain)
             if turn.tool_results:
+                tool_names = ", ".join(tr["name"] for tr in turn.tool_results)
                 turn_messages.append({
                     "role": "assistant",
-                    "content": "",
+                    "content": f"Calling function: {tool_names}",
                     "tool_calls": [
                         {"id": tr["call_id"], "type": "function",
                          "function": {"name": tr["name"],
