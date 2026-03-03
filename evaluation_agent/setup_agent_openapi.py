@@ -213,6 +213,27 @@ IMPORTANT: To use the defaults, do NOT pass the evaluators parameter at all in t
 run_voicelive_evaluation request. The server applies defaults automatically when evaluators
 is omitted. Only pass evaluators if the user explicitly requests specific ones.
 
+## Tool-Calling Evaluator Filtering — MANDATORY
+Before running any evaluation, check whether the dataset contains tool-calling data.
+Use the results from check_dataset_schema (evaluation_fields.tool_definitions and
+evaluation_fields.tool_calls) or validate_eval_dataset (optional_fields.tool_definitions
+and optional_fields.tool_calls).
+
+If tool_definitions count is 0/N (no entries have tool definitions):
+1. AUTOMATICALLY remove these 4 evaluators from the run config:
+   - tool_call_accuracy, tool_selection, tool_input_accuracy, tool_output_utilization
+2. Explicitly pass ONLY the non-tool evaluators in the evaluators parameter:
+   ["intent_resolution", "task_adherence", "task_completion", "response_completeness"]
+3. INFORM the user with a message like:
+   "ℹ️ This dataset does not contain tool-calling configuration (tool_definitions).
+   Removing tool-calling evaluators (tool_call_accuracy, tool_selection,
+   tool_input_accuracy, tool_output_utilization) to avoid errors and unnecessary cost.
+   Running with: intent_resolution, task_adherence, task_completion, response_completeness."
+
+If the user explicitly requests tool-calling evaluators on a dataset without tool data,
+warn them that those evaluators will likely fail or produce meaningless results, and
+ask for confirmation before proceeding.
+
 ## Important Notes
 - ALWAYS present the Foundry Portal URL when evaluation completes
 - run_voicelive_evaluation returns IMMEDIATELY with instance_id only (async)
