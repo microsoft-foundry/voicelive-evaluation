@@ -18,7 +18,7 @@ from itertools import groupby
 from operator import attrgetter
 
 from .config import SessionConfig, DEFAULT_SESSION_CONFIG
-from .voicelive_client import VoiceLiveClient, ConversationTurn
+from .voicelive_client import VoiceLiveClient, ConversationTurn, sanitize_text_for_utf8
 from .storage import BlobStorageClient, DatasetEntry
 from .jobs import job_manager, JobStatus
 
@@ -132,9 +132,7 @@ async def process_conversation(
             # Resolve audio path - prepend base path if wav_path is relative
             wav_path = entry.wav_path
             if dataset_base_path and not wav_path.startswith(dataset_base_path):
-                # Check if it's a relative path (doesn't contain directory separator)
-                if "/" not in wav_path and "\\" not in wav_path:
-                    wav_path = f"{dataset_base_path}/{wav_path}"
+                wav_path = f"{dataset_base_path}/{wav_path}"
             
             # Download audio file
             audio_path = storage.download_audio_file(wav_path, temp_dir)
@@ -172,9 +170,9 @@ async def process_conversation(
             result["conversation_id"] = conversation_id
             result["source_file"] = entry.wav_path
             
-            # Build history entry for subsequent turns
+            # Build history entry for subsequent turns (use transcription, not question)
             turn_messages = []
-            user_text = (entry.question or "") if entry.question else (turn.user_transcription or "")
+            user_text = sanitize_text_for_utf8(turn.user_transcription) if turn.user_transcription else ""
             if user_text:
                 turn_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
             for tr in (turn.tool_results or []):
@@ -192,7 +190,7 @@ async def process_conversation(
                 })
             if turn.assistant_response:
                 turn_messages.append({"role": "assistant", "content": turn.assistant_response})
-            conversation_history.append({"messages": turn_messages})
+            conversation_history.append({"turn": turn_number, "messages": turn_messages})
             
             # Fix #8: Only emit results that have meaningful content
             # (don't inflate failure counts with empty turns)

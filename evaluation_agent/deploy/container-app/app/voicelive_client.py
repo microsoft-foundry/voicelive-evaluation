@@ -165,11 +165,10 @@ class ConversationTurn:
             "barge_in": barge_in,
             "was_truncated": self.was_truncated,
             "response_full": sanitize_text_for_utf8(self.response_full) if self.response_full else "",
+            "metrics": metrics,
             "tool_calls": self.tool_calls if self.tool_calls else [],
             "tool_definitions": tool_definitions or [],
             "ground_truth": ground_truth,
-            "metrics": metrics,
-            "audio_response_received": self.assistant_audio_received,
             "turn_number": self.turn_number,
         }
 
