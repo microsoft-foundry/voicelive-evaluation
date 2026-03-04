@@ -713,18 +713,19 @@ def build_evaluation_data(
     if user_text:
         query_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
 
-    # Current turn — tool messages
+    # Current turn — tool messages (SDK-compatible list-of-dicts format)
     for tr in turn.tool_results:
+        tool_call_obj = {"id": tr["call_id"], "type": "function",
+                         "function": {"name": tr["name"], "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}
         query_messages.append({
             "role": "assistant",
-            "content": f"Calling function: {tr['name']}",
-            "tool_calls": [{"id": tr["call_id"], "type": "function",
-                            "function": {"name": tr["name"], "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}],
+            "content": [{"type": "tool_call", "tool_call": tool_call_obj}],
+            "tool_calls": [tool_call_obj],
         })
         query_messages.append({
             "role": "tool",
             "tool_call_id": tr["call_id"],
-            "content": tr["result"],
+            "content": [{"type": "tool_result", "tool_result": tr["result"] or ""}],
         })
 
     # Build response list
@@ -847,24 +848,24 @@ async def process_conversation(
             user_text = sanitize_text_for_utf8(turn.user_transcription)
             if user_text:
                 turn_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
-            # Include assistant tool_calls announcement (so evaluators see the full chain)
-            if turn.tool_results:
-                tool_names = ", ".join(tr["name"] for tr in turn.tool_results)
+            # Include tool call/result messages in SDK-compatible list-of-dicts format
+            for tr in turn.tool_results:
+                tool_call_obj = {"id": tr["call_id"], "type": "function",
+                                 "function": {"name": tr["name"],
+                                              "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}
                 turn_messages.append({
                     "role": "assistant",
-                    "content": f"Calling function: {tool_names}",
-                    "tool_calls": [
-                        {"id": tr["call_id"], "type": "function",
-                         "function": {"name": tr["name"],
-                                      "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}
-                        for tr in turn.tool_results
-                    ],
+                    "content": [{"type": "tool_call", "tool_call": tool_call_obj}],
+                    "tool_calls": [tool_call_obj],
+                })
+                turn_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tr["call_id"],
+                    "content": [{"type": "tool_result", "tool_result": tr["result"] or ""}],
                 })
             resp_text = sanitize_text_for_utf8(turn.assistant_response)
             if resp_text:
                 turn_messages.append({"role": "assistant", "content": resp_text})
-            for tr in turn.tool_results:
-                turn_messages.append({"role": "tool", "tool_call_id": tr["call_id"], "content": tr["result"]})
             conversation_history.append({"turn": turn_number, "messages": turn_messages})
 
             logger.info(f"Turn {turn_number} done: {os.path.basename(entry.audio_path)}")

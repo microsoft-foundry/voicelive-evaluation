@@ -178,13 +178,19 @@ async def process_conversation(
             if user_text:
                 turn_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
             for tr in (turn.tool_results or []):
+                tool_call_obj = {"id": tr["call_id"], "type": "function",
+                                 "function": {"name": tr["name"],
+                                              "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}
                 turn_messages.append({
-                    "role": "assistant", "content": f"Calling function: {tr['name']}",
-                    "tool_calls": [{"id": tr["call_id"], "type": "function",
-                                    "function": {"name": tr["name"],
-                                                 "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}],
+                    "role": "assistant",
+                    "content": [{"type": "tool_call", "tool_call": tool_call_obj}],
+                    "tool_calls": [tool_call_obj],
                 })
-                turn_messages.append({"role": "tool", "tool_call_id": tr["call_id"], "content": tr["result"]})
+                turn_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tr["call_id"],
+                    "content": [{"type": "tool_result", "tool_result": tr["result"] or ""}],
+                })
             if turn.assistant_response:
                 turn_messages.append({"role": "assistant", "content": turn.assistant_response})
             conversation_history.append({"messages": turn_messages})
