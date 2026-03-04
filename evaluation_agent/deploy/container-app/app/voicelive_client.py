@@ -132,15 +132,14 @@ class ConversationTurn:
         if user_text:
             query_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
 
-        # Current turn — tool messages (SDK-compatible list-of-dicts format)
+        # Current turn — tool messages (SDK-canonical flat format from break_tool_call_into_messages)
         for tr in (self.tool_results or []):
-            tool_call_obj = {"id": tr["call_id"], "type": "function",
-                             "function": {"name": tr["name"],
-                                          "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}
+            args = tr.get("arguments", tr.get("args", {}))
+            parsed_args = args if isinstance(args, dict) else json.loads(args) if isinstance(args, str) and args.strip() else {}
             query_messages.append({
                 "role": "assistant",
-                "content": [{"type": "tool_call", "tool_call": tool_call_obj}],
-                "tool_calls": [tool_call_obj],
+                "content": [{"type": "tool_call", "tool_call_id": tr["call_id"],
+                             "name": tr["name"], "arguments": parsed_args}],
             })
             query_messages.append({
                 "role": "tool",

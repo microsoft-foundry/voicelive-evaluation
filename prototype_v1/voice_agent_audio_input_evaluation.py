@@ -713,14 +713,14 @@ def build_evaluation_data(
     if user_text:
         query_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
 
-    # Current turn — tool messages (SDK-compatible list-of-dicts format)
+    # Current turn — tool messages (SDK-canonical flat format from break_tool_call_into_messages)
     for tr in turn.tool_results:
-        tool_call_obj = {"id": tr["call_id"], "type": "function",
-                         "function": {"name": tr["name"], "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}
+        args = tr.get("arguments", tr.get("args", {}))
+        parsed_args = args if isinstance(args, dict) else json.loads(args) if isinstance(args, str) and args.strip() else {}
         query_messages.append({
             "role": "assistant",
-            "content": [{"type": "tool_call", "tool_call": tool_call_obj}],
-            "tool_calls": [tool_call_obj],
+            "content": [{"type": "tool_call", "tool_call_id": tr["call_id"],
+                         "name": tr["name"], "arguments": parsed_args}],
         })
         query_messages.append({
             "role": "tool",
@@ -848,15 +848,14 @@ async def process_conversation(
             user_text = sanitize_text_for_utf8(turn.user_transcription)
             if user_text:
                 turn_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
-            # Include tool call/result messages in SDK-compatible list-of-dicts format
+            # Include tool call/result messages in SDK-canonical flat format
             for tr in turn.tool_results:
-                tool_call_obj = {"id": tr["call_id"], "type": "function",
-                                 "function": {"name": tr["name"],
-                                              "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}
+                args = tr.get("arguments", tr.get("args", {}))
+                parsed_args = args if isinstance(args, dict) else json.loads(args) if isinstance(args, str) and args.strip() else {}
                 turn_messages.append({
                     "role": "assistant",
-                    "content": [{"type": "tool_call", "tool_call": tool_call_obj}],
-                    "tool_calls": [tool_call_obj],
+                    "content": [{"type": "tool_call", "tool_call_id": tr["call_id"],
+                                 "name": tr["name"], "arguments": parsed_args}],
                 })
                 turn_messages.append({
                     "role": "tool",
