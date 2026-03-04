@@ -12,7 +12,6 @@ Evaluation tools and frameworks for Azure VoiceLive (Speech-to-Speech-to-Text) v
 | [`helper_scripts/`](helper_scripts/) | **Active** | Utility scripts for dataset preparation, including a HuggingFace audio dataset downloader that converts datasets to evaluation-ready JSONL format. |
 | [`TranscriptEvaluator/`](TranscriptEvaluator/) | Experimental | Early experiment for testing transcription evaluation with Azure AI Foundry custom evaluators. Contains evaluator prompts and sample datasets. |
 | [`UltraEval-Audio/`](UltraEval-Audio/) | Archived | Based on an external open-source audio evaluation framework. Used in early stages of VoiceLive evaluation experimentation but is not up to date and currently unused. |
-| [`voicelive_quickstarts/`](voicelive_quickstarts/) | Temporary | Temporary test scripts for VoiceLive API quickstarts, pending cleanup. |
 
 ## Getting Started
 
