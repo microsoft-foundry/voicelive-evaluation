@@ -214,13 +214,13 @@ Run the included test script to verify all agent capabilities:
 
 ```bash
 # Test a single capability
-python test_agent_cloud.py --test list_datasets
+python tests/test_agent_cloud.py --test list_datasets
 
 # Run all tests
-python test_agent_cloud.py --test all
+python tests/test_agent_cloud.py --test all
 
 # List available tests
-python test_agent_cloud.py --list-tests
+python tests/test_agent_cloud.py --list-tests
 ```
 
 **Available tests**: `list_datasets`, `list_evaluators`, `list_session_configs`, `check_dataset_schema`, `validate_dataset`, `list_evaluation_groups`, `streaming`
@@ -527,9 +527,14 @@ evaluation_agent/
 ├── setup_agent_openapi.py         # Cloud agent setup (OpenAPI)
 ├── runner.py                      # Local tool executor
 ├── tools.py                       # Tool implementations
-├── test_agent_cloud.py            # Cloud E2E tests (9 tests)
-├── test_agent_behavior.py         # Behavioral routing tests (6 tests)
-├── test_agent_sdk.py              # SDK integration tests
+├── tests/                         # Test suites (see tests/README.md)
+│   ├── test_agent_cloud.py        # Cloud E2E tests (9 tests)
+│   ├── test_agent_behavior.py     # Behavioral routing tests (6 tests)
+│   ├── test_agent_sdk.py          # SDK integration tests
+│   ├── test_agent_e2e.py          # Full E2E pipeline tests (20 tests)
+│   ├── test_agent_responses.py    # Responses API tests
+│   ├── e2e_test_conversation.md   # Manual test guide
+│   └── README.md                  # Test documentation
 ├── azure.yaml                     # azd configuration
 ├── ARCHITECTURE.md                # Design decisions & flowcharts
 └── README.md                      # This file
@@ -546,7 +551,7 @@ Run the integration tests to verify all endpoints:
 export AZURE_FUNCTION_KEY=$(az functionapp keys list --name <func-name> --resource-group <rg> --query "functionKeys.default" -o tsv)
 
 # Run tests
-python test_agent_sdk.py --function-url https://<func-name>.azurewebsites.net/api
+python tests/test_agent_sdk.py --function-url https://<func-name>.azurewebsites.net/api
 ```
 
 Expected output:
