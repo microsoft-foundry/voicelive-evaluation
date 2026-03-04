@@ -282,9 +282,13 @@ def read_dataset(path: str) -> List[DatasetEntry]:
             if isinstance(tool_defs, dict):
                 tool_defs = [tool_defs]
 
+            answer_raw = record.get('Answer') or record.get('answer')
+            # Normalize list-type answers (e.g. speech-trivia-qa uses ["Paris", "City of Paris"])
+            if isinstance(answer_raw, list):
+                answer_raw = " OR ".join(str(a) for a in answer_raw if a) if answer_raw else None
             entries.append(DatasetEntry(
                 audio_path=resolved,
-                ground_truth=record.get('Answer') or record.get('answer'),
+                ground_truth=answer_raw,
                 question=record.get('Question') or record.get('question'),
                 tool_definitions=tool_defs if tool_defs else [],
                 conversation_id=record.get('conversationID') or record.get('conversation_id') or 'default',
