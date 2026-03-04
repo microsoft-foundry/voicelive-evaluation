@@ -29,6 +29,8 @@ def load_audio_file(file_path: str, target_sample_rate: int = 24000) -> bytes:
     """
     Load audio file and convert to PCM16 bytes.
     
+    Supports PCM (8/16/24/32-bit) and IEEE float32 WAVs.
+    
     Args:
         file_path: Path to audio file
         target_sample_rate: Target sample rate (default 24kHz for VoiceLive)
@@ -36,23 +38,48 @@ def load_audio_file(file_path: str, target_sample_rate: int = 24000) -> bytes:
     Returns:
         PCM16 audio bytes
     """
-    with wave.open(file_path, 'rb') as wav:
-        n_channels = wav.getnchannels()
-        sample_width = wav.getsampwidth()
-        sample_rate = wav.getframerate()
-        n_frames = wav.getnframes()
-        
-        # Read raw data
-        raw_data = wav.readframes(n_frames)
-    
-    # Convert to numpy array
-    if sample_width == 2:
-        audio = np.frombuffer(raw_data, dtype=np.int16)
-    elif sample_width == 1:
-        audio = np.frombuffer(raw_data, dtype=np.uint8).astype(np.int16) * 256
-    else:
-        raise ValueError(f"Unsupported sample width: {sample_width}")
-    
+    import struct as _struct
+
+    try:
+        with wave.open(file_path, 'rb') as wav:
+            n_channels = wav.getnchannels()
+            sample_width = wav.getsampwidth()
+            sample_rate = wav.getframerate()
+            raw_data = wav.readframes(wav.getnframes())
+
+        if sample_width == 2:
+            audio = np.frombuffer(raw_data, dtype=np.int16)
+        elif sample_width == 1:
+            audio = np.frombuffer(raw_data, dtype=np.uint8).astype(np.int16) * 256
+        elif sample_width == 4:
+            audio = np.frombuffer(raw_data, dtype=np.int32)
+            audio = (audio >> 16).astype(np.int16)
+        else:
+            raise ValueError(f"Unsupported sample width: {sample_width}")
+
+    except wave.Error:
+        # IEEE float32 WAVs (format tag 3) — wave module can't read these
+        with open(file_path, 'rb') as f:
+            data = f.read()
+        if data[:4] != b'RIFF' or data[8:12] != b'WAVE':
+            raise ValueError(f"Not a valid WAV file: {file_path}")
+        pos = 12
+        sample_rate = n_channels = 0
+        audio_data = b''
+        while pos < len(data) - 8:
+            chunk_id = data[pos:pos+4]
+            chunk_size = _struct.unpack_from('<I', data, pos+4)[0]
+            if chunk_id == b'fmt ':
+                n_channels = _struct.unpack_from('<H', data, pos+10)[0]
+                sample_rate = _struct.unpack_from('<I', data, pos+12)[0]
+            elif chunk_id == b'data':
+                audio_data = data[pos+8:pos+8+chunk_size]
+            pos += 8 + chunk_size
+        if not audio_data:
+            raise ValueError(f"No audio data found in: {file_path}")
+        float_audio = np.frombuffer(audio_data, dtype=np.float32)
+        audio = np.clip(float_audio * 32767, -32768, 32767).astype(np.int16)
+
     # Convert to mono if stereo
     if n_channels == 2:
         audio = audio.reshape(-1, 2).mean(axis=1).astype(np.int16)
