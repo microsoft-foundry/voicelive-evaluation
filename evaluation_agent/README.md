@@ -700,8 +700,8 @@ For **agent-side tracing** (traces appearing in Foundry portal):
 ## See Also
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Design decisions and diagrams
-- [prototype_v1/](../prototype_v1/) - Local evaluation prototype with full pipeline (VoiceLive → Foundry evaluation)
-- [prototype_v1/ARCHITECTURE.md](../prototype_v1/ARCHITECTURE.md) - Prototype architecture with VAD/PTT flow diagrams
+- [evaluation_harness/](../evaluation_harness/) - Local evaluation prototype with full pipeline (VoiceLive → Foundry evaluation)
+- [evaluation_harness/ARCHITECTURE.md](../evaluation_harness/ARCHITECTURE.md) - Prototype architecture with VAD/PTT flow diagrams
 - [Azure AI Foundry Docs](https://learn.microsoft.com/azure/ai-services/agents/)
 
 ---

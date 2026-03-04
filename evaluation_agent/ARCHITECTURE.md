@@ -600,7 +600,7 @@ flowchart TD
 
 The VoiceLive SDK requires `turn_detection` to **always** be set — setting it to `None` breaks sessions entirely (sessions complete in ~6.39s with all empty responses). This means PTT mode cannot use true push-to-talk where VAD is disabled. Instead, PTT uses a **hybrid approach**: VAD is configured via `turn_detection = AzureSemanticVad`, but the client also calls `commit()` + `response.create()` to explicitly request responses.
 
-This hybrid causes **VAD interference** on early turns (turns 2-3 in multi-turn conversations are consistently empty) because VAD-triggered responses race with explicitly-requested responses. The prototype_v1 code never used PTT — it always relied on VAD with silence keepalive.
+This hybrid causes **VAD interference** on early turns (turns 2-3 in multi-turn conversations are consistently empty) because VAD-triggered responses race with explicitly-requested responses. The evaluation_harness code never used PTT — it always relied on VAD with silence keepalive.
 
 **No official SDK sample exists** for PTT or pre-recorded audio processing. The `azure-sdk-for-python` samples only demonstrate server VAD with real-time microphone input.
 

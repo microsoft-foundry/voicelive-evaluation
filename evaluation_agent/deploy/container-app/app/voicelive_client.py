@@ -105,7 +105,7 @@ class ConversationTurn:
                        conversation_history: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Convert turn data to evaluation dataset format.
         
-        Produces conversation-history format matching prototype_v1:
+        Produces conversation-history format matching evaluation_harness:
           query: [{role, content}, ...]  (system + prior turns + current user input)
           response: [{role, content}]    (current assistant response)
         

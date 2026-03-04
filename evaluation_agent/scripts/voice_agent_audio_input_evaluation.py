@@ -675,7 +675,7 @@ def read_test_files(test_files_path: str = None) -> List[Dict[str, str]]:
                     # Try multiple strategies to find the file:
                     # 1. If already absolute and exists, use it
                     # 2. If relative, try relative to JSONL file directory (same folder)
-                    # 3. If path starts with "prototype_v1/", navigate to repo root
+                    # 3. If path starts with "evaluation_harness/", navigate to repo root
                     resolved_path = None
                     if os.path.isabs(wav_path):
                         if os.path.exists(wav_path):
@@ -2330,7 +2330,7 @@ if __name__ == "__main__":
     try:
         # Parse command line arguments
         parser = argparse.ArgumentParser(description='Process audio files through Azure Voice Live API')
-        parser.add_argument('--test-files', '-f', dest='test_files_path', default='./prototype_v1/sample_evaluation_input/Eiffel_Tower_Visit_1/Eiffel_Tower_Visit_1.jsonl',
+        parser.add_argument('--test-files', '-f', dest='test_files_path', default='./evaluation_harness/sample_evaluation_input/Eiffel_Tower_Visit_1/Eiffel_Tower_Visit_1.jsonl',
                             help='Path to the file containing the list of audio files to process')
         parser.add_argument('--output-dir', '-o', dest='output_dir', default='./output',
                             help='Directory to store response audio files (default: "output" in script directory)')

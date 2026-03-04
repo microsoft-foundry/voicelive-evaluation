@@ -2,5 +2,5 @@ dataoceandemo:
   class: audio_evals.dataset.dataset.JsonlFile
   args:
     default_task: s2s-aqa  # Speech-to-speech question answering
-    f_name: prototype_v1/sample_evaluation_input/DataOceanDemoComplexSession1/DataOceanDemoComplexSession1.jsonl
+    f_name: evaluation_harness/sample_evaluation_input/DataOceanDemoComplexSession1/DataOceanDemoComplexSession1.jsonl
     ref_col: Answer

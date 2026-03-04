@@ -283,7 +283,7 @@ python helper_scripts/hf_dataset_to_jsonl.py
 python helper_scripts/hf_dataset_to_jsonl.py TwinkStart/llama-questions --limit 50
 
 # Then run evaluation
-python prototype_v1/voice_agent_audio_input_evaluation.py -f datasets/TwinkStart-llama-questions/TwinkStart-llama-questions.jsonl
+python evaluation_harness/voice_agent_audio_input_evaluation.py -f datasets/TwinkStart-llama-questions/TwinkStart-llama-questions.jsonl
 ```
 
 **Always validate datasets before running evaluations:**
