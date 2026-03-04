@@ -661,6 +661,17 @@ az containerapp update --name <ca-name> --resource-group <rg> --image <acr>.azur
 
 ## SDK Limitations
 
+### SDK Version Requirements
+
+| Package | Min Version | Purpose |
+|---------|-------------|---------|
+| `azure-ai-evaluation` | 1.15.3 | Foundry evaluators (stable) |
+| `azure-ai-projects` | 2.0.0b4 | Foundry project & dataset management |
+| `azure-ai-agents` | 1.2.0b6 | Agent models (`FunctionTool`, `OpenApiTool`) |
+| `azure-ai-voicelive` | 1.2.0b4 | VoiceLive S2ST SDK (Container App) |
+
+### Manual-Only Operations
+
 The following operations require **manual configuration** in the Foundry Portal or via Terraform/ARM - they cannot be done via the Python SDK:
 
 | Operation | SDK Support | Alternative |

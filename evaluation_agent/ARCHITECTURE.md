@@ -1,6 +1,6 @@
 # VoiceLive Evaluation Agent v3 - Architecture
 
-*Last updated: February 16, 2026*
+*Last updated: February 21, 2026*
 
 ## Overview
 
@@ -23,7 +23,7 @@ graph TB
     end
     
     subgraph "Azure Functions"
-        HTTP[HTTP Triggers<br/>20+ endpoints]
+        HTTP[HTTP Triggers<br/>23 endpoints]
         Durable[Durable Functions<br/>evaluation_orchestrator]
     end
     
@@ -1270,4 +1270,32 @@ configure_azure_monitor(connection_string="InstrumentationKey=...")
 
 ---
 
-*Document last updated: February 20, 2026*
+### SDK Version Requirements
+
+| Package | Min Version | Notes |
+|---------|-------------|-------|
+| `azure-ai-evaluation` | 1.15.3 | Stable release — Foundry evaluators, tool message validation |
+| `azure-ai-projects` | 2.0.0b4 | Foundry project client, dataset management |
+| `azure-ai-agents` | 1.2.0b6 | Agent models (`FunctionTool`, `OpenApiTool`, etc.) |
+| `azure-ai-voicelive` | 1.2.0b4 | VoiceLive S2ST SDK (pre-release) |
+
+### Tool Message Format (SDK Canonical)
+
+The azure-ai-evaluation SDK expects tool-calling messages in a **flat format** (not the nested OpenAI wire format). This is enforced by Foundry UX server-side validation before dispatching to any evaluator.
+
+**Assistant tool-call content items:**
+```json
+{"type": "tool_call", "tool_call_id": "call_xxx", "name": "get_weather", "arguments": {"location": "Seattle"}}
+```
+
+**Tool result content items:**
+```json
+{"type": "tool_result", "tool_result": "{\"temperature\": 72}"}
+```
+
+Key differences from OpenAI wire format:
+- `name` and `tool_call_id` are at the **top level** (not nested under `tool_call.function`)
+- `arguments` is a **parsed dict** (not a JSON string)
+- No nested `tool_call` sub-object
+
+*Document last updated: February 21, 2026*

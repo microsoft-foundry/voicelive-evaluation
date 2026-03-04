@@ -127,7 +127,7 @@ The evaluation data file uses conversation-history-based `query` format, compati
   ],
   "response": [{"role": "assistant", "content": "The weather in Seattle is sunny."}],
   "ground_truth": "It is sunny and 75 degrees in Seattle.",
-  "tool_calls": [{"name": "get_weather", "arguments": {"location": "Seattle"}, "result": "{\"temperature\": 72}"}],
+  "tool_calls": [{"type": "tool_call", "tool_call_id": "call_xxx", "name": "get_weather", "arguments": {"location": "Seattle"}}],
   "tool_definitions": [{"type": "function", "name": "get_weather", "description": "Get weather", "parameters": {}}],
   "conversation_id": "conv-001",
   "source_file": "audio/turn1.wav",
@@ -319,7 +319,8 @@ python voice_agent_audio_input_evaluation.py -f dataset.jsonl --verbose
 
 | Version | Description |
 |---|---|
-| **v3.1** (Current) | Full evaluation pipeline integration, batch processor compatibility, response audio saving, operational summaries, conversation history tracking, .env/CWD fixes |
+| **v3.2** (Current) | SDK format alignment — tool message flat format (`name`/`tool_call_id`/`arguments` at top level), azure-ai-evaluation 1.15.3, azure-ai-voicelive 1.2.0b4, Foundry UX content validation fixes |
+| **v3.1** | Full evaluation pipeline integration, batch processor compatibility, response audio saving, operational summaries, conversation history tracking, .env/CWD fixes |
 | **v3** | Full async rewrite with PTT/VAD modes, SDK-pattern `FunctionCallOutputItem` tool calls, late event drain, `asyncio`-native |
 | **v2** | VoiceLive SDK integration with threading wrappers |
 | **v1** | Original WebSocket-based implementation |
