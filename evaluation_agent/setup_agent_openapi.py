@@ -26,7 +26,7 @@ from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import (
     PromptAgentDefinition,
-    OpenApiAgentTool,
+    OpenApiTool,
     OpenApiFunctionDefinition,
     OpenApiAnonymousAuthDetails,
     OpenApiManagedAuthDetails,
@@ -213,6 +213,27 @@ IMPORTANT: To use the defaults, do NOT pass the evaluators parameter at all in t
 run_voicelive_evaluation request. The server applies defaults automatically when evaluators
 is omitted. Only pass evaluators if the user explicitly requests specific ones.
 
+## Tool-Calling Evaluator Filtering — MANDATORY
+Before running any evaluation, check whether the dataset contains tool-calling data.
+Use the results from check_dataset_schema (evaluation_fields.tool_definitions and
+evaluation_fields.tool_calls) or validate_eval_dataset (optional_fields.tool_definitions
+and optional_fields.tool_calls).
+
+If tool_definitions count is 0/N (no entries have tool definitions):
+1. AUTOMATICALLY remove these 4 evaluators from the run config:
+   - tool_call_accuracy, tool_selection, tool_input_accuracy, tool_output_utilization
+2. Explicitly pass ONLY the non-tool evaluators in the evaluators parameter:
+   ["intent_resolution", "task_adherence", "task_completion", "response_completeness"]
+3. INFORM the user with a message like:
+   "ℹ️ This dataset does not contain tool-calling configuration (tool_definitions).
+   Removing tool-calling evaluators (tool_call_accuracy, tool_selection,
+   tool_input_accuracy, tool_output_utilization) to avoid errors and unnecessary cost.
+   Running with: intent_resolution, task_adherence, task_completion, response_completeness."
+
+If the user explicitly requests tool-calling evaluators on a dataset without tool data,
+warn them that those evaluators will likely fail or produce meaningless results, and
+ask for confirmation before proceeding.
+
 ## Important Notes
 - ALWAYS present the Foundry Portal URL when evaluation completes
 - run_voicelive_evaluation returns IMMEDIATELY with instance_id only (async)
@@ -239,6 +260,25 @@ When a job is started (VoiceLive audio processing or Foundry evaluation):
 - Do NOT say "I'll keep checking", "I'll monitor this", or "Let me track this"
 - Do NOT promise continuous or automatic status tracking — you cannot do this
 - When the user asks for a status update, call the appropriate check endpoint
+
+## Automatic Step Chaining Within a Turn — CRITICAL
+When a status check reveals a job is COMPLETED and there are remaining steps in
+the user's original request, AUTOMATICALLY proceed to the next step IN THE SAME
+TURN — do NOT stop and ask for permission.
+
+Key scenario: User asks to "evaluate" a VoiceLive audio dataset.
+- Turn 1: You start audio processing → tell user to check back.
+- Turn 2+: User asks for status → check_voicelive_job_status returns "completed".
+  → IMMEDIATELY call run_voicelive_evaluation with the output_path and
+    foundry_dataset_id from the completed job. Do NOT say "processing is done,
+    shall I run evaluation?" — the user already asked to evaluate.
+- Turn 3+: User asks for status → check_evaluation_status returns "completed".
+  → Present Foundry Portal URL and metrics summary.
+
+Only stop and ask the user BEFORE chaining when:
+- You need a decision (e.g., which evaluators to use)
+- A step FAILED and you need guidance
+- The user explicitly asked for only ONE step (e.g., "just process the audio")
 
 Example response after starting an evaluation:
   "Evaluation started! Here are the details:
@@ -341,7 +381,7 @@ def create_agent_with_openapi(function_url: str, function_key: str = None, entra
     )
     
     # Create OpenAPI tool
-    openapi_tool = OpenApiAgentTool(openapi=openapi_def)
+    openapi_tool = OpenApiTool(openapi=openapi_def)
     
     # Create agent definition
     agent_def = PromptAgentDefinition(
@@ -438,7 +478,7 @@ def update_agent_with_openapi(function_url: str, function_key: str = None, entra
     )
     
     # Create OpenAPI tool
-    openapi_tool = OpenApiAgentTool(openapi=openapi_def)
+    openapi_tool = OpenApiTool(openapi=openapi_def)
     
     # Create agent definition
     agent_def = PromptAgentDefinition(

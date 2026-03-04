@@ -208,8 +208,8 @@ The expected turn number is automatically derived by counting user messages in t
 ### Local Testing (No Foundry Required)
 
 ```bash
-# 1. Navigate to the prototype_v1 directory
-cd prototype_v1
+# 1. Navigate to the evaluation_harness directory
+cd evaluation_harness
 
 # 2. Run local evaluation
 python voice_metrics_evaluator_local.py your_aggregate.jsonl

@@ -27,7 +27,7 @@ def get_scripts_dir() -> Path:
     """Get the directory containing evaluation scripts."""
     if is_cloud_mode():
         return SCRIPT_DIR / "scripts"
-    return REPO_ROOT / "prototype_v1"
+    return REPO_ROOT / "evaluation_harness"
 
 
 def get_validators_dir() -> Path:
@@ -458,8 +458,8 @@ def list_datasets(folder_path: Optional[str] = None) -> dict:
         search_paths.append(Path(folder_path))
     else:
         search_paths.extend([
-            REPO_ROOT / "prototype_v1" / "sample_evaluation_input",
-            REPO_ROOT / "prototype_v1" / "local_datasets",
+            REPO_ROOT / "evaluation_harness" / "sample_evaluation_input",
+            REPO_ROOT / "evaluation_harness" / "local_datasets",
             REPO_ROOT / "dataset_validator",
             SCRIPT_DIR / "datasets",  # Local datasets folder
         ])

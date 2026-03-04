@@ -32,7 +32,7 @@ def ask_agent(openai_client, agent_name: str, prompt: str, label: str) -> tuple:
     try:
         resp = openai_client.responses.create(
             input=[{"role": "user", "content": prompt}],
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         text = resp.output_text
         print(f"RESPONSE:\n{text[:600]}")

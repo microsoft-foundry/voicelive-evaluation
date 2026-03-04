@@ -121,7 +121,7 @@ def _resolve_column(metadata: Dict[str, Any], candidates: list[str]) -> str:
     for key in candidates:
         if key in metadata and metadata[key]:
             val = metadata[key]
-            return ", ".join(val) if isinstance(val, list) else str(val)
+            return " OR ".join(str(v) for v in val) if isinstance(val, list) else str(val)
     return ""
 
 

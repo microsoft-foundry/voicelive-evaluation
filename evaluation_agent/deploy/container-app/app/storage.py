@@ -41,10 +41,14 @@ class DatasetEntry:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "DatasetEntry":
+        # Normalize list-type answers (e.g. speech-trivia-qa uses ["Paris", "City of Paris"])
+        answer_raw = data.get("Answer")
+        if isinstance(answer_raw, list):
+            answer_raw = " OR ".join(str(a) for a in answer_raw if a) if answer_raw else None
         return cls(
             wav_path=data.get("WavPath") or data.get("audio_path") or "",
             question=data.get("Question"),
-            answer=data.get("Answer"),
+            answer=answer_raw,
             conversation_id=data.get("conversationID"),
             system_prompt=data.get("system_prompt"),
             tool_definitions=data.get("tool_definitions"),

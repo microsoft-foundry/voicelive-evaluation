@@ -1,6 +1,6 @@
 # VoiceLive Evaluation Agent v3 - Architecture
 
-*Last updated: February 16, 2026*
+*Last updated: February 21, 2026*
 
 ## Overview
 
@@ -23,7 +23,7 @@ graph TB
     end
     
     subgraph "Azure Functions"
-        HTTP[HTTP Triggers<br/>20+ endpoints]
+        HTTP[HTTP Triggers<br/>23 endpoints]
         Durable[Durable Functions<br/>evaluation_orchestrator]
     end
     
@@ -539,6 +539,54 @@ graph TD
     G3 --> H[Return Combined Results]
 ```
 
+### Evaluation Data Assembly
+
+After audio processing completes for each turn, the system assembles the evaluation output. The key logic determines which text sources populate the `query` and `ground_truth` fields.
+
+```mermaid
+flowchart TD
+    A[Turn Complete] --> B{JSONL has<br/>Question field?}
+    B -->|Yes| C["query user text = Question<br/>(ground-truth from dataset)"]
+    B -->|No| D["query user text = VoiceLive transcription<br/>(STT fallback)"]
+    C --> E["ground_truth_query_used = true"]
+    D --> F["ground_truth_query_used = false"]
+    E --> G["transcript = VoiceLive transcription<br/>(always stored for WER evaluation)"]
+    F --> G
+
+    G --> H{JSONL has<br/>Answer field?}
+    H -->|Yes| I["ground_truth = Answer<br/>(expected response)"]
+    H -->|No| J["ground_truth = &#34;&#34;<br/>(no expected response)"]
+
+    I --> K[Build query message list]
+    J --> K
+
+    K --> L["system message<br/>(from system_prompt)"]
+    L --> M["prior turn messages<br/>(conversation_history)"]
+    M --> N["current user message<br/>(query text from above)"]
+    N --> O{Turn has<br/>tool calls?}
+    O -->|Yes| P["assistant tool_call messages<br/>+ tool result messages<br/>(SDK flat format)"]
+    O -->|No| Q[Skip tool messages]
+    P --> R[Build response message list]
+    Q --> R
+    R --> S["response = assistant text<br/>(VoiceLive API response)"]
+
+    style C fill:#e6ffe6,stroke:#333
+    style D fill:#fff3e6,stroke:#333
+    style I fill:#e6ffe6,stroke:#333
+    style J fill:#fff3e6,stroke:#333
+```
+
+**Field source summary:**
+
+| Output Field | Primary Source | Fallback | Notes |
+|---|---|---|---|
+| `query` (user text) | `Question` from JSONL | VoiceLive transcription | `ground_truth_query_used` indicates which |
+| `transcript` | VoiceLive transcription | — | Always populated for WER/CER evaluation |
+| `response` | VoiceLive API response | — | What the agent actually said |
+| `ground_truth` | `Answer` from JSONL | `""` (empty) | Expected response for comparison evaluators |
+| `tool_calls` | VoiceLive tool call events | `[]` | SDK flat format with top-level `name`, `arguments` |
+| `tool_definitions` | JSONL `tool_definitions` | Session config | Function schemas for tool-calling evaluators |
+
 ### Test Results
 
 | Version | PTT Q | PTT R | PTT TC | VAD Q | VAD R | VAD TC | Changes |
@@ -552,7 +600,7 @@ graph TD
 
 The VoiceLive SDK requires `turn_detection` to **always** be set — setting it to `None` breaks sessions entirely (sessions complete in ~6.39s with all empty responses). This means PTT mode cannot use true push-to-talk where VAD is disabled. Instead, PTT uses a **hybrid approach**: VAD is configured via `turn_detection = AzureSemanticVad`, but the client also calls `commit()` + `response.create()` to explicitly request responses.
 
-This hybrid causes **VAD interference** on early turns (turns 2-3 in multi-turn conversations are consistently empty) because VAD-triggered responses race with explicitly-requested responses. The prototype_v1 code never used PTT — it always relied on VAD with silence keepalive.
+This hybrid causes **VAD interference** on early turns (turns 2-3 in multi-turn conversations are consistently empty) because VAD-triggered responses race with explicitly-requested responses. The evaluation_harness code never used PTT — it always relied on VAD with silence keepalive.
 
 **No official SDK sample exists** for PTT or pre-recorded audio processing. The `azure-sdk-for-python` samples only demonstrate server VAD with real-time microphone input.
 
@@ -1270,4 +1318,32 @@ configure_azure_monitor(connection_string="InstrumentationKey=...")
 
 ---
 
-*Document last updated: February 20, 2026*
+### SDK Version Requirements
+
+| Package | Min Version | Notes |
+|---------|-------------|-------|
+| `azure-ai-evaluation` | 1.15.3 | Stable release — Foundry evaluators, tool message validation |
+| `azure-ai-projects` | 2.0.0b4 | Foundry project client, dataset management |
+| `azure-ai-agents` | 1.2.0b6 | Agent models (`FunctionTool`, `OpenApiTool`, etc.) |
+| `azure-ai-voicelive` | 1.2.0b4 | VoiceLive S2ST SDK (pre-release) |
+
+### Tool Message Format (SDK Canonical)
+
+The azure-ai-evaluation SDK expects tool-calling messages in a **flat format** (not the nested OpenAI wire format). This is enforced by Foundry UX server-side validation before dispatching to any evaluator.
+
+**Assistant tool-call content items:**
+```json
+{"type": "tool_call", "tool_call_id": "call_xxx", "name": "get_weather", "arguments": {"location": "Seattle"}}
+```
+
+**Tool result content items:**
+```json
+{"type": "tool_result", "tool_result": "{\"temperature\": 72}"}
+```
+
+Key differences from OpenAI wire format:
+- `name` and `tool_call_id` are at the **top level** (not nested under `tool_call.function`)
+- `arguments` is a **parsed dict** (not a JSON string)
+- No nested `tool_call` sub-object
+
+*Document last updated: February 21, 2026*

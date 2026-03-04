@@ -108,7 +108,7 @@ python voice_agent_audio_input_evaluation.py \
 
 ```python
 import sys
-sys.path.append('C:/Localrepos/voicelive-evaluation/prototype_v1')
+sys.path.append('C:/Localrepos/voicelive-evaluation/evaluation_harness')
 from voice_agent_audio_input_evaluation import main
 
 # Run evaluation

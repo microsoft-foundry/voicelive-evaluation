@@ -91,7 +91,7 @@ gh copilot skills list
 
 **Current Structure:**
 ```
-prototype_v1/
+evaluation_harness/
 └── dataset_validator/
     └── .github/
         └── skills/
@@ -110,7 +110,7 @@ prototype_v1/
 
 **Action:** Test both locations:
 1. Keep in `dataset_validator/.github/skills/`
-2. If not discovered, copy to `prototype_v1/.github/skills/`
+2. If not discovered, copy to `evaluation_harness/.github/skills/`
 3. If still not discovered, copy to repo root `.github/skills/`
 
 ---
@@ -139,10 +139,10 @@ If manual registration is needed:
 
 ```bash
 # Register consistency validator skill
-gh copilot skills add ./prototype_v1/dataset_validator/.github/skills/validate-dataset-consistency-py
+gh copilot skills add ./evaluation_harness/dataset_validator/.github/skills/validate-dataset-consistency-py
 
 # Register quality validator skill
-gh copilot skills add ./prototype_v1/dataset_validator/.github/skills/validate-dataset-quality-py
+gh copilot skills add ./evaluation_harness/dataset_validator/.github/skills/validate-dataset-quality-py
 
 # Verify registration
 gh copilot skills list
@@ -183,7 +183,7 @@ gh copilot skills info validate-dataset-consistency
 
 ```bash
 # Test consistency validator via natural language
-gh copilot suggest "validate the dataset consistency of the file at prototype_v1/local_datasets/DataOcean/20260122-wave1-50/20260122-wave1-50.jsonl"
+gh copilot suggest "validate the dataset consistency of the file at evaluation_harness/local_datasets/DataOcean/20260122-wave1-50/20260122-wave1-50.jsonl"
 
 # Expected: Copilot recognizes request and suggests using validate-dataset-consistency skill
 ```
@@ -192,10 +192,10 @@ gh copilot suggest "validate the dataset consistency of the file at prototype_v1
 
 ```bash
 # If Copilot supports direct skill execution
-gh copilot run validate-dataset-consistency --dataset-path "prototype_v1/local_datasets/DataOcean/20260122-wave1-50/20260122-wave1-50.jsonl"
+gh copilot run validate-dataset-consistency --dataset-path "evaluation_harness/local_datasets/DataOcean/20260122-wave1-50/20260122-wave1-50.jsonl"
 
 # Or with skill syntax
-@validate-dataset-consistency "prototype_v1/local_datasets/DataOcean/20260122-wave1-50/20260122-wave1-50.jsonl"
+@validate-dataset-consistency "evaluation_harness/local_datasets/DataOcean/20260122-wave1-50/20260122-wave1-50.jsonl"
 ```
 
 ### Step 4.4: Test with Different Parameters
@@ -203,12 +203,12 @@ gh copilot run validate-dataset-consistency --dataset-path "prototype_v1/local_d
 ```bash
 # Test with expected-turns flag
 gh copilot run validate-dataset-consistency \
-  --dataset-path "prototype_v1/local_datasets/DataOcean/20260122-wave1-50/20260122-wave1-50.jsonl" \
+  --dataset-path "evaluation_harness/local_datasets/DataOcean/20260122-wave1-50/20260122-wave1-50.jsonl" \
   --expected-turns 3
 
 # Test quality validator with strict mode
 gh copilot run validate-dataset-quality \
-  --dataset-path "prototype_v1/local_datasets/DataOcean/20260122-wave1-50/20260122-wave1-50.jsonl" \
+  --dataset-path "evaluation_harness/local_datasets/DataOcean/20260122-wave1-50/20260122-wave1-50.jsonl" \
   --strict
 ```
 
@@ -364,7 +364,7 @@ gh copilot suggest "my dataset validation failed, what's wrong?"
 
 **Before (Manual):**
 ```bash
-cd prototype_v1/dataset_validator
+cd evaluation_harness/dataset_validator
 python validate_dataset_consistency.py ../local_datasets/DataOcean/20260122-wave1-50/20260122-wave1-50.jsonl
 python validate_dataset_quality.py ../local_datasets/DataOcean/20260122-wave1-50/20260122-wave1-50.jsonl --strict
 ```

@@ -305,7 +305,8 @@ def _download_dataset_flexible(dataset_path: str) -> str:
     """Download dataset from blob storage or Foundry Data Store.
     
     Detects Foundry dataset URIs (azureai://...) and plain Foundry dataset
-    names, downloads via Foundry credentials. Falls back to blob storage.
+    names, downloads via Foundry credentials. Routes voicelive_jobs/ paths
+    to the outputs container. Falls back to datasets container.
     
     Returns path to local temp file.
     """
@@ -323,7 +324,12 @@ def _download_dataset_flexible(dataset_path: str) -> str:
         except Exception:
             pass  # Fall through to blob storage
     
-    # Default: blob storage
+    # VoiceLive job results live in outputs container, not datasets
+    if dataset_path.startswith("voicelive_jobs/") or dataset_path.startswith("outputs/voicelive_jobs/") or "/voicelive_jobs/" in dataset_path:
+        local_path, _ = download_results(dataset_path)
+        return local_path
+    
+    # Default: datasets container
     return download_dataset(dataset_path)
 
 

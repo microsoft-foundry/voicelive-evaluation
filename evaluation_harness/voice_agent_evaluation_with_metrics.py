@@ -487,10 +487,9 @@ def main(
         if run.status == "completed" or run.status == "failed":
             try:
                 output_items = list(client.evals.runs.output_items.list(run_id=run.id, eval_id=eval_id))
-                output_file_path = Path(output_folder) / f"{run.id}_eval_output.jsonl"
+                output_file_path = Path(output_folder) / f"{run.id}_eval_output.json"
                 with open(output_file_path, 'w', encoding='utf-8') as f:
-                    for item in output_items:
-                        f.write(json.dumps(item.model_dump(), indent=4) + '\n')
+                    json.dump([item.model_dump() for item in output_items], f, indent=4, ensure_ascii=False)
                 print(f"\nOUTPUT ITEMS (Total: {len(output_items)})")
             except Exception as e:
                 print(f"Error retrieving output items: {e}")

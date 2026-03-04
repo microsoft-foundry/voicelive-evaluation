@@ -6,6 +6,7 @@ Orchestrates the processing of audio files through VoiceLive.
 
 import os
 import asyncio
+import json
 import logging
 import tempfile
 import wave
@@ -17,7 +18,7 @@ from itertools import groupby
 from operator import attrgetter
 
 from .config import SessionConfig, DEFAULT_SESSION_CONFIG
-from .voicelive_client import VoiceLiveClient, ConversationTurn
+from .voicelive_client import VoiceLiveClient, ConversationTurn, sanitize_text_for_utf8
 from .storage import BlobStorageClient, DatasetEntry
 from .jobs import job_manager, JobStatus
 
@@ -28,6 +29,8 @@ def load_audio_file(file_path: str, target_sample_rate: int = 24000) -> bytes:
     """
     Load audio file and convert to PCM16 bytes.
     
+    Supports PCM (8/16/24/32-bit) and IEEE float32 WAVs.
+    
     Args:
         file_path: Path to audio file
         target_sample_rate: Target sample rate (default 24kHz for VoiceLive)
@@ -35,23 +38,48 @@ def load_audio_file(file_path: str, target_sample_rate: int = 24000) -> bytes:
     Returns:
         PCM16 audio bytes
     """
-    with wave.open(file_path, 'rb') as wav:
-        n_channels = wav.getnchannels()
-        sample_width = wav.getsampwidth()
-        sample_rate = wav.getframerate()
-        n_frames = wav.getnframes()
-        
-        # Read raw data
-        raw_data = wav.readframes(n_frames)
-    
-    # Convert to numpy array
-    if sample_width == 2:
-        audio = np.frombuffer(raw_data, dtype=np.int16)
-    elif sample_width == 1:
-        audio = np.frombuffer(raw_data, dtype=np.uint8).astype(np.int16) * 256
-    else:
-        raise ValueError(f"Unsupported sample width: {sample_width}")
-    
+    import struct as _struct
+
+    try:
+        with wave.open(file_path, 'rb') as wav:
+            n_channels = wav.getnchannels()
+            sample_width = wav.getsampwidth()
+            sample_rate = wav.getframerate()
+            raw_data = wav.readframes(wav.getnframes())
+
+        if sample_width == 2:
+            audio = np.frombuffer(raw_data, dtype=np.int16)
+        elif sample_width == 1:
+            audio = np.frombuffer(raw_data, dtype=np.uint8).astype(np.int16) * 256
+        elif sample_width == 4:
+            audio = np.frombuffer(raw_data, dtype=np.int32)
+            audio = (audio >> 16).astype(np.int16)
+        else:
+            raise ValueError(f"Unsupported sample width: {sample_width}")
+
+    except wave.Error:
+        # IEEE float32 WAVs (format tag 3) — wave module can't read these
+        with open(file_path, 'rb') as f:
+            data = f.read()
+        if data[:4] != b'RIFF' or data[8:12] != b'WAVE':
+            raise ValueError(f"Not a valid WAV file: {file_path}")
+        pos = 12
+        sample_rate = n_channels = 0
+        audio_data = b''
+        while pos < len(data) - 8:
+            chunk_id = data[pos:pos+4]
+            chunk_size = _struct.unpack_from('<I', data, pos+4)[0]
+            if chunk_id == b'fmt ':
+                n_channels = _struct.unpack_from('<H', data, pos+10)[0]
+                sample_rate = _struct.unpack_from('<I', data, pos+12)[0]
+            elif chunk_id == b'data':
+                audio_data = data[pos+8:pos+8+chunk_size]
+            pos += 8 + chunk_size
+        if not audio_data:
+            raise ValueError(f"No audio data found in: {file_path}")
+        float_audio = np.frombuffer(audio_data, dtype=np.float32)
+        audio = np.clip(float_audio * 32767, -32768, 32767).astype(np.int16)
+
     # Convert to mono if stereo
     if n_channels == 2:
         audio = audio.reshape(-1, 2).mean(axis=1).astype(np.int16)
@@ -95,6 +123,7 @@ async def process_conversation(
         List of evaluation-ready result entries
     """
     results = []
+    conversation_history: List[Dict[str, Any]] = []
     
     # Configure session (may include conversation-specific settings)
     conversation_config = config
@@ -110,6 +139,9 @@ async def process_conversation(
         if isinstance(tool_defs, dict):
             tool_defs = [tool_defs]
         conversation_config.tools = tool_defs
+    
+    # System instructions for conversation-history format
+    system_instructions = conversation_config.instructions or ""
     
     await client.configure_session(conversation_config)
     
@@ -127,9 +159,7 @@ async def process_conversation(
             # Resolve audio path - prepend base path if wav_path is relative
             wav_path = entry.wav_path
             if dataset_base_path and not wav_path.startswith(dataset_base_path):
-                # Check if it's a relative path (doesn't contain directory separator)
-                if "/" not in wav_path and "\\" not in wav_path:
-                    wav_path = f"{dataset_base_path}/{wav_path}"
+                wav_path = f"{dataset_base_path}/{wav_path}"
             
             # Download audio file
             audio_path = storage.download_audio_file(wav_path, temp_dir)
@@ -153,17 +183,41 @@ async def process_conversation(
             if i < len(entries) - 1:
                 await asyncio.sleep(0.5)
             
-            # Convert to evaluation format
+            # Convert to evaluation format (conversation-history)
             result = turn.to_eval_format(
                 ground_truth=entry.answer or "",
                 tool_definitions=entry.tool_definitions or conversation_config.tool_definitions or [],
                 question=entry.question or "",
-                barge_in=entry.barge_in
+                barge_in=entry.barge_in,
+                system_instructions=system_instructions,
+                conversation_history=conversation_history
             )
             
             # Add metadata
             result["conversation_id"] = conversation_id
             result["source_file"] = entry.wav_path
+            
+            # Build history entry for subsequent turns (use transcription, not question)
+            turn_messages = []
+            user_text = sanitize_text_for_utf8(turn.user_transcription) if turn.user_transcription else ""
+            if user_text:
+                turn_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
+            for tr in (turn.tool_results or []):
+                args = tr.get("arguments", tr.get("args", {}))
+                parsed_args = args if isinstance(args, dict) else json.loads(args) if isinstance(args, str) and args.strip() else {}
+                turn_messages.append({
+                    "role": "assistant",
+                    "content": [{"type": "tool_call", "tool_call_id": tr["call_id"],
+                                 "name": tr["name"], "arguments": parsed_args}],
+                })
+                turn_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tr["call_id"],
+                    "content": [{"type": "tool_result", "tool_result": tr["result"] or ""}],
+                })
+            if turn.assistant_response:
+                turn_messages.append({"role": "assistant", "content": turn.assistant_response})
+            conversation_history.append({"turn": turn_number, "messages": turn_messages})
             
             # Fix #8: Only emit results that have meaningful content
             # (don't inflate failure counts with empty turns)

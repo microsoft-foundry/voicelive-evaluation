@@ -27,7 +27,7 @@ pip install -r UltraEval-Audio/requirments.txt
 | `dataset_validator/` | JSONL dataset validation scripts (consistency + quality checks) |
 | `evaluation_agent/` | AI agent for automating evaluation workflows via natural language |
 | `evaluation_agent/skills/` | Skill definitions for Copilot CLI and Foundry Agent discovery |
-| `prototype_v1/` | VoiceLive audio input evaluation scripts and local testing |
+| `evaluation_harness/` | Local standalone evaluation harness — VoiceLive audio processing, batch execution, Foundry evaluation |
 | `UltraEval-Audio/` | Comprehensive evaluation framework with Azure AI Foundry integration |
 
 ## Dataset Validation
@@ -62,9 +62,9 @@ python dataset_validator/validate_dataset_quality.py dataset.jsonl --strict
 
 ## Running Evaluations
 
-### VoiceLive Audio Evaluation (prototype_v1)
+### VoiceLive Audio Evaluation (evaluation_harness)
 ```bash
-python prototype_v1/voice_agent_audio_input_evaluation.py \
+python evaluation_harness/voice_agent_audio_input_evaluation.py \
   --test_files_path "datasets/sample.jsonl" \
   --evaluation_dir "output/evaluations"
 ```
@@ -124,12 +124,12 @@ This repo contains two VoiceLive audio processing implementations that must stay
 | Solution | Path | Description |
 |----------|------|-------------|
 | **evaluation_agent** | `evaluation_agent/` | Cloud-deployed agent with Azure Functions backend |
-| **prototype_v1** | `prototype_v1/` | Local standalone evaluation script |
+| **evaluation_harness** | `evaluation_harness/` | Local standalone evaluation harness |
 
 ### New Features & Changes
 When implementing new features or behavior changes to VoiceLive audio processing in **either** solution:
 - **Always ask the user** whether the change should also be applied to the partner solution.
-- Do not silently skip the partner — prompt explicitly (e.g., "Should this also be applied to prototype_v1?").
+- Do not silently skip the partner — prompt explicitly (e.g., "Should this also be applied to evaluation_harness?").
 
 ### Bug Fixes
 When fixing a bug in VoiceLive audio processing in **either** solution:

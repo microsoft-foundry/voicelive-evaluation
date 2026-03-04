@@ -37,7 +37,7 @@ def test_agent_query(openai_client, agent_name: str, query: str) -> str:
         response = openai_client.responses.create(
             input=[{"role": "user", "content": query}],
             tool_choice="auto",
-            extra_body={"agent": {"name": agent_name, "type": "agent_reference"}},
+            extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
         )
         return response.output_text
     except Exception as e:

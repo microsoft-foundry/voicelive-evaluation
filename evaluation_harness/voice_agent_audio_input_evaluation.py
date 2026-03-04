@@ -215,19 +215,53 @@ def execute_tool(name: str, args: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def load_audio_file(path: str, target_rate: int = 24000) -> bytes:
-    """Load a WAV file and return PCM16 bytes resampled to *target_rate*."""
-    with wave.open(path, 'rb') as wf:
-        sample_rate = wf.getframerate()
-        n_channels = wf.getnchannels()
-        sample_width = wf.getsampwidth()
-        raw = wf.readframes(wf.getnframes())
+    """Load a WAV file and return PCM16 bytes resampled to *target_rate*.
 
-    if sample_width == 2:
-        audio = np.frombuffer(raw, dtype=np.int16)
-    elif sample_width == 1:
-        audio = np.frombuffer(raw, dtype=np.uint8).astype(np.int16) * 256
-    else:
-        raise ValueError(f"Unsupported sample width: {sample_width}")
+    Supports PCM (8/16/24/32-bit) and IEEE float32 WAVs.
+    """
+    import struct as _struct
+
+    try:
+        with wave.open(path, 'rb') as wf:
+            sample_rate = wf.getframerate()
+            n_channels = wf.getnchannels()
+            sample_width = wf.getsampwidth()
+            raw = wf.readframes(wf.getnframes())
+
+        if sample_width == 2:
+            audio = np.frombuffer(raw, dtype=np.int16)
+        elif sample_width == 1:
+            audio = np.frombuffer(raw, dtype=np.uint8).astype(np.int16) * 256
+        elif sample_width == 4:
+            audio = np.frombuffer(raw, dtype=np.int32)
+            audio = (audio >> 16).astype(np.int16)
+        else:
+            raise ValueError(f"Unsupported sample width: {sample_width}")
+
+    except wave.Error:
+        # IEEE float32 WAVs (format tag 3) — wave module can't read these
+        with open(path, 'rb') as f:
+            data = f.read()
+        # Parse RIFF header manually
+        if data[:4] != b'RIFF' or data[8:12] != b'WAVE':
+            raise ValueError(f"Not a valid WAV file: {path}")
+        pos = 12
+        sample_rate = n_channels = 0
+        audio_data = b''
+        while pos < len(data) - 8:
+            chunk_id = data[pos:pos+4]
+            chunk_size = _struct.unpack_from('<I', data, pos+4)[0]
+            if chunk_id == b'fmt ':
+                n_channels = _struct.unpack_from('<H', data, pos+10)[0]
+                sample_rate = _struct.unpack_from('<I', data, pos+12)[0]
+            elif chunk_id == b'data':
+                audio_data = data[pos+8:pos+8+chunk_size]
+            pos += 8 + chunk_size
+        if not audio_data:
+            raise ValueError(f"No audio data found in: {path}")
+        # Convert float32 samples to int16
+        float_audio = np.frombuffer(audio_data, dtype=np.float32)
+        audio = np.clip(float_audio * 32767, -32768, 32767).astype(np.int16)
 
     # Stereo → mono
     if n_channels == 2:
@@ -282,9 +316,13 @@ def read_dataset(path: str) -> List[DatasetEntry]:
             if isinstance(tool_defs, dict):
                 tool_defs = [tool_defs]
 
+            answer_raw = record.get('Answer') or record.get('answer')
+            # Normalize list-type answers (e.g. speech-trivia-qa uses ["Paris", "City of Paris"])
+            if isinstance(answer_raw, list):
+                answer_raw = " OR ".join(str(a) for a in answer_raw if a) if answer_raw else None
             entries.append(DatasetEntry(
                 audio_path=resolved,
-                ground_truth=record.get('Answer') or record.get('answer'),
+                ground_truth=answer_raw,
                 question=record.get('Question') or record.get('question'),
                 tool_definitions=tool_defs if tool_defs else [],
                 conversation_id=record.get('conversationID') or record.get('conversation_id') or 'default',
@@ -713,18 +751,19 @@ def build_evaluation_data(
     if user_text:
         query_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
 
-    # Current turn — tool messages
+    # Current turn — tool messages (SDK-canonical flat format from break_tool_call_into_messages)
     for tr in turn.tool_results:
+        args = tr.get("arguments", tr.get("args", {}))
+        parsed_args = args if isinstance(args, dict) else json.loads(args) if isinstance(args, str) and args.strip() else {}
         query_messages.append({
             "role": "assistant",
-            "content": None,
-            "tool_calls": [{"id": tr["call_id"], "type": "function",
-                            "function": {"name": tr["name"], "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}],
+            "content": [{"type": "tool_call", "tool_call_id": tr["call_id"],
+                         "name": tr["name"], "arguments": parsed_args}],
         })
         query_messages.append({
             "role": "tool",
             "tool_call_id": tr["call_id"],
-            "content": tr["result"],
+            "content": [{"type": "tool_result", "tool_result": tr["result"] or ""}],
         })
 
     # Build response list
@@ -847,23 +886,23 @@ async def process_conversation(
             user_text = sanitize_text_for_utf8(turn.user_transcription)
             if user_text:
                 turn_messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
-            # Include assistant tool_calls announcement (so evaluators see the full chain)
-            if turn.tool_results:
+            # Include tool call/result messages in SDK-canonical flat format
+            for tr in turn.tool_results:
+                args = tr.get("arguments", tr.get("args", {}))
+                parsed_args = args if isinstance(args, dict) else json.loads(args) if isinstance(args, str) and args.strip() else {}
                 turn_messages.append({
                     "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
-                        {"id": tr["call_id"], "type": "function",
-                         "function": {"name": tr["name"],
-                                      "arguments": json.dumps(tr.get("arguments", tr.get("args", {})))}}
-                        for tr in turn.tool_results
-                    ],
+                    "content": [{"type": "tool_call", "tool_call_id": tr["call_id"],
+                                 "name": tr["name"], "arguments": parsed_args}],
+                })
+                turn_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tr["call_id"],
+                    "content": [{"type": "tool_result", "tool_result": tr["result"] or ""}],
                 })
             resp_text = sanitize_text_for_utf8(turn.assistant_response)
             if resp_text:
                 turn_messages.append({"role": "assistant", "content": resp_text})
-            for tr in turn.tool_results:
-                turn_messages.append({"role": "tool", "tool_call_id": tr["call_id"], "content": tr["result"]})
             conversation_history.append({"turn": turn_number, "messages": turn_messages})
 
             logger.info(f"Turn {turn_number} done: {os.path.basename(entry.audio_path)}")
