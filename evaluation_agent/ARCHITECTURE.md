@@ -539,6 +539,54 @@ graph TD
     G3 --> H[Return Combined Results]
 ```
 
+### Evaluation Data Assembly
+
+After audio processing completes for each turn, the system assembles the evaluation output. The key logic determines which text sources populate the `query` and `ground_truth` fields.
+
+```mermaid
+flowchart TD
+    A[Turn Complete] --> B{JSONL has<br/>Question field?}
+    B -->|Yes| C["query user text = Question<br/>(ground-truth from dataset)"]
+    B -->|No| D["query user text = VoiceLive transcription<br/>(STT fallback)"]
+    C --> E["ground_truth_query_used = true"]
+    D --> F["ground_truth_query_used = false"]
+    E --> G["transcript = VoiceLive transcription<br/>(always stored for WER evaluation)"]
+    F --> G
+
+    G --> H{JSONL has<br/>Answer field?}
+    H -->|Yes| I["ground_truth = Answer<br/>(expected response)"]
+    H -->|No| J["ground_truth = &#34;&#34;<br/>(no expected response)"]
+
+    I --> K[Build query message list]
+    J --> K
+
+    K --> L["system message<br/>(from system_prompt)"]
+    L --> M["prior turn messages<br/>(conversation_history)"]
+    M --> N["current user message<br/>(query text from above)"]
+    N --> O{Turn has<br/>tool calls?}
+    O -->|Yes| P["assistant tool_call messages<br/>+ tool result messages<br/>(SDK flat format)"]
+    O -->|No| Q[Skip tool messages]
+    P --> R[Build response message list]
+    Q --> R
+    R --> S["response = assistant text<br/>(VoiceLive API response)"]
+
+    style C fill:#e6ffe6,stroke:#333
+    style D fill:#fff3e6,stroke:#333
+    style I fill:#e6ffe6,stroke:#333
+    style J fill:#fff3e6,stroke:#333
+```
+
+**Field source summary:**
+
+| Output Field | Primary Source | Fallback | Notes |
+|---|---|---|---|
+| `query` (user text) | `Question` from JSONL | VoiceLive transcription | `ground_truth_query_used` indicates which |
+| `transcript` | VoiceLive transcription | — | Always populated for WER/CER evaluation |
+| `response` | VoiceLive API response | — | What the agent actually said |
+| `ground_truth` | `Answer` from JSONL | `""` (empty) | Expected response for comparison evaluators |
+| `tool_calls` | VoiceLive tool call events | `[]` | SDK flat format with top-level `name`, `arguments` |
+| `tool_definitions` | JSONL `tool_definitions` | Session config | Function schemas for tool-calling evaluators |
+
 ### Test Results
 
 | Version | PTT Q | PTT R | PTT TC | VAD Q | VAD R | VAD TC | Changes |
