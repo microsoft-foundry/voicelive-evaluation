@@ -26,7 +26,6 @@ from azure.ai.voicelive.aio import connect as voicelive_connect
 from azure.ai.voicelive.models import (
     ServerEventType,
     RequestSession,
-    ServerVad,
     AzureSemanticVadMultilingual,
     AzureStandardVoice,
     OpenAIVoice,
@@ -39,7 +38,6 @@ from azure.ai.voicelive.models import (
     EouDetection,
     FunctionCallOutputItem,
     ItemType,
-    ServerEventConversationItemTruncated,
 )
 
 # Force UTF-8 encoding for stdout/stderr to handle international characters
@@ -546,8 +544,8 @@ async def process_audio(
                     if hasattr(event, 'delta') and event.delta:
                         try:
                             turn.response_audio_chunks.append(base64.b64decode(event.delta))
-                        except Exception:
-                            pass  # Skip malformed audio chunks
+                        except Exception as e:
+                            logger.debug(f"Skipped malformed audio chunk: {e}")
 
                 # Auto-truncation: user interrupted during agent playback
                 elif etype == ServerEventType.CONVERSATION_ITEM_TRUNCATED:
@@ -570,7 +568,7 @@ async def process_audio(
                             "arguments": event.arguments,
                         }
                         turn.tool_calls.append(tc)
-                        logger.info(f"Tool call: {tc['name']}({event.arguments[:100]})")
+                        logger.debug(f"Tool call: {tc['name']}({event.arguments[:100]})")
                         pending_tool_call = event
 
                 elif etype == ServerEventType.RESPONSE_DONE:

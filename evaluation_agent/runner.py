@@ -13,6 +13,7 @@ Usage:
 import os
 import sys
 import json
+import time
 import argparse
 from pathlib import Path
 from typing import Optional
@@ -136,7 +137,6 @@ def run_conversation(client: AIProjectClient, agent_id: str, user_message: str) 
             return f"Run failed with status: {run.status}"
         else:
             # Still running, wait a bit
-            import time
             time.sleep(1)
     
     # Get messages

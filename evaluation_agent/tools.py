@@ -469,7 +469,8 @@ def list_datasets(folder_path: Optional[str] = None) -> dict:
         if search_path.exists():
             for jsonl_file in search_path.rglob("*.jsonl"):
                 try:
-                    line_count = sum(1 for _ in open(jsonl_file, 'r', encoding='utf-8'))
+                    with open(jsonl_file, 'r', encoding='utf-8') as f:
+                        line_count = sum(1 for _ in f)
                     datasets.append({
                         "path": str(jsonl_file),
                         "name": jsonl_file.stem,

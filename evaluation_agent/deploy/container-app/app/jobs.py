@@ -7,7 +7,7 @@ Manages async processing jobs with status tracking.
 import asyncio
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
@@ -92,7 +92,7 @@ class Job:
     def _calculate_duration(self) -> Optional[float]:
         if not self.started_at:
             return None
-        end = self.completed_at or datetime.utcnow()
+        end = self.completed_at or datetime.now(timezone.utc)
         return round((end - self.started_at).total_seconds(), 2)
 
 
@@ -160,9 +160,9 @@ class JobManager:
         job.status = status
         
         if status == JobStatus.RUNNING and job.started_at is None:
-            job.started_at = datetime.utcnow()
+            job.started_at = datetime.now(timezone.utc)
         elif status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
         
         if error:
             job.error = error
@@ -213,7 +213,7 @@ class JobManager:
         if job._task and not job._task.done():
             job._task.cancel()
             job.status = JobStatus.CANCELLED
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             logger.info(f"Cancelled job {job_id}")
             return True
         

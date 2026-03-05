@@ -28,7 +28,6 @@ from datetime import datetime
 import logging
 import concurrent.futures
 from itertools import groupby
-from operator import itemgetter
 
 # Global logger and file-only logger
 logger = logging.getLogger(__name__)
@@ -140,6 +139,7 @@ def read_test_files(test_files_path: str) -> List[Dict[str, Any]]:
                         'system_prompt': record.get('system_prompt')
                     })
                 except json.JSONDecodeError:
+                    logger.warning(f"Skipping malformed JSONL line: {line[:100]}")
                     continue
         else:
             # Plain text format - one file per line
@@ -263,8 +263,8 @@ def prepare_conversation_sessions(
     """
     # Group files by conversationID
     conversation_groups = []
-    sorted_files = sorted(file_list, key=lambda x: x.get('conversation_id', 'default'))
-    for conversation_id, group in groupby(sorted_files, key=lambda x: x.get('conversation_id', 'default')):
+    sorted_files = sorted(file_list, key=lambda x: x.get('conversation_id') or 'default')
+    for conversation_id, group in groupby(sorted_files, key=lambda x: x.get('conversation_id') or 'default'):
         conversation_groups.append((conversation_id, list(group)))
     
     sessions = []

@@ -439,7 +439,7 @@ def generate_run_name(dataset_name: str, dataset_version: str, evaluators: list)
     Format: YYYYMMDD-HHMMSS-xxx │ {dataset}_v{version} │ {evaluator_summary}
     Example: 20260206-122000-x7k │ Eiffel_Tower_Visit_1_v1 │ all
     """
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     random_suffix = secrets.token_hex(2)[:3]  # 3 char hex
     
     # Summarize evaluators
@@ -468,11 +468,11 @@ def journal_eval_group(eval_group_name: str, session_config: dict, eval_group_id
             logging.warning("Table storage not configured for journaling")
             return False
         
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         
         entity = {
             "PartitionKey": "evalgroups",
-            "RowKey": f"{eval_group_name}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            "RowKey": f"{eval_group_name}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
             "EvalGroupName": eval_group_name,
             "EvalGroupId": eval_group_id or "",
             "Model": session_config.get("model", ""),
@@ -2313,7 +2313,7 @@ def execute_evaluation(params: dict) -> dict:
             "instance_id": instance_id,
             "eval_id": eval_results.get("eval_id"),
             "eval_run_id": eval_results.get("eval_run_id"),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "voicelive_tests": voicelive_results,
             "foundry_evaluation": eval_results,
             "foundry_portal_url": eval_results.get("foundry_portal_url"),
