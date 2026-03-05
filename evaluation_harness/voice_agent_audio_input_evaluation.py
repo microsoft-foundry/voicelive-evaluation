@@ -333,7 +333,12 @@ def read_dataset(path: str) -> List[DatasetEntry]:
 
 
 def _resolve_audio_path(wav_path: str, dataset_dir: str) -> Optional[str]:
-    """Try several strategies to locate an audio file."""
+    """Try several strategies to locate an audio file.
+    
+    Validates that resolved path stays within the dataset directory
+    or its parent tree (up to 5 levels) to prevent path traversal.
+    """
+    # Absolute path — validate it exists
     if os.path.isabs(wav_path) and os.path.exists(wav_path):
         return wav_path
     # Relative to dataset dir (basename)
@@ -343,8 +348,14 @@ def _resolve_audio_path(wav_path: str, dataset_dir: str) -> Optional[str]:
     # Full relative from dataset dir
     candidate = os.path.join(dataset_dir, wav_path)
     if os.path.exists(candidate):
-        return os.path.abspath(candidate)
+        resolved = os.path.abspath(candidate)
+        # Validate resolved path is under dataset_dir (prevent traversal via ../)
+        if os.path.commonpath([resolved, os.path.abspath(dataset_dir)]) == os.path.abspath(dataset_dir):
+            return resolved
+        logger.warning(f"Path traversal blocked: {wav_path} resolved outside dataset directory")
+        return None
     # Walk up to 5 parent directories
+    repo_root = os.path.abspath(dataset_dir)
     current = dataset_dir
     for _ in range(5):
         candidate = os.path.join(current, wav_path)
@@ -555,10 +566,9 @@ async def process_audio(
                         turn.response_full = turn.assistant_response
                     content_index = getattr(event, 'content_index', None)
                     logger.info(f"Response truncated (barge-in): content_index={content_index}")
-                    # The truncated text will be reflected in session context;
-                    # we slice our captured response to match what the user heard
-                    if content_index is not None and turn.response_full:
-                        turn.assistant_response = turn.response_full[:content_index]
+                    # Note: content_index is a content PART index (0,1,2...), not a character
+                    # offset. The truncation is handled by VoiceLive's session context.
+                    # We keep response_full for evaluation and note truncation in metadata.
 
                 elif etype == ServerEventType.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE:
                     if hasattr(event, 'call_id') and hasattr(event, 'arguments'):
@@ -822,6 +832,7 @@ async def process_conversation(
             voice_type=config.voice_type,
             sample_rate=config.sample_rate,
             push_to_talk=config.push_to_talk,
+            enable_barge_in=config.enable_barge_in,
             tools=config.tools,
             tool_definitions=config.tool_definitions,
         )
@@ -836,6 +847,7 @@ async def process_conversation(
             voice_type=conv_config.voice_type,
             sample_rate=conv_config.sample_rate,
             push_to_talk=conv_config.push_to_talk,
+            enable_barge_in=conv_config.enable_barge_in,
             tools=tool_defs,
             tool_definitions=tool_defs,
         )
@@ -918,7 +930,11 @@ async def process_conversation(
 
 
 def _append_jsonl(path: str, record: Dict[str, Any]) -> None:
-    """Append a single JSON record to a JSONL file (thread-safe via append mode)."""
+    """Append a single JSON record to a JSONL file.
+    
+    Note: Not safe for concurrent writes from multiple processes.
+    For batch processing, use per-process files and aggregate after.
+    """
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")

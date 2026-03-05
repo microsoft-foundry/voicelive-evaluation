@@ -289,7 +289,7 @@ def prepare_conversation_sessions(
             'temp_file_path': temp_list_path,
             'conversation_id': conversation_id,
             'num_files': len(conv_files),
-            'aggregated_eval_file': aggregated_eval_file
+            'aggregated_eval_file': None  # Each subprocess writes its own file; aggregated post-completion
         })
     
     return sessions
@@ -328,7 +328,7 @@ def prepare_file_sessions(
             'temp_file_path': temp_list_path,
             'audio_path': file_record['audio_path'],
             'num_files': 1,
-            'aggregated_eval_file': aggregated_eval_file
+            'aggregated_eval_file': None  # Each subprocess writes its own file; aggregated post-completion
         })
     
     return sessions
@@ -342,14 +342,16 @@ def aggregate_evaluation_files(
     aggregated_eval_file: str
 ) -> Optional[str]:
     """
-    Verify the aggregated evaluation file exists and has content.
-    In multi-session modes, each subprocess writes directly to the aggregated file.
+    Collect per-session evaluation output files and merge into one aggregated file.
+    
+    Each subprocess writes its own eval JSONL (no shared file). This function
+    scans the output directory for session eval files and concatenates them.
     
     Returns:
         Path to the aggregated evaluation file, or None if not found/empty
     """
+    # For single mode, look for the session's evaluation file directly
     if not aggregated_eval_file:
-        # For single mode, look for the session's evaluation file
         session_dir = os.path.join(output_dir, timestamp)
         if os.path.exists(session_dir):
             for f in os.listdir(session_dir):
@@ -357,16 +359,24 @@ def aggregate_evaluation_files(
                     return os.path.join(session_dir, f)
         return None
     
-    if os.path.exists(aggregated_eval_file):
-        # Check if file has content
-        with open(aggregated_eval_file, 'r', encoding='utf-8') as f:
-            content = f.read().strip()
-            if content:
-                line_count = len([l for l in content.split('\n') if l.strip()])
-                log_message(f"Aggregated evaluation file has {line_count} entries: {aggregated_eval_file}")
-                return aggregated_eval_file
+    # Collect per-session eval files from output directory
+    eval_lines = []
+    for f in sorted(os.listdir(output_dir)):
+        fpath = os.path.join(output_dir, f)
+        if f.endswith('.jsonl') and os.path.isfile(fpath) and f != os.path.basename(aggregated_eval_file):
+            with open(fpath, 'r', encoding='utf-8') as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        eval_lines.append(line)
     
-    log_message("No evaluation data found in aggregated file", level="warning")
+    if eval_lines:
+        with open(aggregated_eval_file, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(eval_lines) + '\n')
+        log_message(f"Aggregated {len(eval_lines)} entries from per-session files: {aggregated_eval_file}")
+        return aggregated_eval_file
+    
+    log_message("No evaluation data found in per-session files", level="warning")
     return None
 
 

@@ -42,6 +42,13 @@ auth_level = func.AuthLevel.ANONYMOUS if allow_anonymous else func.AuthLevel.FUN
 
 app = func.FunctionApp(http_auth_level=auth_level)
 
+
+def _redact_sas(url: str) -> str:
+    """Redact SAS token from a URL for safe logging."""
+    import re
+    return re.sub(r'[?&](sig|se|sp|spr|sv|sr|srt|ss)=[^&]*', r'&\1=REDACTED', url)
+
+
 # Initialize blob client
 def get_blob_client():
     account = os.environ.get("AZURE_STORAGE_ACCOUNT")
@@ -377,8 +384,12 @@ def _download_foundry_dataset(name: str, version: str = None) -> str:
     
     # Download to temp file
     import httpx as _httpx
-    resp = _httpx.get(download_url)
-    resp.raise_for_status()
+    try:
+        resp = _httpx.get(download_url)
+        resp.raise_for_status()
+    except Exception as e:
+        # Redact SAS token from error messages
+        raise ValueError(f"Failed to download Foundry dataset '{name}' v{version}: {_redact_sas(str(e))}") from None
     
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl", mode="wb")
     tmp.write(resp.content)

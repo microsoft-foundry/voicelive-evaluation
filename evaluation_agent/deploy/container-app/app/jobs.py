@@ -142,7 +142,8 @@ class JobManager:
     
     async def get_job(self, job_id: str) -> Optional[Job]:
         """Get a job by ID."""
-        return self._jobs.get(job_id)
+        async with self._lock:
+            return self._jobs.get(job_id)
     
     async def update_job_status(
         self,
@@ -153,23 +154,24 @@ class JobManager:
         results_count: Optional[int] = None
     ) -> None:
         """Update job status."""
-        job = self._jobs.get(job_id)
-        if not job:
-            return
-        
-        job.status = status
-        
-        if status == JobStatus.RUNNING and job.started_at is None:
-            job.started_at = datetime.now(timezone.utc)
-        elif status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
-            job.completed_at = datetime.now(timezone.utc)
-        
-        if error:
-            job.error = error
-        if output_path:
-            job.output_path = output_path
-        if results_count is not None:
-            job.results_count = results_count
+        async with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return
+            
+            job.status = status
+            
+            if status == JobStatus.RUNNING and job.started_at is None:
+                job.started_at = datetime.now(timezone.utc)
+            elif status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+                job.completed_at = datetime.now(timezone.utc)
+            
+            if error:
+                job.error = error
+            if output_path:
+                job.output_path = output_path
+            if results_count is not None:
+                job.results_count = results_count
         
         logger.info(f"Job {job_id} status: {status.value}")
     
@@ -183,41 +185,44 @@ class JobManager:
         total_files: Optional[int] = None
     ) -> None:
         """Update job progress."""
-        job = self._jobs.get(job_id)
-        if not job:
-            return
-        
-        if total_files is not None:
-            job.progress.total_files = total_files
-        if files_processed is not None:
-            job.progress.files_processed = files_processed
-        if files_failed is not None:
-            job.progress.files_failed = files_failed
-        if current_file is not None:
-            job.progress.current_file = current_file
-        if current_conversation is not None:
-            job.progress.current_conversation = current_conversation
+        async with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return
+            
+            if total_files is not None:
+                job.progress.total_files = total_files
+            if files_processed is not None:
+                job.progress.files_processed = files_processed
+            if files_failed is not None:
+                job.progress.files_failed = files_failed
+            if current_file is not None:
+                job.progress.current_file = current_file
+            if current_conversation is not None:
+                job.progress.current_conversation = current_conversation
     
     async def set_job_task(self, job_id: str, task: asyncio.Task) -> None:
         """Set the processing task for a job."""
-        job = self._jobs.get(job_id)
-        if job:
-            job._task = task
+        async with self._lock:
+            job = self._jobs.get(job_id)
+            if job:
+                job._task = task
     
     async def cancel_job(self, job_id: str) -> bool:
         """Cancel a running job."""
-        job = self._jobs.get(job_id)
-        if not job:
+        async with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return False
+            
+            if job._task and not job._task.done():
+                job._task.cancel()
+                job.status = JobStatus.CANCELLED
+                job.completed_at = datetime.now(timezone.utc)
+                logger.info(f"Cancelled job {job_id}")
+                return True
+            
             return False
-        
-        if job._task and not job._task.done():
-            job._task.cancel()
-            job.status = JobStatus.CANCELLED
-            job.completed_at = datetime.now(timezone.utc)
-            logger.info(f"Cancelled job {job_id}")
-            return True
-        
-        return False
     
     async def list_jobs(
         self,

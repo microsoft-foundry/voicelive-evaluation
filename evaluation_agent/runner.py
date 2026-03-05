@@ -125,8 +125,14 @@ def run_conversation(client: AIProjectClient, agent_id: str, user_message: str) 
         agent_id=agent_id
     )
     
-    # Poll for completion
+    # Poll for completion with timeout
+    max_timeout_seconds = int(os.environ.get("RUNNER_TIMEOUT_MINUTES", "120")) * 60
+    start_time = time.time()
     while True:
+        elapsed = time.time() - start_time
+        if elapsed > max_timeout_seconds:
+            return f"Run timed out after {int(elapsed/60)} minutes (max: {max_timeout_seconds//60}min, set RUNNER_TIMEOUT_MINUTES to change)"
+        
         run = client.agents.runs.get(thread_id=thread.id, run_id=run.id)
         
         if run.status == "completed":
