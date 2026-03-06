@@ -2155,8 +2155,14 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
             logging.info(f"Reusing existing Foundry dataset: {dataset_id}")
             new_version = dataset_version
         else:
-            # Upload dataset with auto-versioning (like prototype)
-            ds_name = dataset_name or f"eval-dataset-{instance_id[:8]}"
+            # Upload dataset with auto-versioning
+            # Use clean dataset name: agent_{source_dataset_name}
+            if dataset_name:
+                import re
+                clean = re.sub(r'^\d{4}-?\d{2}-?\d{2}[_T]\d{2}-?\d{2}-?\d{2}_?', '', dataset_name)
+                ds_name = f"agent_{clean}" if clean else f"agent_{dataset_name}"
+            else:
+                ds_name = f"agent_eval_{instance_id[:8]}"
             try:
                 # Check for existing versions
                 existing = list(project_client.datasets.list())
@@ -2256,6 +2262,19 @@ def execute_evaluation(params: dict) -> dict:
         foundry_dataset_id = params.get("foundry_dataset_id")  # Optional: reuse existing dataset
         session_config = params.get("session_config")  # VoiceLive session config for naming
         dataset_name = params.get("dataset_name")  # Dataset name for run naming
+        
+        # Derive clean dataset name from path if not explicitly provided
+        if not dataset_name:
+            import re
+            stem = Path(dataset_path).stem
+            clean = re.sub(r'^results_\d{8}_\d{6}$', '', stem)  # Strip results_YYYYMMDD_HHMMSS
+            if clean:
+                dataset_name = clean
+            else:
+                # Try to extract from parent directory (e.g. voicelive_jobs/{id}/results_xxx.jsonl)
+                parent = Path(dataset_path).parent.name
+                if parent and parent != "." and not parent.startswith("voicelive_jobs"):
+                    dataset_name = parent
         
         # Download dataset here (not in prepare_evaluation) to avoid temp file issues
         # Detect which container the file is in based on path patterns
@@ -3220,6 +3239,7 @@ async def check_voicelive_job_status(req: func.HttpRequest) -> func.HttpResponse
                     foundry_info = _register_voicelive_output_as_foundry_dataset(
                         output_path=result["output_path"],
                         job_id=body.get("job_id", "unknown"),
+                        source_dataset=result.get("dataset_path", ""),
                     )
                     if foundry_info:
                         result["foundry_dataset"] = foundry_info
@@ -3241,7 +3261,7 @@ async def check_voicelive_job_status(req: func.HttpRequest) -> func.HttpResponse
         )
 
 
-def _register_voicelive_output_as_foundry_dataset(output_path: str, job_id: str) -> dict:
+def _register_voicelive_output_as_foundry_dataset(output_path: str, job_id: str, source_dataset: str = "") -> dict:
     """Register a VoiceLive output as a Foundry dataset for discovery."""
     from azure.ai.projects import AIProjectClient
     
@@ -3253,9 +3273,16 @@ def _register_voicelive_output_as_foundry_dataset(output_path: str, job_id: str)
         # Download the output file from blob
         local_path, actual_blob = download_results(output_path)
         
-        # Generate a dataset name from the output
-        short_id = job_id[:8] if len(job_id) > 8 else job_id
-        dataset_name = f"voicelive_output_{short_id}"
+        # Derive dataset name from source dataset path
+        # e.g. "datasets/Eiffel_Tower_Visit_1/Eiffel_Tower_Visit_1.jsonl" -> "agent_Eiffel_Tower_Visit_1"
+        import re
+        if source_dataset:
+            stem = Path(source_dataset).stem
+            clean = re.sub(r'^\d{4}-?\d{2}-?\d{2}[_T]\d{2}-?\d{2}-?\d{2}_?', '', stem)
+            dataset_name = f"agent_{clean}" if clean else f"agent_{stem}"
+        else:
+            short_id = job_id[:8] if len(job_id) > 8 else job_id
+            dataset_name = f"agent_voicelive_{short_id}"
         
         project_client = AIProjectClient(
             credential=DefaultAzureCredential(),
