@@ -26,7 +26,7 @@ import logging
 import tempfile
 import secrets
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 
 import azure.functions as func
