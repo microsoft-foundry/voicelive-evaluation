@@ -1,6 +1,6 @@
 # VoiceLive Evaluation Agent v3 - Architecture
 
-*Last updated: February 21, 2026*
+*Last updated: March 6, 2026*
 
 ## Overview
 
@@ -616,7 +616,24 @@ When barge-in is enabled (`enable_barge_in: true`, the default), the VoiceLive s
 When a `CONVERSATION_ITEM_TRUNCATED` event fires:
 1. `was_truncated` is set to `True` on the turn
 2. The full (pre-truncation) response is saved to `response_full`
-3. `assistant_response` is sliced to the truncated content (using `content_index`)
+3. `assistant_response` preserved as-is (truncation reflected in VoiceLive session context)
+
+**Note on `content_index`:** The `CONVERSATION_ITEM_TRUNCATED` event includes a `content_index` field. This is a **content part index** (0, 1, 2...), NOT a character offset. It identifies which content part was truncated, not where in the text the truncation occurred.
+
+### Empty Response Handling
+
+VoiceLive may return no assistant response in two scenarios:
+1. **Barge-in truncation before response** — user interrupts before any text is generated
+2. **Ambiguous/short input** — VoiceLive cannot generate a meaningful response
+
+Foundry evaluators reject empty response lists (`"Response list cannot be empty"`). Both solutions insert a descriptive placeholder:
+```python
+# If no response text received:
+response_messages = [{"role": "assistant", "content": "[No response — barge-in truncated before response]"}]
+# or: "[No response — no response received]"
+```
+
+This also applies after tool call flows where the follow-up response may be empty.
 
 In evaluation output, barge-in turns include:
 - `barge_in: true` — from the input dataset, marking turns designed to interrupt
@@ -1260,6 +1277,10 @@ Auto-registration in `check_voicelive_job_status` attempts Foundry dataset uploa
 12. **PTT mode limited by race condition** — VoiceLive requires `turn_detection` to always be configured. PTT mode (`push_to_talk=true`) uses VAD + `commit()` + `response.create()` hybrid, achieving ~50-60% response rate vs VAD's ~90-100%. The `conversation_already_has_active_response` error occurs when committing audio triggers a response before the commit event fully processes. Feature request filed for `turn_detection=None` support.
 13. **Tool definitions normalization** — Dataset JSONL may contain `tool_definitions` as a single dict instead of a list. The processor normalizes this automatically, but datasets should ideally use array format: `"tool_definitions": [{"type":"function",...}]`
 14. **Foundry Agent UX does not support .jsonl file uploads** — The Foundry NEXTGEN Agent portal chat UI only accepts a limited set of file types (.json, .txt, .pdf, etc.) for attachment. `.jsonl` is **not** in the supported list. Users cannot drag-and-drop JSONL files into the agent conversation. **Workaround**: Use the SAS URL upload pattern (get_upload_url → finalize_upload) or upload datasets via the SDK/API. A custom web frontend is planned to remove this limitation.
+15. **Eval group reuse with stale evaluators** — When `run_foundry_evaluation` creates an eval group by name, it reuses existing groups with the same name. If an earlier run created the group with different evaluators (e.g. fluency-only for testing), subsequent runs inherit those evaluators instead of the defaults. **Workaround**: Delete stale eval groups before running with different evaluator sets, or pass explicit `eval_group_id=None` to force a new group.
+16. ~~**Empty response causes FAILED_EXECUTION**~~ — ✅ Fixed. Foundry rejects empty response lists. Both solutions now insert a descriptive placeholder when VoiceLive returns no response (barge-in or ambiguous input).
+17. ~~**content_index misused as string offset**~~ — ✅ Fixed. The `CONVERSATION_ITEM_TRUNCATED` event's `content_index` is a content part index, not a character offset. Removed incorrect string slicing.
+18. ~~**Batch processor race condition**~~ — ✅ Fixed. Per-process output files with post-aggregation instead of concurrent writes to a shared file.
 
 ### Future Improvements
 1. **Managed Identity auth for Foundry → Function App** - Code path exists (`--entra-auth --client-id` in `setup_agent_openapi.py` using `OpenApiManagedAuthDetails`), but deployment currently uses connection-based API key auth via `postdeploy.ps1`. Activating requires: create a separate app registration for the Function App, enable EasyAuth on Function App, update postdeploy to use `--entra-auth` instead of `--connection-name`.
@@ -1346,4 +1367,4 @@ Key differences from OpenAI wire format:
 - `arguments` is a **parsed dict** (not a JSON string)
 - No nested `tool_call` sub-object
 
-*Document last updated: February 21, 2026*
+*Document last updated: March 6, 2026*
