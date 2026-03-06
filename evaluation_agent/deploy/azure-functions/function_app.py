@@ -2475,7 +2475,27 @@ async def run_voicelive_evaluation(req: func.HttpRequest, client) -> func.HttpRe
             )
         
         # Extract dataset name for run naming
-        dataset_name = Path(dataset_path).stem if dataset_path else None
+        # Prefer explicit name from body, then derive from path
+        import re
+        dataset_name = body.get("dataset_name")
+        if not dataset_name:
+            stem = Path(dataset_path).stem
+            # Strip results_YYYYMMDD_HHMMSS pattern (VoiceLive output filenames)
+            clean = re.sub(r'^results_\d{8}_\d{6}$', '', stem)
+            if clean:
+                dataset_name = clean
+            else:
+                # Try to read source dataset from VoiceLive job metadata
+                try:
+                    job_dir = str(Path(dataset_path).parent)
+                    meta_path = f"{job_dir}/metadata.json"
+                    meta_local, _ = download_results(meta_path)
+                    with open(meta_local, 'r') as f:
+                        meta = json.load(f)
+                    dataset_name = Path(meta.get("dataset_path", "")).stem or stem
+                    os.unlink(meta_local)
+                except Exception:
+                    dataset_name = stem
         
         # Start the orchestration with all parameters
         instance_id = await client.start_new(
