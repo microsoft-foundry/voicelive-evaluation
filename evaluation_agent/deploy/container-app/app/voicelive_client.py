@@ -152,6 +152,9 @@ class ConversationTurn:
         resp_text = sanitize_text_for_utf8(self.assistant_response)
         if resp_text:
             response_messages.append({"role": "assistant", "content": resp_text})
+        else:
+            reason = "barge-in truncated before response" if self.was_truncated else "no response received"
+            response_messages.append({"role": "assistant", "content": f"[No response — {reason}]"})
 
         metrics = self.calculate_metrics()
         metrics["logical_turn_number"] = self.turn_number

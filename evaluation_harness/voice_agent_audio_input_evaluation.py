@@ -782,6 +782,13 @@ def build_evaluation_data(
             "role": "assistant",
             "content": resp_text,
         })
+    else:
+        # Foundry rejects empty response lists — provide a descriptive placeholder
+        reason = "barge-in truncated before response" if turn.was_truncated else "no response received"
+        response_messages.append({
+            "role": "assistant",
+            "content": f"[No response — {reason}]",
+        })
 
     metrics = turn.calculate_metrics()
     metrics["logical_turn_number"] = turn.turn_number
