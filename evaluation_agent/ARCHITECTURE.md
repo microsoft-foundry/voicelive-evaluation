@@ -364,6 +364,23 @@ flowchart TD
 
 All three are intentional — #1 is the happy path, #2 is the fallback, #3 is for new uploads.
 
+### Foundry Dataset Naming Convention
+
+Datasets uploaded to Foundry use a `{pipeline}_{dataset_name}` naming pattern with auto-versioning:
+
+| Pipeline | Name Pattern | Example | Versioning |
+|----------|-------------|---------|------------|
+| **Harness** (local) | `harness_{dataset_name}` | `harness_Eiffel_Tower_Visit_1` | Auto-increment (v1, v2, v3...) |
+| **Agent** (cloud eval) | `agent_{dataset_name}` | `agent_Eiffel_Tower_Visit_1` | Auto-increment |
+| **Agent** (auto-register) | `agent_{source_dataset_name}` | `agent_Eiffel_Tower_Visit_1` | Auto-increment |
+| **Fallback** | `agent_eval_{instance_id[:8]}` | `agent_eval_2b02ffa0` | Version 1 |
+
+**Key design decisions:**
+- Timestamp prefixes are stripped from filenames (e.g. `2026-03-05_16-00-34_Eiffel_Tower_Visit_1` → `Eiffel_Tower_Visit_1`)
+- Same dataset re-evaluated creates a **new version**, not a new dataset — enables comparison across runs
+- Pipeline prefix (`harness_` vs `agent_`) distinguishes which solution produced the results
+- All three upload paths derive the name from the source dataset, not the output file
+
 ### Session Configuration Table
 
 The `sessionconfigs` table stores VoiceLive session presets:
