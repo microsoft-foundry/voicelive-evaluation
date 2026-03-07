@@ -201,7 +201,12 @@ def upload_dataset_from_transcripts(dataset_path: str, project_client: AIProject
     
     # Get existing datasets in the project and check the current version. If dataset with same name exists, increment version, else create version 1.
     datasets = list(project_client.datasets.list())
-    dataset_name = Path(dataset_path).stem
+    # Use clean dataset name — strip timestamp prefixes from harness output filenames
+    raw_name = Path(dataset_path).stem
+    # Remove timestamp prefix pattern (YYYY-MM-DD_HH-MM-SS_ or YYYYMMDD_HHMMSS_)
+    import re
+    clean_name = re.sub(r'^\d{4}-?\d{2}-?\d{2}[_T]\d{2}-?\d{2}-?\d{2}_?', '', raw_name)
+    dataset_name = f"harness_{clean_name}" if clean_name else f"harness_{raw_name}"
     existing_versions = [d for d in datasets if d.name == dataset_name]
     if existing_versions:
         latest_version = max(d.version for d in existing_versions)

@@ -7,6 +7,7 @@ Smoke tests for the local evaluation harness — audio loading, dataset parsing,
 | Script | Description |
 |--------|-------------|
 | `test_audio_loading.py` | Tests audio file loading (PCM16 + float32 WAV) and dataset parsing for Eiffel Tower and speech-trivia-qa datasets |
+| `test_e2e_pipeline.py` | Full E2E integration tests — dataset loading, audio format, eval data assembly, tool message format, path traversal prevention |
 
 ## Running Tests
 

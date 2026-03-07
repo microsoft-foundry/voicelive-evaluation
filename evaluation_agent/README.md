@@ -373,6 +373,8 @@ To compare push-to-talk vs VAD on the same dataset:
 | Tool | Description |
 |------|-------------|
 | `run_voicelive_evaluation` | Full pipeline: download blob results → upload Foundry dataset → create eval group → start evaluators → return `eval_id`, `eval_run_id`, portal URL **immediately** (non-blocking) |
+
+> **Dataset naming:** Foundry datasets are named `agent_{source_dataset_name}` with auto-versioning. Re-running evaluation on the same dataset creates a new version (v1, v2, v3...) enabling comparison across runs. The harness uses `harness_{dataset_name}` prefix to distinguish local vs cloud pipeline results.
 | `check_evaluation_status` | Query eval run status + metrics. Accepts `eval_id` + `eval_run_id` (queries Foundry directly) or `instance_id` (legacy durable check) |
 | `get_evaluation_recommendations` | Get settings for large datasets |
 | `analyze_evaluation_results` | Analyze completed evaluation |

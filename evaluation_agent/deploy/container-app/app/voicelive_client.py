@@ -152,6 +152,9 @@ class ConversationTurn:
         resp_text = sanitize_text_for_utf8(self.assistant_response)
         if resp_text:
             response_messages.append({"role": "assistant", "content": resp_text})
+        else:
+            reason = "barge-in truncated before response" if self.was_truncated else "no response received"
+            response_messages.append({"role": "assistant", "content": f"[No response — {reason}]"})
 
         metrics = self.calculate_metrics()
         metrics["logical_turn_number"] = self.turn_number
@@ -498,8 +501,9 @@ class VoiceLiveClient:
                             turn.response_full = turn.assistant_response
                         content_index = getattr(event, 'content_index', None)
                         logger.info(f"Response truncated (barge-in): content_index={content_index}")
-                        if content_index is not None and turn.response_full:
-                            turn.assistant_response = turn.response_full[:content_index]
+                        # Note: content_index is a content PART index (0,1,2...), not a character
+                        # offset. The truncation is handled by VoiceLive's session context.
+                        # We keep response_full for evaluation and note truncation in metadata.
                     
                     # Function call arguments done — store as pending
                     # SDK sample: Do NOT execute yet; wait for RESPONSE_DONE first

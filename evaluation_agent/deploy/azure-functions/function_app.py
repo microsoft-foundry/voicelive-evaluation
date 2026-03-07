@@ -26,7 +26,7 @@ import logging
 import tempfile
 import secrets
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 
 import azure.functions as func
@@ -41,6 +41,13 @@ allow_anonymous = os.environ.get("ALLOW_ANONYMOUS", "false").lower() == "true"
 auth_level = func.AuthLevel.ANONYMOUS if allow_anonymous else func.AuthLevel.FUNCTION
 
 app = func.FunctionApp(http_auth_level=auth_level)
+
+
+def _redact_sas(url: str) -> str:
+    """Redact SAS token from a URL for safe logging."""
+    import re
+    return re.sub(r'[?&](sig|se|sp|spr|sv|sr|srt|ss)=[^&]*', r'&\1=REDACTED', url)
+
 
 # Initialize blob client
 def get_blob_client():
@@ -377,8 +384,12 @@ def _download_foundry_dataset(name: str, version: str = None) -> str:
     
     # Download to temp file
     import httpx as _httpx
-    resp = _httpx.get(download_url)
-    resp.raise_for_status()
+    try:
+        resp = _httpx.get(download_url)
+        resp.raise_for_status()
+    except Exception as e:
+        # Redact SAS token from error messages
+        raise ValueError(f"Failed to download Foundry dataset '{name}' v{version}: {_redact_sas(str(e))}") from None
     
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl", mode="wb")
     tmp.write(resp.content)
@@ -439,7 +450,7 @@ def generate_run_name(dataset_name: str, dataset_version: str, evaluators: list)
     Format: YYYYMMDD-HHMMSS-xxx │ {dataset}_v{version} │ {evaluator_summary}
     Example: 20260206-122000-x7k │ Eiffel_Tower_Visit_1_v1 │ all
     """
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     random_suffix = secrets.token_hex(2)[:3]  # 3 char hex
     
     # Summarize evaluators
@@ -468,11 +479,11 @@ def journal_eval_group(eval_group_name: str, session_config: dict, eval_group_id
             logging.warning("Table storage not configured for journaling")
             return False
         
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         
         entity = {
             "PartitionKey": "evalgroups",
-            "RowKey": f"{eval_group_name}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            "RowKey": f"{eval_group_name}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
             "EvalGroupName": eval_group_name,
             "EvalGroupId": eval_group_id or "",
             "Model": session_config.get("model", ""),
@@ -2144,8 +2155,14 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
             logging.info(f"Reusing existing Foundry dataset: {dataset_id}")
             new_version = dataset_version
         else:
-            # Upload dataset with auto-versioning (like prototype)
-            ds_name = dataset_name or f"eval-dataset-{instance_id[:8]}"
+            # Upload dataset with auto-versioning
+            # Use clean dataset name: agent_{source_dataset_name}
+            if dataset_name:
+                import re
+                clean = re.sub(r'^\d{4}-?\d{2}-?\d{2}[_T]\d{2}-?\d{2}-?\d{2}_?', '', dataset_name)
+                ds_name = f"agent_{clean}" if clean else f"agent_{dataset_name}"
+            else:
+                ds_name = f"agent_eval_{instance_id[:8]}"
             try:
                 # Check for existing versions
                 existing = list(project_client.datasets.list())
@@ -2246,6 +2263,19 @@ def execute_evaluation(params: dict) -> dict:
         session_config = params.get("session_config")  # VoiceLive session config for naming
         dataset_name = params.get("dataset_name")  # Dataset name for run naming
         
+        # Derive clean dataset name from path if not explicitly provided
+        if not dataset_name:
+            import re
+            stem = Path(dataset_path).stem
+            clean = re.sub(r'^results_\d{8}_\d{6}$', '', stem)  # Strip results_YYYYMMDD_HHMMSS
+            if clean:
+                dataset_name = clean
+            else:
+                # Try to extract from parent directory (e.g. voicelive_jobs/{id}/results_xxx.jsonl)
+                parent = Path(dataset_path).parent.name
+                if parent and parent != "." and not parent.startswith("voicelive_jobs"):
+                    dataset_name = parent
+        
         # Download dataset here (not in prepare_evaluation) to avoid temp file issues
         # Detect which container the file is in based on path patterns
         if dataset_path.startswith("voicelive_jobs/") or dataset_path.startswith("outputs/voicelive_jobs/") or "/voicelive_jobs/" in dataset_path:
@@ -2313,7 +2343,7 @@ def execute_evaluation(params: dict) -> dict:
             "instance_id": instance_id,
             "eval_id": eval_results.get("eval_id"),
             "eval_run_id": eval_results.get("eval_run_id"),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "voicelive_tests": voicelive_results,
             "foundry_evaluation": eval_results,
             "foundry_portal_url": eval_results.get("foundry_portal_url"),
@@ -2445,7 +2475,27 @@ async def run_voicelive_evaluation(req: func.HttpRequest, client) -> func.HttpRe
             )
         
         # Extract dataset name for run naming
-        dataset_name = Path(dataset_path).stem if dataset_path else None
+        # Prefer explicit name from body, then derive from path
+        import re
+        dataset_name = body.get("dataset_name")
+        if not dataset_name:
+            stem = Path(dataset_path).stem
+            # Strip results_YYYYMMDD_HHMMSS pattern (VoiceLive output filenames)
+            clean = re.sub(r'^results_\d{8}_\d{6}$', '', stem)
+            if clean:
+                dataset_name = clean
+            else:
+                # Try to read source dataset from VoiceLive job metadata
+                try:
+                    job_dir = str(Path(dataset_path).parent)
+                    meta_path = f"{job_dir}/metadata.json"
+                    meta_local, _ = download_results(meta_path)
+                    with open(meta_local, 'r') as f:
+                        meta = json.load(f)
+                    dataset_name = Path(meta.get("dataset_path", "")).stem or stem
+                    os.unlink(meta_local)
+                except Exception:
+                    dataset_name = stem
         
         # Start the orchestration with all parameters
         instance_id = await client.start_new(
@@ -3209,6 +3259,7 @@ async def check_voicelive_job_status(req: func.HttpRequest) -> func.HttpResponse
                     foundry_info = _register_voicelive_output_as_foundry_dataset(
                         output_path=result["output_path"],
                         job_id=body.get("job_id", "unknown"),
+                        source_dataset=result.get("dataset_path", ""),
                     )
                     if foundry_info:
                         result["foundry_dataset"] = foundry_info
@@ -3230,7 +3281,7 @@ async def check_voicelive_job_status(req: func.HttpRequest) -> func.HttpResponse
         )
 
 
-def _register_voicelive_output_as_foundry_dataset(output_path: str, job_id: str) -> dict:
+def _register_voicelive_output_as_foundry_dataset(output_path: str, job_id: str, source_dataset: str = "") -> dict:
     """Register a VoiceLive output as a Foundry dataset for discovery."""
     from azure.ai.projects import AIProjectClient
     
@@ -3242,9 +3293,16 @@ def _register_voicelive_output_as_foundry_dataset(output_path: str, job_id: str)
         # Download the output file from blob
         local_path, actual_blob = download_results(output_path)
         
-        # Generate a dataset name from the output
-        short_id = job_id[:8] if len(job_id) > 8 else job_id
-        dataset_name = f"voicelive_output_{short_id}"
+        # Derive dataset name from source dataset path
+        # e.g. "datasets/Eiffel_Tower_Visit_1/Eiffel_Tower_Visit_1.jsonl" -> "agent_Eiffel_Tower_Visit_1"
+        import re
+        if source_dataset:
+            stem = Path(source_dataset).stem
+            clean = re.sub(r'^\d{4}-?\d{2}-?\d{2}[_T]\d{2}-?\d{2}-?\d{2}_?', '', stem)
+            dataset_name = f"agent_{clean}" if clean else f"agent_{stem}"
+        else:
+            short_id = job_id[:8] if len(job_id) > 8 else job_id
+            dataset_name = f"agent_voicelive_{short_id}"
         
         project_client = AIProjectClient(
             credential=DefaultAzureCredential(),

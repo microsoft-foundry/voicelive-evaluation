@@ -8,7 +8,7 @@ import os
 import json
 import logging
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
@@ -218,10 +218,11 @@ class BlobStorageClient:
         # Ensure container exists
         try:
             container_client.create_container()
-        except Exception:
-            pass  # Container already exists
+        except Exception as e:
+            if "ContainerAlreadyExists" not in str(e):
+                logger.warning(f"Container creation issue: {e}")
         
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         base_path = f"voicelive_jobs/{job_id}"
         
         # Upload results JSONL
@@ -238,7 +239,7 @@ class BlobStorageClient:
             meta_content = json.dumps({
                 **metadata,
                 "results_file": results_blob,
-                "uploaded_at": datetime.utcnow().isoformat(),
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
                 "entry_count": len(results)
             }, indent=2)
             
