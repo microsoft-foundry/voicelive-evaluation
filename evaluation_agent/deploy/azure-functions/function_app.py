@@ -2225,15 +2225,12 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
         eval_run_id = eval_run.id
         logging.info(f"Created eval run: {run_name} ({eval_run_id})")
         
-        # Get portal URL from the initial run object (available immediately)
+        # Get portal URL from the SDK (always available on run object)
         portal_url = getattr(eval_run, 'report_url', None)
-        logging.info(f"SDK report_url: {portal_url}")
-        
-        # The SDK report_url should be correct format:
-        # https://ai.azure.com/nextgen/r/{project}/build/evaluations/{eval_id}/run/{run_id}
         if not portal_url:
-            # Fallback: construct minimal working URL
-            portal_url = f"https://ai.azure.com/build/evaluations/{eval_id}"
+            # This should not happen with current SDK but guard against it
+            portal_url = f"https://ai.azure.com/build/evaluations/{eval_id}/run/{eval_run_id}"
+        logging.info(f"Portal URL: {portal_url}")
         
         logging.info(f"Final portal URL: {portal_url}")
         
@@ -2666,7 +2663,7 @@ def _check_foundry_eval_run(eval_id: str, eval_run_id: str) -> func.HttpResponse
         
         portal_url = getattr(run_status, 'report_url', None)
         if not portal_url:
-            portal_url = f"https://ai.azure.com/build/evaluations/{eval_id}"
+            portal_url = f"https://ai.azure.com/build/evaluations/{eval_id}/run/{eval_run_id}"
         
         response = {
             "action": "check_evaluation_status",
