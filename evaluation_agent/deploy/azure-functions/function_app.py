@@ -2174,13 +2174,24 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
             except Exception:
                 new_version = "1"
             
-            dataset = project_client.datasets.upload_file(
-                name=ds_name,
-                version=new_version,
-                file_path=dataset_path
-            )
-            dataset_id = dataset.id
-            logging.info(f"Uploaded dataset: {dataset_id} (version {new_version})")
+            # Upload with retry on version conflict (soft-deleted datasets may block v1)
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    dataset = project_client.datasets.upload_file(
+                        name=ds_name,
+                        version=new_version,
+                        file_path=dataset_path
+                    )
+                    dataset_id = dataset.id
+                    logging.info(f"Uploaded dataset: {dataset_id} (version {new_version})")
+                    break
+                except Exception as upload_err:
+                    if "already exists" in str(upload_err).lower() and attempt < max_retries - 1:
+                        new_version = str(int(new_version) + 1)
+                        logging.warning(f"Version conflict, retrying with v{new_version}")
+                    else:
+                        raise
         
         # Create and run evaluation
         from openai.types.evals.create_eval_jsonl_run_data_source_param import (
