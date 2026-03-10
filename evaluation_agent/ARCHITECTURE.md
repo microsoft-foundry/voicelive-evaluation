@@ -1374,6 +1374,39 @@ configure_azure_monitor(connection_string="InstrumentationKey=...")
 
 ---
 
+## Cross-Solution Feature Parity
+
+The evaluation harness (`evaluation_harness/`) and the cloud agent (`evaluation_agent/`) now share identical VoiceLive session configuration and evaluator defaults.
+
+### Session Config Parity
+
+| Parameter | Container Default | Harness Default | Harness CLI arg |
+|-----------|------------------|-----------------|-----------------|
+| model | gpt-realtime | gpt-realtime | `--model` |
+| voice | en-US-Ava:DragonHDLatestNeural | same | `--voice` |
+| voice_type | azure-standard | same | `--voice-type` |
+| sample_rate | 24000 | same | `--sample-rate` |
+| noise_reduction | azure_deep_noise_suppression | same | `--noise-reduction` |
+| echo_cancellation | server_echo_cancellation | same | `--echo-cancellation` |
+| transcription_model | auto (based on model) | same | `--transcription-model` |
+| vad_type | azure_semantic_vad_multilingual | same | `--vad-type` |
+| use_eou_detection | true | same | `--enable/disable-eou-detection` |
+| push_to_talk | false | same | `--push-to-talk` |
+| enable_barge_in | true | same | `--enable/disable-barge-in` |
+
+### Evaluator Parity
+
+Both solutions use the same 8 default evaluators:
+`intent_resolution`, `task_adherence`, `task_completion`, `response_completeness`, `tool_call_accuracy`, `tool_selection`, `tool_input_accuracy`, `tool_output_utilization`
+
+The harness also supports `--evaluators all` (13 evaluators) or `--evaluators name1,name2` for custom selection.
+
+### Config File Support (Harness Only)
+
+The harness supports `--config session_config.json` to load session parameters from a local JSON file. CLI args override file values. The config file format matches the container's `SessionConfig.to_dict()` output.
+
+---
+
 ## Version Comparison
 
 | Aspect | v1 | v2 | v3 |
