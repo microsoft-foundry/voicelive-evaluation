@@ -58,6 +58,7 @@ graph TB
     HTTP --> DS
     HTTP --> OUT
     HTTP --> TBL1
+    HTTP --> TBL3
     HTTP -.->|Telemetry| AI
     Durable --> FDS
     Durable --> EVAL
@@ -65,6 +66,7 @@ graph TB
     Durable --> TBL2
     VL --> DS
     VL --> OUT
+    VL --> TBL3
     VL -.->|Telemetry| AI
 ```
 
