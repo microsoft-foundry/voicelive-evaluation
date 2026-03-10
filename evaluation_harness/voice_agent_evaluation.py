@@ -558,8 +558,14 @@ def main(eval_input_path: str, referenceTranscriptFilePath: str = "", output_fol
 
         # Filter evaluators if a specific list was requested
         if evaluators:
-            testing_criteria = [tc for tc in testing_criteria if tc["name"] in evaluators]
-            print(f"Using {len(testing_criteria)} evaluators: {[tc['name'] for tc in testing_criteria]}")
+            filtered = [tc for tc in testing_criteria if tc["name"] in evaluators]
+            if not filtered:
+                available = [tc["name"] for tc in testing_criteria]
+                print(f"WARNING: No matching evaluators for {evaluators}. Available: {available}")
+                print(f"Falling back to all {len(testing_criteria)} builtin evaluators.")
+            else:
+                testing_criteria = filtered
+                print(f"Using {len(testing_criteria)} evaluators: {[tc['name'] for tc in testing_criteria]}")
         else:
             print(f"Using all {len(testing_criteria)} builtin evaluators")
 

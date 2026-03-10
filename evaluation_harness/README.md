@@ -176,7 +176,7 @@ Load session configuration from a JSON file with `--config`. CLI args override f
 }
 ```
 
-The config file format matches the Container App's `SessionConfig.to_dict()` output for portability.
+The config file uses a flat key format for simplicity. It is conceptually aligned with the Container App's `SessionConfig` options but uses flat keys (e.g., `voice`, `voice_type`) rather than the nested structure from `SessionConfig.to_dict()`. Both flat and nested formats are supported when loading.
 
 ## Dataset Format
 

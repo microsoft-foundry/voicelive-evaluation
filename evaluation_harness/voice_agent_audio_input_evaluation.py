@@ -26,6 +26,7 @@ from azure.ai.voicelive.aio import connect as voicelive_connect
 from azure.ai.voicelive.models import (
     ServerEventType,
     RequestSession,
+    ServerVad,
     AzureSemanticVadMultilingual,
     AzureStandardVoice,
     OpenAIVoice,
@@ -92,7 +93,9 @@ class SessionConfig:
     """Configuration for a VoiceLive session.
     
     Aligned with Container App's SessionConfig for feature parity.
-    All parameters can be set via CLI args or loaded from a JSON config file.
+    Parameters can be set via CLI args or loaded from a JSON config file.
+    Note: `instructions`, `tools`, and `tool_definitions` are set from dataset
+    metadata, not via CLI or config file.
     """
     instructions: str = SYSTEM_INSTRUCTION
     model: str = "gpt-realtime"
@@ -399,7 +402,7 @@ async def configure_session(connection: Any, config: SessionConfig) -> None:
     else:
         sdk_voice = AzureStandardVoice(name=config.voice, type=config.voice_type)
 
-    # Turn detection — always configured (VoiceLive requires it, even for PTT)
+    # Turn detection — select VAD implementation based on vad_type
     vad_kwargs = {
         "auto_truncate": config.enable_barge_in,
         "interrupt_response": config.enable_barge_in,
@@ -409,10 +412,13 @@ async def configure_session(connection: Any, config: SessionConfig) -> None:
     if config.silence_duration_ms is not None:
         vad_kwargs["silence_duration_ms"] = config.silence_duration_ms
 
-    if config.supports_eou_detection() and config.use_eou_detection:
-        vad_kwargs["end_of_utterance_detection"] = EouDetection(model=config.eou_model)
-
-    sdk_turn_detection = AzureSemanticVadMultilingual(**vad_kwargs)
+    if config.vad_type == "server_vad":
+        sdk_turn_detection = ServerVad(**vad_kwargs)
+    else:
+        # azure_semantic_vad_multilingual (default)
+        if config.supports_eou_detection() and config.use_eou_detection:
+            vad_kwargs["end_of_utterance_detection"] = EouDetection(model=config.eou_model)
+        sdk_turn_detection = AzureSemanticVadMultilingual(**vad_kwargs)
 
     sdk_session = RequestSession(
         modalities=[Modality.TEXT, Modality.AUDIO],
@@ -1052,15 +1058,15 @@ async def main_async(args: argparse.Namespace) -> None:
         or os.environ.get("AZURE_VOICE_LIVE_ENDPOINT")
         or ""
     )
-    # CLI --model takes priority over env var
-    if args.model != "gpt-realtime":
-        model = args.model  # Explicitly set via CLI
+    # CLI --model takes priority when explicitly provided
+    env_model = (
+        os.environ.get("AZURE_VOICELIVE_MODEL")
+        or os.environ.get("AZURE_VOICE_LIVE_MODEL")
+    )
+    if "--model" in sys.argv:
+        model = args.model  # User explicitly set --model
     else:
-        model = (
-            os.environ.get("AZURE_VOICELIVE_MODEL")
-            or os.environ.get("AZURE_VOICE_LIVE_MODEL")
-            or args.model
-        )
+        model = env_model or args.model  # Env var or argparse default
     if not endpoint:
         raise ValueError(
             "AZURE_VOICELIVE_ENDPOINT (or AZURE_VOICE_LIVE_ENDPOINT) environment variable is required"
@@ -1216,12 +1222,15 @@ def _run_evaluation(
         os.makedirs(eval_output, exist_ok=True)
 
         # Resolve evaluator list
-        if evaluators and evaluators == "all":
+        if evaluators == "all":
             eval_list = ALL_EVALUATORS
         elif evaluators and evaluators != "default":
             eval_list = [e.strip() for e in evaluators.split(",") if e.strip()]
+            if not eval_list:
+                logger.warning("Empty evaluator list after parsing — falling back to defaults")
+                eval_list = DEFAULT_EVALUATORS
         else:
-            eval_list = DEFAULT_EVALUATORS  # "default" or None → 8 defaults
+            eval_list = DEFAULT_EVALUATORS  # "default" → 8 defaults
 
         logger.info(f"Starting evaluation: {eval_name} (evaluators: {eval_list or 'default'})")
         voice_agent_evaluation.main(
@@ -1362,8 +1371,8 @@ def main() -> None:
     )
     # Evaluators
     parser.add_argument(
-        '--evaluators', dest='evaluators', default=None,
-        help='Comma-separated evaluator names, "default" for 8 defaults, or "all" (default: default)',
+        '--evaluators', dest='evaluators', default='default',
+        help='Evaluator selection: "default" (8 evaluators), "all" (13), or comma-separated list',
     )
     parser.add_argument(
         '--verbose', '-v', action='store_true',
@@ -1380,14 +1389,27 @@ def main() -> None:
             with open(config_path, 'r', encoding='utf-8') as f:
                 file_config = json.load(f)
             logger.info(f"Loaded config from {config_path}")
+            # Mapping from nested config keys to argparse destinations
+            nested_to_dest = {
+                ("voice", "name"): "voice",
+                ("voice", "type"): "voice_type",
+                ("audio", "sample_rate"): "sample_rate",
+                ("audio", "noise_reduction"): "noise_reduction",
+                ("audio", "echo_cancellation"): "echo_cancellation",
+                ("turn_detection", "type"): "vad_type",
+                ("turn_detection", "threshold"): "vad_threshold",
+                ("turn_detection", "silence_duration_ms"): "silence_duration_ms",
+                ("turn_detection", "use_eou_detection"): "use_eou_detection",
+                ("turn_detection", "eou_model"): "eou_model",
+                ("turn_detection", "enable_barge_in"): "enable_barge_in",
+            }
             # Apply file values as defaults (CLI args take precedence)
             for key, val in file_config.items():
-                # Flatten nested config (voice.name, audio.sample_rate, etc.)
                 if isinstance(val, dict):
                     for k2, v2 in val.items():
-                        flat_key = k2
-                        if not hasattr(args, flat_key) or getattr(args, flat_key) is None:
-                            setattr(args, flat_key, v2)
+                        dest = nested_to_dest.get((key, k2), k2)
+                        if hasattr(args, dest) and parser.get_default(dest) == getattr(args, dest):
+                            setattr(args, dest, v2)
                 elif hasattr(args, key) and parser.get_default(key) == getattr(args, key):
                     setattr(args, key, val)
         else:
