@@ -28,7 +28,8 @@ pip install -r UltraEval-Audio/requirments.txt
 | `evaluation_agent/` | AI agent for automating evaluation workflows via natural language |
 | `evaluation_agent/skills/` | Skill definitions for Copilot CLI and Foundry Agent discovery |
 | `evaluation_harness/` | Local standalone evaluation harness — VoiceLive audio processing, batch execution, Foundry evaluation |
-| `UltraEval-Audio/` | Comprehensive evaluation framework with Azure AI Foundry integration |
+| `helper_scripts/` | Utility scripts for dataset preparation, agent creation, and Foundry resource cleanup |
+| `UltraEval-Audio/` | **Archived** — External audio evaluation framework, not actively maintained |
 
 ## Dataset Validation
 

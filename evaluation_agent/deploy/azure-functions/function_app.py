@@ -27,6 +27,7 @@ import tempfile
 import secrets
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 import uuid
 
 import azure.functions as func
@@ -2174,13 +2175,24 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
             except Exception:
                 new_version = "1"
             
-            dataset = project_client.datasets.upload_file(
-                name=ds_name,
-                version=new_version,
-                file_path=dataset_path
-            )
-            dataset_id = dataset.id
-            logging.info(f"Uploaded dataset: {dataset_id} (version {new_version})")
+            # Upload with retry on version conflict (soft-deleted datasets may block v1)
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    dataset = project_client.datasets.upload_file(
+                        name=ds_name,
+                        version=new_version,
+                        file_path=dataset_path
+                    )
+                    dataset_id = dataset.id
+                    logging.info(f"Uploaded dataset: {dataset_id} (version {new_version})")
+                    break
+                except Exception as upload_err:
+                    if "already exists" in str(upload_err).lower() and attempt < max_retries - 1:
+                        new_version = str(int(new_version) + 1)
+                        logging.warning(f"Version conflict, retrying with v{new_version}")
+                    else:
+                        raise
         
         # Create and run evaluation
         from openai.types.evals.create_eval_jsonl_run_data_source_param import (
@@ -2214,15 +2226,12 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
         eval_run_id = eval_run.id
         logging.info(f"Created eval run: {run_name} ({eval_run_id})")
         
-        # Get portal URL from the initial run object (available immediately)
+        # Get portal URL from the SDK (always available on run object)
         portal_url = getattr(eval_run, 'report_url', None)
-        logging.info(f"SDK report_url: {portal_url}")
-        
-        # The SDK report_url should be correct format:
-        # https://ai.azure.com/nextgen/r/{project}/build/evaluations/{eval_id}/run/{run_id}
         if not portal_url:
-            # Fallback: construct minimal working URL
-            portal_url = f"https://ai.azure.com/build/evaluations/{eval_id}"
+            # This should not happen with current SDK but guard against it
+            portal_url = f"https://ai.azure.com/build/evaluations/{eval_id}/run/{eval_run_id}"
+        logging.info(f"Portal URL: {portal_url}")
         
         logging.info(f"Final portal URL: {portal_url}")
         
@@ -2655,7 +2664,7 @@ def _check_foundry_eval_run(eval_id: str, eval_run_id: str) -> func.HttpResponse
         
         portal_url = getattr(run_status, 'report_url', None)
         if not portal_url:
-            portal_url = f"https://ai.azure.com/build/evaluations/{eval_id}"
+            portal_url = f"https://ai.azure.com/build/evaluations/{eval_id}/run/{eval_run_id}"
         
         response = {
             "action": "check_evaluation_status",
@@ -3244,12 +3253,37 @@ async def check_voicelive_job_status(req: func.HttpRequest) -> func.HttpResponse
     Proxy to Container App: Check VoiceLive audio processing job status.
     
     Returns the status of a VoiceLive audio processing job.
-    When status is 'completed', auto-registers output as Foundry dataset
-    and includes foundry_dataset_id in the response.
+    Falls back to Table Storage when Container App has scaled to zero.
+    When status is 'completed', auto-registers output as Foundry dataset.
     """
     try:
         body = req.get_json()
         response = await proxy_to_container_app("/check_job_status", body)
+        
+        # If Container App returned 404 (scaled to zero), fall back to Table Storage
+        if response.status_code == 404:
+            job_id = body.get("job_id", "")
+            logging.info(f"Container App returned 404 for job {job_id}, checking Table Storage")
+            table_result = _load_job_from_table(job_id)
+            if table_result:
+                logging.info(f"Found job {job_id} in Table Storage: status={table_result['status']}")
+                # Auto-register if completed
+                if table_result.get("status") == "completed" and table_result.get("output_path"):
+                    try:
+                        foundry_info = _register_voicelive_output_as_foundry_dataset(
+                            output_path=table_result["output_path"],
+                            job_id=job_id,
+                            source_dataset=table_result.get("dataset_path", ""),
+                        )
+                        if foundry_info:
+                            table_result["foundry_dataset"] = foundry_info
+                    except Exception as e:
+                        logging.warning(f"Auto-register from Table Storage fallback failed: {e}")
+                return func.HttpResponse(
+                    json.dumps(table_result),
+                    status_code=200,
+                    mimetype="application/json"
+                )
         
         # Auto-register completed output as Foundry dataset
         if response.status_code == 200:
@@ -3279,6 +3313,39 @@ async def check_voicelive_job_status(req: func.HttpRequest) -> func.HttpResponse
             status_code=500,
             mimetype="application/json"
         )
+
+
+def _load_job_from_table(job_id: str) -> Optional[dict]:
+    """Load job state from Table Storage (fallback when Container App is down)."""
+    try:
+        tc = get_table_client("voicelivejobs")
+        if not tc:
+            return None
+        entity = tc.get_entity("jobs", job_id)
+        return {
+            "job_id": entity["RowKey"],
+            "dataset_path": entity.get("dataset_path", ""),
+            "status": entity.get("status", "unknown"),
+            "created_at": entity.get("created_at", ""),
+            "started_at": entity.get("started_at", ""),
+            "completed_at": entity.get("completed_at", ""),
+            "session_mode": entity.get("session_mode", ""),
+            "output_path": entity.get("output_path", ""),
+            "results_count": int(entity.get("results_count", 0)),
+            "error": entity.get("error", "") or None,
+            "progress": {
+                "files_processed": int(entity.get("files_processed", 0)),
+                "files_failed": int(entity.get("files_failed", 0)),
+                "total_files": int(entity.get("total_files", 0)),
+                "percent_complete": round(
+                    int(entity.get("files_processed", 0)) / max(int(entity.get("total_files", 1)), 1) * 100, 1
+                ),
+            },
+            "source": "table_storage_fallback",
+        }
+    except Exception as e:
+        logging.debug(f"Job {job_id} not found in Table Storage: {e}")
+        return None
 
 
 def _register_voicelive_output_as_foundry_dataset(output_path: str, job_id: str, source_dataset: str = "") -> dict:

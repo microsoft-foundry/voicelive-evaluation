@@ -1,6 +1,6 @@
 # VoiceLive Evaluation Agent v3 - Architecture
 
-*Last updated: March 6, 2026*
+*Last updated: March 10, 2026*
 
 ## Overview
 
@@ -36,6 +36,7 @@ graph TB
         OUT[(Blob: outputs/<br/>VoiceLive Results)]
         TBL1[(Table: sessionconfigs<br/>VoiceLive Configs)]
         TBL2[(Table: configjournal<br/>Config History)]
+        TBL3[(Table: voicelivejobs<br/>Job Persistence)]
     end
     
     subgraph "Monitoring & Observability"
@@ -57,6 +58,7 @@ graph TB
     HTTP --> DS
     HTTP --> OUT
     HTTP --> TBL1
+    HTTP --> TBL3
     HTTP -.->|Telemetry| AI
     Durable --> FDS
     Durable --> EVAL
@@ -64,6 +66,7 @@ graph TB
     Durable --> TBL2
     VL --> DS
     VL --> OUT
+    VL --> TBL3
     VL -.->|Telemetry| AI
 ```
 
@@ -217,6 +220,7 @@ Datasets are stored in **two distinct stores** based on type:
 | **Blob: outputs/** | VoiceLive processing results | Intermediate results (auto-registered to Foundry on completion) |
 | **Table: sessionconfigs** | VoiceLive session configurations | Reusable config presets |
 | **Table: configjournal** | Session config history | Tracking eval group configurations |
+| **Table: voicelivejobs** | Job state persistence | Survives Container App scale-to-zero |
 
 ### Dataset Type Architecture
 
@@ -403,6 +407,31 @@ The `sessionconfigs` table stores VoiceLive session presets:
 | VoiceName | string | Voice preset name |
 | VoiceType | string | Voice type (preset/custom) |
 | IsDefault | string | Is this the default config (true/false) |
+
+### Job Persistence Table
+
+The `voicelivejobs` table provides persistent job state that survives Container App scale-to-zero:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| PartitionKey | string | Always "jobs" |
+| RowKey | string | Job UUID |
+| dataset_path | string | Source dataset path |
+| status | string | queued, running, completed, failed, cancelled |
+| created_at | string (ISO) | Job creation timestamp |
+| started_at | string (ISO) | Processing start timestamp |
+| completed_at | string (ISO) | Processing completion timestamp |
+| session_mode | string | per-conversation, per-file, single |
+| output_path | string | Blob path to results JSONL |
+| results_count | int | Number of processed entries |
+| error | string | Error message (if failed) |
+| files_processed | int | Audio files completed |
+| files_failed | int | Audio files failed |
+| total_files | int | Total audio files to process |
+
+**Write path:** Container App `JobManager` writes on job create, status update, and progress update (best-effort — falls back to in-memory only if Table Storage unavailable).
+
+**Read path:** Function App `check_voicelive_job_status` falls back to Table Storage when Container App returns 404 (scaled to zero). Response includes `"source": "table_storage_fallback"` to indicate the source.
 
 ### Config Journal Storage Comparison
 
@@ -1298,6 +1327,9 @@ Auto-registration in `check_voicelive_job_status` attempts Foundry dataset uploa
 16. ~~**Empty response causes FAILED_EXECUTION**~~ — ✅ Fixed. Foundry rejects empty response lists. Both solutions now insert a descriptive placeholder when VoiceLive returns no response (barge-in or ambiguous input).
 17. ~~**content_index misused as string offset**~~ — ✅ Fixed. The `CONVERSATION_ITEM_TRUNCATED` event's `content_index` is a content part index, not a character offset. Removed incorrect string slicing.
 18. ~~**Batch processor race condition**~~ — ✅ Fixed. Per-process output files with post-aggregation instead of concurrent writes to a shared file.
+19. ~~**Container App job state lost on scale-to-zero**~~ — ✅ Fixed. Job state persisted to Azure Table Storage (`voicelivejobs`). Function App falls back to Table Storage when Container App returns 404.
+20. ~~**Dataset version conflict on soft-deleted datasets**~~ — ✅ Fixed. Upload retries with incremented version (up to 5 attempts) when Foundry returns "asset already exists".
+21. ~~**Portal URL missing run_id**~~ — ✅ Fixed. Fallback URL now includes both `eval_id` and `eval_run_id`. SDK `report_url` is always used when available.
 
 ### Future Improvements
 1. **Managed Identity auth for Foundry → Function App** - Code path exists (`--entra-auth --client-id` in `setup_agent_openapi.py` using `OpenApiManagedAuthDetails`), but deployment currently uses connection-based API key auth via `postdeploy.ps1`. Activating requires: create a separate app registration for the Function App, enable EasyAuth on Function App, update postdeploy to use `--entra-auth` instead of `--connection-name`.
@@ -1384,4 +1416,4 @@ Key differences from OpenAI wire format:
 - `arguments` is a **parsed dict** (not a JSON string)
 - No nested `tool_call` sub-object
 
-*Document last updated: March 6, 2026*
+*Document last updated: March 10, 2026*

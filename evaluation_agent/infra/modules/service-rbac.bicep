@@ -82,3 +82,25 @@ resource caTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (
     principalType: 'ServicePrincipal'
   }
 }
+
+// Function App → Storage: Blob Data Contributor (dataset/results access)
+resource funcBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(storageAccountName)) {
+  name: guid(storageAccount.id, functionAppPrincipalId, storageBlobDataContributorRoleId)
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
+    principalId: functionAppPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Function App → Storage: Table Data Contributor (session configs, job status fallback)
+resource funcTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(storageAccountName)) {
+  name: guid(storageAccount.id, functionAppPrincipalId, storageTableDataContributorRoleId)
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageTableDataContributorRoleId)
+    principalId: functionAppPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}

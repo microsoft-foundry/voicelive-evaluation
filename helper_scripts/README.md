@@ -6,7 +6,7 @@ Utility scripts for preparing datasets and data conversion for the VoiceLive eva
 
 ### hf_dataset_to_jsonl.py
 
-Downloads HuggingFace audio datasets and creates evaluation-ready JSONL files compatible with `evaluation_harness` and `UltraEval-Audio`.
+Downloads HuggingFace audio datasets and creates evaluation-ready JSONL files compatible with `evaluation_harness`.
 
 ```bash
 # Download all 3 default TwinkStart datasets
