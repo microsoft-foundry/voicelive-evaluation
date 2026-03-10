@@ -69,6 +69,12 @@ resource configJournalTable 'Microsoft.Storage/storageAccounts/tableServices/tab
   name: 'configjournal'
 }
 
+// VoiceLive jobs persistence table
+resource voiceLiveJobsTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-01-01' = if (createTables) {
+  parent: tableService
+  name: 'voicelivejobs'
+}
+
 // Outputs
 output name string = storageAccount.name
 output id string = storageAccount.id
