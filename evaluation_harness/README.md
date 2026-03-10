@@ -6,6 +6,9 @@ Processes pre-recorded audio files through the Azure VoiceLive SDK for evaluatio
 
 - **Full evaluation pipeline** — VoiceLive audio processing → evaluation JSONL → Azure AI Foundry evaluation run, all in one command
 - **PTT and VAD mode support** — choose between server-side Voice Activity Detection (default) or push-to-talk sequencing
+- **Configurable session parameters** — all VoiceLive parameters (model, voice, VAD, EOU, noise reduction, echo cancellation) via CLI args or JSON config file
+- **Evaluator selection** — 8 default evaluators aligned with Container App, or select from 13 available with `--evaluators`
+- **Config file support** — load session config from JSON with `--config`, CLI args override file values
 - **SDK-pattern tool call handling** — uses `FunctionCallOutputItem` with `previous_item_id` to return results, matching the container-app pattern
 - **Multi-turn conversations** — groups audio files by `conversationID` and processes them sequentially within a persistent session
 - **Batch processor integration** — compatible with `batch_processor.py` for parallel multi-dataset processing with aggregated evaluation
@@ -14,6 +17,8 @@ Processes pre-recorded audio files through the Azure VoiceLive SDK for evaluatio
 - **Late event drain** — after audio finishes, continues collecting events to capture complete responses and trailing transcriptions
 - **Conversation history tracking** — builds full conversation context (system + user + assistant + tool messages) for multi-turn evaluation
 - **JSONL evaluation output** — each turn produces a record with `query` (as conversation history list), `response`, `ground_truth`, `tool_calls`, and latency metrics
+- **Float32 WAV support** — handles IEEE float32 WAV files from HuggingFace datasets alongside standard PCM16
+- **List-type Answer handling** — automatically joins list answers with OR for multi-answer datasets
 
 ## Quick Start
 
@@ -77,23 +82,101 @@ python voice_agent_audio_input_evaluation.py -f dataset.jsonl --push-to-talk
 
 ## CLI Arguments
 
+### Core
+
 | Argument | Default | Description |
 |---|---|---|
 | `--test-files`, `-f` | *(required)* | JSONL file listing audio files and metadata |
 | `--output-dir`, `-o` | `output/` | Output directory for results and response audio |
 | `--evaluation-dir`, `-e` | `None` | Evaluation data directory (defaults to output-dir) |
 | `--session-mode` | `per-conversation` | Session handling: `single`, `per-file`, `per-conversation` |
-| `--push-to-talk` | `False` | Enable push-to-talk mode instead of VAD |
 | `--skip-evaluation` | `False` | Skip running Foundry evaluation after processing |
-| `--session-suffix` | `None` | Session suffix for output naming (used by batch_processor) |
-| `--aggregate-eval-file` | `None` | Shared JSONL file for batch aggregation |
-| `--eval-object-id` | `None` | Existing Foundry eval group ID to reuse |
+| `--verbose`, `-v` | `False` | Enable DEBUG logging |
+
+### VoiceLive Session
+
+| Argument | Default | Description |
+|---|---|---|
 | `--model` | `gpt-realtime` | VoiceLive model name |
 | `--voice` | `en-US-Ava:DragonHDLatestNeural` | Azure TTS voice |
+| `--voice-type` | `azure-standard` | Voice type: `azure-standard` or `preset` |
 | `--sample-rate` | `24000` | Audio sample rate in Hz |
-| `--verbose`, `-v` | `False` | Enable DEBUG logging |
+| `--push-to-talk` | `False` | Enable push-to-talk mode instead of VAD |
 | `--enable-barge-in` | `True` | Enable auto-truncation for barge-in (default) |
 | `--disable-barge-in` | | Disable auto-truncation for barge-in |
+| `--noise-reduction` | `azure_deep_noise_suppression` | Noise reduction type |
+| `--echo-cancellation` | `server_echo_cancellation` | Echo cancellation type |
+| `--transcription-model` | *(auto)* | Transcription model override (auto: gpt-4o-transcribe for gpt-realtime, azure-speech for gpt-4.1) |
+
+### Turn Detection (VAD)
+
+| Argument | Default | Description |
+|---|---|---|
+| `--vad-type` | `azure_semantic_vad_multilingual` | VAD type |
+| `--vad-threshold` | *(SDK default)* | VAD sensitivity threshold |
+| `--silence-duration-ms` | *(SDK default)* | Silence duration for end-of-speech detection |
+| `--enable-eou-detection` | `True` | Enable end-of-utterance detection (default) |
+| `--disable-eou-detection` | | Disable end-of-utterance detection |
+| `--eou-model` | `semantic_detection_v1_multilingual` | EOU detection model |
+
+### Evaluation
+
+| Argument | Default | Description |
+|---|---|---|
+| `--evaluators` | `default` | Evaluator selection: `default` (8 evaluators), `all` (13), or comma-separated list |
+| `--eval-object-id` | `None` | Existing Foundry eval group ID to reuse |
+
+### Config File
+
+| Argument | Default | Description |
+|---|---|---|
+| `--config` | `None` | Load session config from a JSON file (CLI args override file values) |
+
+### Batch Processing
+
+| Argument | Default | Description |
+|---|---|---|
+| `--session-suffix` | `None` | Session suffix for output naming (used by batch_processor) |
+| `--aggregate-eval-file` | `None` | Per-process JSONL file for batch aggregation |
+
+### Default Evaluators
+
+When `--evaluators default` or unspecified, these 8 evaluators run (aligned with the Container App):
+
+| Evaluator | Category |
+|-----------|----------|
+| `intent_resolution` | System |
+| `task_adherence` | System |
+| `task_completion` | System |
+| `response_completeness` | System |
+| `tool_call_accuracy` | Tool calling |
+| `tool_selection` | Tool calling |
+| `tool_input_accuracy` | Tool calling |
+| `tool_output_utilization` | Tool calling |
+
+Additional evaluators available with `--evaluators all`: `groundedness`, `relevance`, `tool_call_success`, `fluency`, `coherence`.
+
+### Config File Format
+
+Load session configuration from a JSON file with `--config`. CLI args override file values.
+
+```json
+{
+    "model": "gpt-realtime",
+    "voice": "en-US-Andrew:DragonHDLatestNeural",
+    "voice_type": "azure-standard",
+    "sample_rate": 24000,
+    "noise_reduction": "azure_deep_noise_suppression",
+    "echo_cancellation": "server_echo_cancellation",
+    "vad_type": "azure_semantic_vad_multilingual",
+    "use_eou_detection": true,
+    "eou_model": "semantic_detection_v1_multilingual",
+    "push_to_talk": false,
+    "enable_barge_in": true
+}
+```
+
+The config file format matches the Container App's `SessionConfig.to_dict()` output for portability.
 
 ## Dataset Format
 
@@ -319,7 +402,8 @@ python voice_agent_audio_input_evaluation.py -f dataset.jsonl --verbose
 
 | Version | Description |
 |---|---|
-| **v3.3** (Current) | Code quality fixes — content_index barge-in fix, empty response placeholder, batch race condition fix (per-process files), path traversal validation, async lock safety, SAS token redaction, float32 WAV support, list-type Answer OR-join |
+| **v3.4** (Current) | Feature parity with Container App — 12 new CLI args for session config (noise reduction, echo cancellation, VAD, EOU, transcription model, voice type), `--evaluators` arg (default/all/custom), `--config` JSON file support, 8 default evaluators aligned with Container App, sample_config.json |
+| **v3.3** | Code quality fixes — content_index barge-in fix, empty response placeholder, batch race condition fix (per-process files), path traversal validation, async lock safety, SAS token redaction, float32 WAV support, list-type Answer OR-join |
 | **v3.2** | SDK format alignment — tool message flat format (`name`/`tool_call_id`/`arguments` at top level), azure-ai-evaluation 1.15.3, azure-ai-voicelive 1.2.0b4, Foundry UX content validation fixes |
 | **v3.1** | Full evaluation pipeline integration, batch processor compatibility, response audio saving, operational summaries, conversation history tracking, .env/CWD fixes |
 | **v3** | Full async rewrite with PTT/VAD modes, SDK-pattern `FunctionCallOutputItem` tool calls, late event drain, `asyncio`-native |
