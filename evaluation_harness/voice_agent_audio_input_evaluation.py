@@ -1052,11 +1052,15 @@ async def main_async(args: argparse.Namespace) -> None:
         or os.environ.get("AZURE_VOICE_LIVE_ENDPOINT")
         or ""
     )
-    model = (
-        os.environ.get("AZURE_VOICELIVE_MODEL")
-        or os.environ.get("AZURE_VOICE_LIVE_MODEL")
-        or args.model
-    )
+    # CLI --model takes priority over env var
+    if args.model != "gpt-realtime":
+        model = args.model  # Explicitly set via CLI
+    else:
+        model = (
+            os.environ.get("AZURE_VOICELIVE_MODEL")
+            or os.environ.get("AZURE_VOICE_LIVE_MODEL")
+            or args.model
+        )
     if not endpoint:
         raise ValueError(
             "AZURE_VOICELIVE_ENDPOINT (or AZURE_VOICE_LIVE_ENDPOINT) environment variable is required"
@@ -1212,13 +1216,12 @@ def _run_evaluation(
         os.makedirs(eval_output, exist_ok=True)
 
         # Resolve evaluator list
-        eval_list = None
-        if evaluators and evaluators != "default":
-            if evaluators == "all":
-                eval_list = ALL_EVALUATORS
-            else:
-                eval_list = [e.strip() for e in evaluators.split(",") if e.strip()]
-        # None or "default" → voice_agent_evaluation uses its built-in list
+        if evaluators and evaluators == "all":
+            eval_list = ALL_EVALUATORS
+        elif evaluators and evaluators != "default":
+            eval_list = [e.strip() for e in evaluators.split(",") if e.strip()]
+        else:
+            eval_list = DEFAULT_EVALUATORS  # "default" or None → 8 defaults
 
         logger.info(f"Starting evaluation: {eval_name} (evaluators: {eval_list or 'default'})")
         voice_agent_evaluation.main(
