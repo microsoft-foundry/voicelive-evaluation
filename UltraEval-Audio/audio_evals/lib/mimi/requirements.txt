@@ -1,6 +1,0 @@
-librosa
-numpy
-soundfile
-torch
-torchaudio
-transformers==4.49.0

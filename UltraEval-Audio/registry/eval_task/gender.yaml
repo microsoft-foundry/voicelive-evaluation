@@ -1,8 +1,0 @@
-gender_analysis:
-  class: audio_evals.base.EvalTaskCfg
-  args:
-    dataset: meld
-    prompt: gender_analysis
-    model: qwen-audio-chat
-    evaluator: prefix-match
-    agg: acc

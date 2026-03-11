@@ -4,7 +4,6 @@
 
 paths-ignore:
   - voicelive_quickstarts
-  - UltraEval-Audio
   - TranscriptEvaluator
 
 query-filters:

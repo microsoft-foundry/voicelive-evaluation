@@ -1,8 +1,0 @@
-vocalsound_analysis:
-  class: audio_evals.base.EvalTaskCfg
-  args:
-    dataset: vocalsound
-    prompt: vocal_sound_analysis
-    model: qwen-audio-chat
-    evaluator: prefix-match
-    agg: acc
