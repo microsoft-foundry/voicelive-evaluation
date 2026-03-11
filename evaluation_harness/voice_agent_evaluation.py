@@ -296,7 +296,7 @@ def create_custom_evaluators(project_client: AIProjectClient):
         print(f"Error creating custom transcript evaluator: {e}")
         raise e
 
-def main(eval_input_path: str, referenceTranscriptFilePath: str = "", output_folder: str = "./output", eval_run_name: str = f"Run {datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}", eval_run_scenario: str = "", eval_group_name: str = "", eval_object_id: str = "", dataset_id: str = "", dataset_appendix: str = "", setupCustomEvaluators: bool = False):
+def main(eval_input_path: str, referenceTranscriptFilePath: str = "", output_folder: str = "./output", eval_run_name: str = f"Run {datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}", eval_run_scenario: str = "", eval_group_name: str = "", eval_object_id: str = "", dataset_id: str = "", dataset_appendix: str = "", setupCustomEvaluators: bool = False, evaluators: list = None):
     """ Main function to run the evaluation of voice agent sessions."""
     # Change to the directory where this script is located
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -555,6 +555,20 @@ def main(eval_input_path: str, referenceTranscriptFilePath: str = "", output_fol
             },
 
         ]
+
+        # Filter evaluators if a specific list was requested
+        if evaluators:
+            filtered = [tc for tc in testing_criteria if tc["name"] in evaluators]
+            if not filtered:
+                available = [tc["name"] for tc in testing_criteria]
+                print(f"WARNING: No matching evaluators for {evaluators}. Available: {available}")
+                print(f"Falling back to all {len(testing_criteria)} builtin evaluators.")
+            else:
+                testing_criteria = filtered
+                print(f"Using {len(testing_criteria)} evaluators: {[tc['name'] for tc in testing_criteria]}")
+        else:
+            print(f"Using all {len(testing_criteria)} builtin evaluators")
+
         if dataset_id == "" or dataset_id is None:
             # Use input path as dataset path
             dataset_path = eval_input_path

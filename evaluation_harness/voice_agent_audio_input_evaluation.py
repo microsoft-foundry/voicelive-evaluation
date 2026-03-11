@@ -26,6 +26,7 @@ from azure.ai.voicelive.aio import connect as voicelive_connect
 from azure.ai.voicelive.models import (
     ServerEventType,
     RequestSession,
+    ServerVad,
     AzureSemanticVadMultilingual,
     AzureStandardVoice,
     OpenAIVoice,
@@ -89,7 +90,13 @@ def sanitize_text_for_utf8(text: str) -> str:
 
 @dataclass
 class SessionConfig:
-    """Configuration for a VoiceLive session."""
+    """Configuration for a VoiceLive session.
+    
+    Aligned with Container App's SessionConfig for feature parity.
+    Parameters can be set via CLI args or loaded from a JSON config file.
+    Note: `instructions`, `tools`, and `tool_definitions` are set from dataset
+    metadata, not via CLI or config file.
+    """
     instructions: str = SYSTEM_INSTRUCTION
     model: str = "gpt-realtime"
     voice: str = "en-US-Ava:DragonHDLatestNeural"
@@ -97,11 +104,26 @@ class SessionConfig:
     sample_rate: int = 24000
     push_to_talk: bool = False
     enable_barge_in: bool = True
+    # Audio processing
+    noise_reduction: str = "azure_deep_noise_suppression"
+    echo_cancellation: str = "server_echo_cancellation"
+    # Transcription
+    transcription_model: Optional[str] = None  # Auto-set based on model if None
+    # Turn detection (VAD)
+    vad_type: str = "azure_semantic_vad_multilingual"
+    vad_threshold: Optional[float] = None
+    silence_duration_ms: Optional[int] = None
+    # End-of-utterance detection
+    use_eou_detection: bool = True
+    eou_model: str = "semantic_detection_v1_multilingual"
+    # Tools
     tools: Optional[List[Dict[str, Any]]] = None
     tool_definitions: Optional[List[Dict[str, Any]]] = None
 
     def get_transcription_model(self) -> str:
         """Return the appropriate transcription model for the configured model."""
+        if self.transcription_model:
+            return self.transcription_model
         if self.model == "gpt-realtime":
             return "gpt-4o-transcribe"
         elif self.model == "gpt-realtime-mini":
@@ -380,18 +402,23 @@ async def configure_session(connection: Any, config: SessionConfig) -> None:
     else:
         sdk_voice = AzureStandardVoice(name=config.voice, type=config.voice_type)
 
-    # Turn detection — always configured (VoiceLive requires it, even for PTT)
-    if config.supports_eou_detection():
-        sdk_turn_detection = AzureSemanticVadMultilingual(
-            end_of_utterance_detection=EouDetection(model="semantic_detection_v1_multilingual"),
-            auto_truncate=config.enable_barge_in,
-            interrupt_response=config.enable_barge_in,
-        )
+    # Turn detection — select VAD implementation based on vad_type
+    vad_kwargs = {
+        "auto_truncate": config.enable_barge_in,
+        "interrupt_response": config.enable_barge_in,
+    }
+    if config.vad_threshold is not None:
+        vad_kwargs["threshold"] = config.vad_threshold
+    if config.silence_duration_ms is not None:
+        vad_kwargs["silence_duration_ms"] = config.silence_duration_ms
+
+    if config.vad_type == "server_vad":
+        sdk_turn_detection = ServerVad(**vad_kwargs)
     else:
-        sdk_turn_detection = AzureSemanticVadMultilingual(
-            auto_truncate=config.enable_barge_in,
-            interrupt_response=config.enable_barge_in,
-        )
+        # azure_semantic_vad_multilingual (default)
+        if config.supports_eou_detection() and config.use_eou_detection:
+            vad_kwargs["end_of_utterance_detection"] = EouDetection(model=config.eou_model)
+        sdk_turn_detection = AzureSemanticVadMultilingual(**vad_kwargs)
 
     sdk_session = RequestSession(
         modalities=[Modality.TEXT, Modality.AUDIO],
@@ -399,15 +426,20 @@ async def configure_session(connection: Any, config: SessionConfig) -> None:
         voice=sdk_voice,
         turn_detection=sdk_turn_detection,
         input_audio_transcription=AudioInputTranscriptionOptions(model=config.get_transcription_model()),
-        input_audio_noise_reduction=AudioNoiseReduction(type="azure_deep_noise_suppression"),
-        input_audio_echo_cancellation=AudioEchoCancellation(type="server_echo_cancellation"),
+        input_audio_noise_reduction=AudioNoiseReduction(type=config.noise_reduction),
+        input_audio_echo_cancellation=AudioEchoCancellation(type=config.echo_cancellation),
         tools=config.tools if config.tools else None,
         input_audio_format=InputAudioFormat.PCM16,
         output_audio_format=OutputAudioFormat.PCM16,
         input_audio_sampling_rate=config.sample_rate,
     )
     await connection.session.update(session=sdk_session)
-    logger.info(f"Session configured: model={config.model}, voice={config.voice}, ptt={config.push_to_talk}, barge_in={config.enable_barge_in}")
+    logger.info(
+        f"Session configured: model={config.model}, voice={config.voice}, "
+        f"ptt={config.push_to_talk}, barge_in={config.enable_barge_in}, "
+        f"vad={config.vad_type}, noise_reduction={config.noise_reduction}, "
+        f"transcription={config.get_transcription_model()}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -832,32 +864,14 @@ async def process_conversation(
     # Override config from dataset if needed
     conv_config = config
     if entries and entries[0].system_prompt:
-        conv_config = SessionConfig(
-            instructions=entries[0].system_prompt,
-            model=config.model,
-            voice=config.voice,
-            voice_type=config.voice_type,
-            sample_rate=config.sample_rate,
-            push_to_talk=config.push_to_talk,
-            enable_barge_in=config.enable_barge_in,
-            tools=config.tools,
-            tool_definitions=config.tool_definitions,
-        )
+        from dataclasses import replace
+        conv_config = replace(config, instructions=entries[0].system_prompt)
     if entries and entries[0].tool_definitions:
+        from dataclasses import replace
         tool_defs = entries[0].tool_definitions
         if isinstance(tool_defs, dict):
             tool_defs = [tool_defs]
-        conv_config = SessionConfig(
-            instructions=conv_config.instructions,
-            model=conv_config.model,
-            voice=conv_config.voice,
-            voice_type=conv_config.voice_type,
-            sample_rate=conv_config.sample_rate,
-            push_to_talk=conv_config.push_to_talk,
-            enable_barge_in=conv_config.enable_barge_in,
-            tools=tool_defs,
-            tool_definitions=tool_defs,
-        )
+        conv_config = replace(conv_config, tools=tool_defs, tool_definitions=tool_defs)
 
     await configure_session(connection, conv_config)
 
@@ -1044,11 +1058,15 @@ async def main_async(args: argparse.Namespace) -> None:
         or os.environ.get("AZURE_VOICE_LIVE_ENDPOINT")
         or ""
     )
-    model = (
+    # CLI --model takes priority when explicitly provided
+    env_model = (
         os.environ.get("AZURE_VOICELIVE_MODEL")
         or os.environ.get("AZURE_VOICE_LIVE_MODEL")
-        or args.model
     )
+    if "--model" in sys.argv:
+        model = args.model  # User explicitly set --model
+    else:
+        model = env_model or args.model  # Env var or argparse default
     if not endpoint:
         raise ValueError(
             "AZURE_VOICELIVE_ENDPOINT (or AZURE_VOICE_LIVE_ENDPOINT) environment variable is required"
@@ -1063,9 +1081,18 @@ async def main_async(args: argparse.Namespace) -> None:
     config = SessionConfig(
         model=model,
         voice=args.voice,
+        voice_type=getattr(args, 'voice_type', 'azure-standard'),
         sample_rate=args.sample_rate,
         push_to_talk=args.push_to_talk,
         enable_barge_in=getattr(args, 'enable_barge_in', True),
+        noise_reduction=getattr(args, 'noise_reduction', 'azure_deep_noise_suppression'),
+        echo_cancellation=getattr(args, 'echo_cancellation', 'server_echo_cancellation'),
+        transcription_model=getattr(args, 'transcription_model', None),
+        vad_type=getattr(args, 'vad_type', 'azure_semantic_vad_multilingual'),
+        vad_threshold=getattr(args, 'vad_threshold', None),
+        silence_duration_ms=getattr(args, 'silence_duration_ms', None),
+        use_eou_detection=getattr(args, 'use_eou_detection', True),
+        eou_model=getattr(args, 'eou_model', 'semantic_detection_v1_multilingual'),
     )
 
     # Evaluation output file — aggregate file (batch mode) or auto-generated
@@ -1142,17 +1169,44 @@ async def main_async(args: argparse.Namespace) -> None:
 
     # Run evaluation if enabled and not in batch aggregation mode
     skip_eval = getattr(args, "skip_evaluation", False)
+    evaluators = getattr(args, "evaluators", None)
     if not skip_eval and not aggregate_eval_file and eval_output_file:
         _run_evaluation(eval_output_file, args.output_dir,
-                        eval_object_id=getattr(args, "eval_object_id", None))
+                        eval_object_id=getattr(args, "eval_object_id", None),
+                        evaluators=evaluators)
 
     logger.info(f"Done — {len(all_results)} results written to {out_path}")
+
+
+# Default evaluators — aligned with Container App's DEFAULT_EVALUATORS
+DEFAULT_EVALUATORS = [
+    "intent_resolution",
+    "task_adherence",
+    "task_completion",
+    "response_completeness",
+    "tool_call_accuracy",
+    "tool_selection",
+    "tool_input_accuracy",
+    "tool_output_utilization",
+]
+
+# Additional evaluators available but not in default set
+ADDITIONAL_EVALUATORS = [
+    "groundedness",
+    "relevance",
+    "tool_call_success",
+    "fluency",
+    "coherence",
+]
+
+ALL_EVALUATORS = DEFAULT_EVALUATORS + ADDITIONAL_EVALUATORS
 
 
 def _run_evaluation(
     eval_input_path: str,
     output_dir: str,
     eval_object_id: Optional[str] = None,
+    evaluators: Optional[str] = None,
 ) -> None:
     """Run voice_agent_evaluation.main() if the module is available."""
     try:
@@ -1166,7 +1220,19 @@ def _run_evaluation(
         eval_desc = f"Voice Live API: {ts}"
         eval_output = os.path.join(output_dir, ts)
         os.makedirs(eval_output, exist_ok=True)
-        logger.info(f"Starting evaluation: {eval_name}")
+
+        # Resolve evaluator list
+        if evaluators == "all":
+            eval_list = ALL_EVALUATORS
+        elif evaluators and evaluators != "default":
+            eval_list = [e.strip() for e in evaluators.split(",") if e.strip()]
+            if not eval_list:
+                logger.warning("Empty evaluator list after parsing — falling back to defaults")
+                eval_list = DEFAULT_EVALUATORS
+        else:
+            eval_list = DEFAULT_EVALUATORS  # "default" → 8 defaults
+
+        logger.info(f"Starting evaluation: {eval_name} (evaluators: {eval_list or 'default'})")
         voice_agent_evaluation.main(
             eval_input_path,
             referenceTranscriptFilePath="",
@@ -1178,6 +1244,7 @@ def _run_evaluation(
             dataset_id="",
             dataset_appendix="",
             setupCustomEvaluators=False,
+            evaluators=eval_list,
         )
         logger.info(f"Evaluation completed (results in {eval_output})")
     except Exception as e:
@@ -1251,14 +1318,102 @@ def main() -> None:
         help='Voice name (default: en-US-Ava:DragonHDLatestNeural)',
     )
     parser.add_argument(
+        '--voice-type', dest='voice_type', default='azure-standard',
+        help='Voice type: azure-standard or preset (default: azure-standard)',
+    )
+    parser.add_argument(
         '--sample-rate', dest='sample_rate', type=int, default=24000,
         help='Audio sample rate in Hz (default: 24000)',
+    )
+    # Audio processing
+    parser.add_argument(
+        '--noise-reduction', dest='noise_reduction', default='azure_deep_noise_suppression',
+        help='Noise reduction type (default: azure_deep_noise_suppression)',
+    )
+    parser.add_argument(
+        '--echo-cancellation', dest='echo_cancellation', default='server_echo_cancellation',
+        help='Echo cancellation type (default: server_echo_cancellation)',
+    )
+    parser.add_argument(
+        '--transcription-model', dest='transcription_model', default=None,
+        help='Transcription model override (default: auto based on model)',
+    )
+    # Turn detection (VAD)
+    parser.add_argument(
+        '--vad-type', dest='vad_type', default='azure_semantic_vad_multilingual',
+        help='VAD type (default: azure_semantic_vad_multilingual)',
+    )
+    parser.add_argument(
+        '--vad-threshold', dest='vad_threshold', type=float, default=None,
+        help='VAD threshold (default: SDK default)',
+    )
+    parser.add_argument(
+        '--silence-duration-ms', dest='silence_duration_ms', type=int, default=None,
+        help='Silence duration in ms for VAD (default: SDK default)',
+    )
+    # End-of-utterance detection
+    parser.add_argument(
+        '--enable-eou-detection', dest='use_eou_detection', action='store_true', default=True,
+        help='Enable end-of-utterance detection (default: enabled)',
+    )
+    parser.add_argument(
+        '--disable-eou-detection', dest='use_eou_detection', action='store_false',
+        help='Disable end-of-utterance detection',
+    )
+    parser.add_argument(
+        '--eou-model', dest='eou_model', default='semantic_detection_v1_multilingual',
+        help='EOU detection model (default: semantic_detection_v1_multilingual)',
+    )
+    # Config file
+    parser.add_argument(
+        '--config', dest='config_file', default=None,
+        help='Load session config from a JSON file (CLI args override file values)',
+    )
+    # Evaluators
+    parser.add_argument(
+        '--evaluators', dest='evaluators', default='default',
+        help='Evaluator selection: "default" (8 evaluators), "all" (13), or comma-separated list',
     )
     parser.add_argument(
         '--verbose', '-v', action='store_true',
         help='Enable DEBUG logging',
     )
     args = parser.parse_args()
+
+    # Load config file if specified (CLI args override)
+    if args.config_file:
+        config_path = args.config_file
+        if not os.path.isabs(config_path):
+            config_path = os.path.normpath(os.path.join(original_cwd, config_path))
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                file_config = json.load(f)
+            logger.info(f"Loaded config from {config_path}")
+            # Mapping from nested config keys to argparse destinations
+            nested_to_dest = {
+                ("voice", "name"): "voice",
+                ("voice", "type"): "voice_type",
+                ("audio", "sample_rate"): "sample_rate",
+                ("audio", "noise_reduction"): "noise_reduction",
+                ("audio", "echo_cancellation"): "echo_cancellation",
+                ("turn_detection", "type"): "vad_type",
+                ("turn_detection", "threshold"): "vad_threshold",
+                ("turn_detection", "silence_duration_ms"): "silence_duration_ms",
+                ("turn_detection", "use_eou_detection"): "use_eou_detection",
+                ("turn_detection", "eou_model"): "eou_model",
+                ("turn_detection", "enable_barge_in"): "enable_barge_in",
+            }
+            # Apply file values as defaults (CLI args take precedence)
+            for key, val in file_config.items():
+                if isinstance(val, dict):
+                    for k2, v2 in val.items():
+                        dest = nested_to_dest.get((key, k2), k2)
+                        if hasattr(args, dest) and parser.get_default(dest) == getattr(args, dest):
+                            setattr(args, dest, v2)
+                elif hasattr(args, key) and parser.get_default(key) == getattr(args, key):
+                    setattr(args, key, val)
+        else:
+            logger.warning(f"Config file not found: {config_path}")
 
     # Resolve paths relative to the ORIGINAL working directory (where user invoked)
     if not os.path.isabs(args.test_files_path):

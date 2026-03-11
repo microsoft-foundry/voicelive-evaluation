@@ -65,9 +65,19 @@ python dataset_validator/validate_dataset_quality.py dataset.jsonl --strict
 
 ### VoiceLive Audio Evaluation (evaluation_harness)
 ```bash
+# Basic usage (default config, 8 default evaluators)
 python evaluation_harness/voice_agent_audio_input_evaluation.py \
-  --test_files_path "datasets/sample.jsonl" \
-  --evaluation_dir "output/evaluations"
+  -f "datasets/sample.jsonl" -o "output/evaluations"
+
+# With custom session config and evaluator selection
+python evaluation_harness/voice_agent_audio_input_evaluation.py \
+  -f "datasets/sample.jsonl" -o "output" \
+  --model gpt-4.1 --evaluators all --config session_config.json
+
+# Cascaded mode with per-file sessions
+python evaluation_harness/voice_agent_audio_input_evaluation.py \
+  -f "datasets/trivia.jsonl" -o "output" \
+  --model gpt-4.1 --session-mode per-file --evaluators default
 ```
 
 ### UltraEval-Audio Framework
