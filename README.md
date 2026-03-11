@@ -10,7 +10,6 @@ Evaluation tools and frameworks for Azure VoiceLive (Speech-to-Speech-to-Text) v
 | [`evaluation_harness/`](evaluation_harness/) | **Active** | Local standalone evaluation harness for processing pre-recorded audio through the VoiceLive SDK. Supports Push-to-Talk and Voice Activity Detection modes, configurable session parameters (VAD type, voice, noise reduction, echo cancellation), JSON config files, evaluator selection (default 8 / all 13 / custom), batch processing, and Azure AI Foundry evaluation integration. The local counterpart to `evaluation_agent`. |
 | [`dataset_validator/`](dataset_validator/) | **Active** | CLI tools for validating JSONL evaluation datasets. Includes consistency validation (syntax, required fields, audio file presence) and quality validation (content metrics, alignment checks). |
 | [`helper_scripts/`](helper_scripts/) | **Active** | Utility scripts for dataset preparation, agent creation, and Foundry resource cleanup. Includes HuggingFace dataset downloader. |
-| [`UltraEval-Audio/`](UltraEval-Audio/) | Archived | Based on an external open-source audio evaluation framework. Used in early stages of VoiceLive evaluation experimentation but is not up to date and currently unused. |
 
 ## Getting Started
 

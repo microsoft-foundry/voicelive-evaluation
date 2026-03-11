@@ -15,11 +15,6 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-For UltraEval-Audio framework:
-```powershell
-pip install -r UltraEval-Audio/requirments.txt
-```
-
 ## Repository Structure
 
 | Directory | Purpose |
@@ -29,7 +24,6 @@ pip install -r UltraEval-Audio/requirments.txt
 | `evaluation_agent/skills/` | Skill definitions for Copilot CLI and Foundry Agent discovery |
 | `evaluation_harness/` | Local standalone evaluation harness — VoiceLive audio processing, batch execution, Foundry evaluation |
 | `helper_scripts/` | Utility scripts for dataset preparation, agent creation, and Foundry resource cleanup |
-| `UltraEval-Audio/` | **Archived** — External audio evaluation framework, not actively maintained |
 
 ## Dataset Validation
 
@@ -79,27 +73,6 @@ python evaluation_harness/voice_agent_audio_input_evaluation.py \
   -f "datasets/trivia.jsonl" -o "output" \
   --model gpt-4.1 --session-mode per-file --evaluators default
 ```
-
-### UltraEval-Audio Framework
-```powershell
-cd UltraEval-Audio
-
-# Basic evaluation
-python audio_evals/main.py \
-  --dataset llama-questions \
-  --model VoiceLiveS2T \
-  --evaluator azure-ai-batch-qaevaluator \
-  --post_process passthrough \
-  --limit 10
-
-# Using test runner
-.\runtest.ps1 -Workers 4 -Limit 10 -TestSuite azure-ai-only
-```
-
-### Post-processor selection:
-- `passthrough` - Azure AI Foundry evaluators (full JSON access)
-- `extract_response` - Text-based evaluators (QA, NLG)
-- `extract_transcription` - ASR evaluators (WER, CER)
 
 ## Required Environment Variables
 

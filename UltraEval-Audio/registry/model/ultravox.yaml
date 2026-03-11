@@ -1,6 +1,0 @@
-ultravox:
-  class: audio_evals.models.UltraVOX.UltraVOX
-  args:
-    path: fixie-ai/ultravox-v0_4
-    sample_params:
-      max_new_tokens: 256

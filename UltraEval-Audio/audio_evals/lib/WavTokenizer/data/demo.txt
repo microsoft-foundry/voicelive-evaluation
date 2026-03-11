@@ -1,4 +1,0 @@
-./example1.wav
-./example2.wav
-./example3.mp3
-./example4.flac

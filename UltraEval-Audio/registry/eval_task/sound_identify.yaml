@@ -1,8 +1,0 @@
-catdog_identify:
-  class: audio_evals.base.EvalTaskCfg
-  args:
-    dataset: vocalsound
-    prompt: catdog_identify
-    model: qwen-audio-chat
-    evaluator: prefix-match
-    agg: acc
