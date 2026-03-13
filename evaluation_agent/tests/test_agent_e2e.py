@@ -22,8 +22,8 @@ load_dotenv()
 
 DEFAULT_AGENT_NAME = "voicelive-evaluation-agent-cloud"
 DEFAULT_ENDPOINT = os.environ.get(
-    "AZURE_AI_PROJECT_ENDPOINT",
-    "https://ai-3x6t3c6zpbsr6.services.ai.azure.com/api/projects/voicelive-e2e-test"
+    "PROJECT_ENDPOINT",
+    "https://ai-vh7j24h6z2pgw.services.ai.azure.com/api/projects/jagoerge-voicelive-eval-sec"
 )
 
 # Rate limit delay between tests (seconds)
