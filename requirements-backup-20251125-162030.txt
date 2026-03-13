@@ -79,7 +79,7 @@ numpy==2.2.5
 oauthlib==3.3.1
 openai==2.2.0
 openpyxl==3.1.5
-packaging==25.0
+packaging==26.0
 pandas==2.3.3
 pillow==11.3.0
 platformdirs==4.4.0
