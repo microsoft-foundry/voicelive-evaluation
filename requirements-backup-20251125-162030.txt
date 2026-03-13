@@ -84,7 +84,7 @@ pandas==2.3.3
 pillow==11.3.0
 platformdirs==4.4.0
 pluggy==1.6.0
-pooch==1.8.2
+pooch==1.9.0
 portalocker==2.0.0
 pre_commit==4.3.0
 propcache==0.4.0
