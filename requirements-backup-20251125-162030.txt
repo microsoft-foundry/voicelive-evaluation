@@ -82,7 +82,7 @@ openpyxl==3.1.5
 packaging==25.0
 pandas==2.3.3
 pillow==11.3.0
-platformdirs==4.4.0
+platformdirs==4.9.4
 pluggy==1.6.0
 pooch==1.8.2
 portalocker==2.0.0
