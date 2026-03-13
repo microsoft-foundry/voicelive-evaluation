@@ -1,6 +1,6 @@
 # Voice live model quickstart requirements
 aiohttp==3.11.18
-azure-core==1.36.0
+azure-core==1.38.3
 azure-identity==1.25.1
 certifi==2025.4.26
 cffi==1.17.1
