@@ -99,7 +99,13 @@ def test_audio_loading(dataset_key: str) -> bool:
     """Test 2: Audio file loading (PCM16 + float32)."""
     ds = DATASETS[dataset_key]
     harness_dir = Path(__file__).parent.parent
-    entries = read_dataset(str(harness_dir / ds["jsonl"]))
+    jsonl_path = harness_dir / ds["jsonl"]
+
+    if not jsonl_path.exists():
+        print(f"  SKIP: File not found")
+        return False
+
+    entries = read_dataset(str(jsonl_path))
 
     for i, e in enumerate(entries[:3]):
         audio = load_audio_file(e.audio_path)
@@ -114,7 +120,13 @@ def test_eval_format_assembly(dataset_key: str) -> bool:
     """Test 3: Evaluation data assembly (query/response format)."""
     ds = DATASETS[dataset_key]
     harness_dir = Path(__file__).parent.parent
-    entries = read_dataset(str(harness_dir / ds["jsonl"]))
+    jsonl_path = harness_dir / ds["jsonl"]
+
+    if not jsonl_path.exists():
+        print(f"  SKIP: File not found")
+        return False
+
+    entries = read_dataset(str(jsonl_path))
 
     # Simulate a turn
     turn = ConversationTurn()
@@ -165,7 +177,13 @@ def test_tool_message_format(dataset_key: str) -> bool:
         return True
 
     harness_dir = Path(__file__).parent.parent
-    entries = read_dataset(str(harness_dir / ds["jsonl"]))
+    jsonl_path = harness_dir / ds["jsonl"]
+
+    if not jsonl_path.exists():
+        print(f"  SKIP: File not found")
+        return False
+
+    entries = read_dataset(str(jsonl_path))
 
     # Simulate a turn with tool calls
     turn = ConversationTurn()
