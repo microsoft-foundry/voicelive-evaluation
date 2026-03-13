@@ -907,6 +907,51 @@ RowKey: "{eval_group_name}_{timestamp}"
 Fields: EvalGroupId, Model, Voice, VadThreshold, EndOfSpeechTimeout, CreatedAt
 ```
 
+### 8. Why Return HTTP 200 for "Not Found" Instead of 404
+
+**Decision**: All Function App endpoints return HTTP 200 with `{"found": false, "error": "..."}` for missing resources, instead of HTTP 404.
+
+**Problem**: When the AI agent calls an OpenAPI tool (e.g., `check_dataset_schema` for a nonexistent dataset), the Function App correctly returns HTTP 404. However, Azure AI Foundry's OpenAPI tool runtime **does not pass non-2xx responses back to the agent as tool results**. Instead, it wraps them as a `tool_user_error` exception (HTTP 400), which surfaces as an SDK error. The agent never receives the structured error body and cannot reason about the "not found" condition.
+
+**Error chain observed**:
+```
+Function App returns 404 → Foundry OpenAPI runtime intercepts →
+wraps as 400 tool_user_error → SDK throws exception →
+agent cannot gracefully handle "not found"
+```
+
+**Alternatives Considered**:
+- Keep 404 and handle in test assertions only (masks the problem — agent still can't reason about missing resources)
+- Add retry logic in the agent (404 is deterministic, retry won't help)
+- Use Foundry's built-in error handling (not available for OpenAPI tool errors as of March 2026)
+
+**Reasoning**:
+- **Agent reasoning**: Returning 200 with `{"found": false}` lets the agent parse the result and respond naturally (e.g., "That dataset doesn't exist. Would you like to see available datasets?")
+- **Foundry compatibility**: Foundry's OpenAPI tool runtime only passes 2xx responses to the agent as tool results
+- **Semantic correctness**: The tool call itself succeeded (the API answered the question "does this exist?" — the answer is "no") — a 404 implies the *endpoint* doesn't exist, not the *resource*
+- **Consistent pattern**: All 10 not-found locations follow the same pattern with `"found": false` for programmatic detection
+
+**Pattern applied**:
+```python
+# Before (broken with Foundry)
+return func.HttpResponse(
+    json.dumps({"error": "Dataset not found"}),
+    status_code=404,
+    mimetype="application/json"
+)
+
+# After (agent-compatible)
+return func.HttpResponse(
+    json.dumps({"error": "Dataset not found", "found": False}),
+    status_code=200,
+    mimetype="application/json"
+)
+```
+
+**Affected endpoints**: `check_dataset_schema`, `validate_voicelive_dataset`, `validate_eval_dataset`, `validate_dataset_quality`, `get_evaluation_recommendations`, `get_session_config`, `update_session_config`, `finalize_upload`, `check_evaluation_status`, `analyze_evaluation_results`
+
+**Key learning**: When building HTTP APIs consumed by AI agents via Foundry OpenAPI tools, always return HTTP 200 for expected business-logic outcomes (including "not found"). Reserve 4xx/5xx for actual infrastructure errors. The `"found": false` field provides a machine-readable signal the agent can use for decision-making.
+
 ---
 
 ## Component Details
