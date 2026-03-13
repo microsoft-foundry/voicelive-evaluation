@@ -376,13 +376,18 @@ def _resolve_audio_path(wav_path: str, dataset_dir: str) -> Optional[str]:
             return resolved
         logger.warning(f"Path traversal blocked: {wav_path} resolved outside dataset directory")
         return None
-    # Walk up to 5 parent directories
+    # Walk up to 5 parent directories (path traversal check applied at each level)
     repo_root = os.path.abspath(dataset_dir)
     current = dataset_dir
     for _ in range(5):
         candidate = os.path.join(current, wav_path)
         if os.path.exists(candidate):
-            return os.path.abspath(candidate)
+            resolved = os.path.abspath(candidate)
+            # Validate resolved path stays within the search root (prevent traversal via ../)
+            if os.path.commonpath([resolved, repo_root]) == repo_root:
+                return resolved
+            logger.warning(f"Path traversal blocked: {wav_path} resolved outside search root")
+            return None
         parent = os.path.dirname(current)
         if parent == current:
             break
