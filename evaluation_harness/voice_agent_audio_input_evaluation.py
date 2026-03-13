@@ -679,11 +679,12 @@ async def _drain_late_events(
     turn: ConversationTurn,
     audio_transcript_buffer: str,
     text_buffer: str,
-    drain_seconds: float = 2.0,
+    drain_seconds: float = 5.0,
 ) -> None:
-    """Wait briefly for late-arriving transcript events after response.done."""
+    """Wait briefly for late-arriving transcript and audio events after response.done."""
     late_audio = audio_transcript_buffer
     late_text = text_buffer
+    late_audio_chunks = 0
     try:
         async with asyncio.timeout(drain_seconds):
             async for event in connection:
@@ -692,6 +693,13 @@ async def _drain_late_events(
                     turn.transcription_complete_time = datetime.now()
                     if hasattr(event, 'transcript') and event.transcript:
                         turn.user_transcription = event.transcript
+                elif etype == ServerEventType.RESPONSE_AUDIO_DELTA:
+                    if hasattr(event, 'delta') and event.delta:
+                        try:
+                            turn.response_audio_chunks.append(base64.b64decode(event.delta))
+                            late_audio_chunks += 1
+                        except Exception as e:
+                            logger.debug(f"Skipped malformed late audio chunk: {e}")
                 elif etype == ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA:
                     if hasattr(event, 'delta') and event.delta:
                         late_audio += event.delta
@@ -716,6 +724,8 @@ async def _drain_late_events(
         elif late_text and len(late_text) > len(turn.assistant_response):
             turn.assistant_response = late_text
         logger.debug("Post-response drain completed (timeout)")
+    if late_audio_chunks > 0:
+        logger.info(f"Captured {late_audio_chunks} late audio chunks in drain phase")
 
 
 async def _execute_and_send_tool_result(
