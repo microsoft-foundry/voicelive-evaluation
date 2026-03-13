@@ -88,7 +88,7 @@ pooch==1.8.2
 portalocker==2.0.0
 pre_commit==4.3.0
 propcache==0.4.0
-protobuf==6.32.1
+protobuf==7.34.0
 psutil==7.1.0
 pyarrow==21.0.0
 PyAudio==0.2.14
