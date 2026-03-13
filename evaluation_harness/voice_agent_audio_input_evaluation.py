@@ -9,6 +9,7 @@ Patterns aligned with the container-app implementation.
 import os
 import re
 import json
+import secrets
 import sys
 import wave
 import base64
@@ -53,6 +54,65 @@ logger = logging.getLogger(__name__)
 # Default system instruction
 # ---------------------------------------------------------------------------
 SYSTEM_INSTRUCTION = "You are a helpful agent assisting users with their questions."
+
+
+# ---------------------------------------------------------------------------
+# Eval naming helpers (aligned with evaluation agent naming)
+# ---------------------------------------------------------------------------
+
+def generate_harness_eval_group_name(config) -> str:
+    """Generate eval group name from session config, matching agent naming pattern.
+    Format: harness_{model}_{voice}_{vad}_{eod}
+    """
+    model = getattr(config, 'model', 'gpt-realtime') if hasattr(config, 'model') else config.get('model', 'gpt-realtime')
+    voice = getattr(config, 'voice', 'alloy') if hasattr(config, 'voice') else config.get('voice', 'alloy')
+    vad = getattr(config, 'vad_threshold', '0.5') if hasattr(config, 'vad_threshold') else config.get('vad_threshold', '0.5')
+    eod = getattr(config, 'end_of_speech_timeout', '500') if hasattr(config, 'end_of_speech_timeout') else config.get('end_of_speech_timeout', '500')
+    model_clean = str(model).replace("-", "").replace(".", "")
+    return f"harness_{model_clean}_{voice}_{vad}_{eod}"
+
+
+def generate_harness_run_name(dataset_name: str, dataset_version: str, evaluators: list) -> str:
+    """Generate run name with metadata, matching agent naming pattern.
+    Format: YYYYMMDD-HHMMSS-xxx | {dataset}_v{version} | {evaluator_summary}
+    """
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    random_suffix = secrets.token_hex(2)[:3]
+    if not evaluators or len(evaluators) >= 10:
+        eval_summary = "all"
+    elif len(evaluators) >= 5:
+        eval_summary = "default"
+    else:
+        eval_summary = "subset"
+    dataset_base = os.path.splitext(os.path.basename(dataset_name))[0] if dataset_name else "dataset"
+    return f"{timestamp}-{random_suffix} | {dataset_base}_v{dataset_version} | {eval_summary}"
+
+
+def journal_harness_eval_group(
+    eval_group_name: str,
+    config,
+    eval_group_id: str = "",
+    output_dir: str = ".",
+) -> None:
+    """Record eval group -> config mapping in a local journal file.
+    Writes to {output_dir}/eval_journal.jsonl (append mode).
+    """
+    journal_path = os.path.join(output_dir, "eval_journal.jsonl")
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "eval_group_name": eval_group_name,
+        "eval_group_id": eval_group_id,
+        "model": getattr(config, 'model', '') if config else '',
+        "voice": getattr(config, 'voice', '') if config else '',
+        "vad_threshold": str(getattr(config, 'vad_threshold', '')) if config else '',
+        "end_of_speech_timeout": str(getattr(config, 'end_of_speech_timeout', '')) if config else '',
+    }
+    try:
+        with open(journal_path, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(entry) + '\n')
+        logger.info(f"Journaled eval group: {eval_group_name} -> {journal_path}")
+    except Exception as e:
+        logger.warning(f"Failed to journal eval group: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1188,7 +1248,8 @@ async def main_async(args: argparse.Namespace) -> None:
     if not skip_eval and not aggregate_eval_file and eval_output_file:
         _run_evaluation(eval_output_file, args.output_dir,
                         eval_object_id=getattr(args, "eval_object_id", None),
-                        evaluators=evaluators)
+                        evaluators=evaluators,
+                        session_config=config)
 
     logger.info(f"Done — {len(all_results)} results written to {out_path}")
 
@@ -1222,6 +1283,7 @@ def _run_evaluation(
     output_dir: str,
     eval_object_id: Optional[str] = None,
     evaluators: Optional[str] = None,
+    session_config=None,
 ) -> None:
     """Run voice_agent_evaluation.main() if the module is available."""
     try:
@@ -1232,7 +1294,7 @@ def _run_evaluation(
     try:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         eval_name = os.path.basename(eval_input_path)
-        eval_desc = f"Voice Live API: {ts}"
+        eval_desc = generate_harness_eval_group_name(session_config) if session_config else f"harness_default_{ts}"
         eval_output = os.path.join(output_dir, ts)
         os.makedirs(eval_output, exist_ok=True)
 
@@ -1247,6 +1309,8 @@ def _run_evaluation(
         else:
             eval_list = DEFAULT_EVALUATORS  # "default" → 8 defaults
 
+        eval_run_name = generate_harness_run_name(eval_name, "1", eval_list)
+
         logger.info(f"Starting evaluation: {eval_name} (evaluators: {eval_list or 'default'})")
         voice_agent_evaluation.main(
             eval_input_path,
@@ -1254,7 +1318,7 @@ def _run_evaluation(
             output_folder=eval_output,
             eval_group_name=eval_desc,
             eval_object_id=eval_object_id or "",
-            eval_run_name=eval_name,
+            eval_run_name=eval_run_name,
             eval_run_scenario=eval_name,
             dataset_id="",
             dataset_appendix="",
@@ -1262,6 +1326,13 @@ def _run_evaluation(
             evaluators=eval_list,
         )
         logger.info(f"Evaluation completed (results in {eval_output})")
+
+        # Journal the eval group mapping
+        journal_harness_eval_group(
+            eval_group_name=eval_desc,
+            config=session_config,
+            output_dir=output_dir,
+        )
     except Exception as e:
         logger.error(f"Evaluation failed: {e}")
 
