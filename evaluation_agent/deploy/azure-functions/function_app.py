@@ -701,8 +701,8 @@ def get_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         
         if not config:
             return func.HttpResponse(
-                json.dumps({"error": f"Config not found: {name}"}),
-                status_code=404,
+                json.dumps({"error": f"Config not found: {name}", "found": False}),
+                status_code=200,
                 mimetype="application/json"
             )
         
@@ -814,8 +814,8 @@ def update_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         existing = get_session_config_by_name(name)
         if not existing:
             return func.HttpResponse(
-                json.dumps({"error": f"Config not found: {name}. Use create_session_config to create new."}),
-                status_code=404,
+                json.dumps({"error": f"Config not found: {name}. Use create_session_config to create new.", "found": False}),
+                status_code=200,
                 mimetype="application/json"
             )
         
@@ -1118,8 +1118,8 @@ def finalize_upload(req: func.HttpRequest) -> func.HttpResponse:
         staged_blobs = list(container_client.list_blobs(name_starts_with=staging_prefix))
         if not staged_blobs:
             return func.HttpResponse(
-                json.dumps({"error": f"No staged file found for upload_id: {upload_id}"}),
-                status_code=404,
+                json.dumps({"error": f"No staged file found for upload_id: {upload_id}", "found": False}),
+                status_code=200,
                 mimetype="application/json"
             )
         
@@ -1348,11 +1348,17 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
         )
     except ValueError as e:
         error_msg = str(e)
+        is_not_found = "not found" in error_msg.lower()
         logging.warning(f"check_dataset_schema not found: {error_msg}")
-        status_code = 404 if "not found" in error_msg.lower() else 400
+        if is_not_found:
+            return func.HttpResponse(
+                json.dumps({"error": error_msg, "found": False}),
+                status_code=200,
+                mimetype="application/json"
+            )
         return func.HttpResponse(
             json.dumps({"error": error_msg}),
-            status_code=status_code,
+            status_code=400,
             mimetype="application/json"
         )
     except Exception as e:
@@ -1433,11 +1439,17 @@ def validate_voicelive_dataset(req: func.HttpRequest) -> func.HttpResponse:
         )
     except ValueError as e:
         error_msg = str(e)
+        is_not_found = "not found" in error_msg.lower()
         logging.warning(f"validate_voicelive_dataset not found: {error_msg}")
-        status_code = 404 if "not found" in error_msg.lower() else 400
+        if is_not_found:
+            return func.HttpResponse(
+                json.dumps({"error": error_msg, "found": False}),
+                status_code=200,
+                mimetype="application/json"
+            )
         return func.HttpResponse(
             json.dumps({"error": error_msg}),
-            status_code=status_code,
+            status_code=400,
             mimetype="application/json"
         )
     except Exception as e:
@@ -1537,11 +1549,17 @@ def validate_dataset_quality(req: func.HttpRequest) -> func.HttpResponse:
         )
     except ValueError as e:
         error_msg = str(e)
+        is_not_found = "not found" in error_msg.lower()
         logging.warning(f"validate_dataset_quality not found: {error_msg}")
-        status_code = 404 if "not found" in error_msg.lower() else 400
+        if is_not_found:
+            return func.HttpResponse(
+                json.dumps({"error": error_msg, "found": False}),
+                status_code=200,
+                mimetype="application/json"
+            )
         return func.HttpResponse(
             json.dumps({"error": error_msg}),
-            status_code=status_code,
+            status_code=400,
             mimetype="application/json"
         )
     except Exception as e:
@@ -1661,11 +1679,17 @@ def validate_eval_dataset(req: func.HttpRequest) -> func.HttpResponse:
         )
     except ValueError as e:
         error_msg = str(e)
+        is_not_found = "not found" in error_msg.lower()
         logging.warning(f"validate_eval_dataset not found: {error_msg}")
-        status_code = 404 if "not found" in error_msg.lower() else 400
+        if is_not_found:
+            return func.HttpResponse(
+                json.dumps({"error": error_msg, "found": False}),
+                status_code=200,
+                mimetype="application/json"
+            )
         return func.HttpResponse(
             json.dumps({"error": error_msg}),
-            status_code=status_code,
+            status_code=400,
             mimetype="application/json"
         )
     except Exception as e:
@@ -1753,11 +1777,17 @@ def get_evaluation_recommendations(req: func.HttpRequest) -> func.HttpResponse:
         )
     except ValueError as e:
         error_msg = str(e)
+        is_not_found = "not found" in error_msg.lower()
         logging.warning(f"get_evaluation_recommendations not found: {error_msg}")
-        status_code = 404 if "not found" in error_msg.lower() else 400
+        if is_not_found:
+            return func.HttpResponse(
+                json.dumps({"error": error_msg, "found": False}),
+                status_code=200,
+                mimetype="application/json"
+            )
         return func.HttpResponse(
             json.dumps({"error": error_msg}),
-            status_code=status_code,
+            status_code=400,
             mimetype="application/json"
         )
     except Exception as e:
@@ -2585,9 +2615,10 @@ async def check_evaluation_status(req: func.HttpRequest, client) -> func.HttpRes
                     "action": "check_evaluation_status",
                     "instance_id": instance_id,
                     "status": "not_found",
+                    "found": False,
                     "message": "No evaluation found with this instance_id"
                 }),
-                status_code=404,
+                status_code=200,
                 mimetype="application/json"
             )
         
@@ -2753,10 +2784,11 @@ def analyze_evaluation_results(req: func.HttpRequest) -> func.HttpResponse:
             return func.HttpResponse(
                 json.dumps({
                     "error": "No results files found",
+                    "found": False,
                     "search_path": results_path,
                     "message": str(e)
                 }),
-                status_code=404,
+                status_code=200,
                 mimetype="application/json"
             )
         
