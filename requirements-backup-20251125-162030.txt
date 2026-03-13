@@ -55,7 +55,7 @@ jiwer==4.0.0
 joblib==1.5.2
 kiwisolver==1.4.9
 langdetect==1.0.9
-lazy_loader==0.4
+lazy_loader==0.5
 librosa==0.11.0
 llvmlite==0.45.1
 Markdown==3.9
