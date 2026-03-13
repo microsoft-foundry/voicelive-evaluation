@@ -1,0 +1,56 @@
+version: 2
+updates:
+  # Python - root
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "microsoft-foundry/voicelive-repo-maintainers"
+    labels:
+      - "dependencies"
+
+  # Python - evaluation_harness
+  - package-ecosystem: "pip"
+    directory: "/evaluation_harness"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "microsoft-foundry/voicelive-repo-maintainers"
+    labels:
+      - "dependencies"
+
+  # Python - evaluation_agent
+  - package-ecosystem: "pip"
+    directory: "/evaluation_agent"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "microsoft-foundry/voicelive-repo-maintainers"
+    labels:
+      - "dependencies"
+
+  # Python - evaluation_agent Azure Functions
+  - package-ecosystem: "pip"
+    directory: "/evaluation_agent/deploy/azure-functions"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "microsoft-foundry/voicelive-repo-maintainers"
+    labels:
+      - "dependencies"
+
+  # Python - evaluation_agent Container App
+  - package-ecosystem: "pip"
+    directory: "/evaluation_agent/deploy/container-app"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "microsoft-foundry/voicelive-repo-maintainers"
+    labels:
+      - "dependencies"
