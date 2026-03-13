@@ -4,7 +4,7 @@ azure-core==1.36.0
 azure-identity==1.25.1
 certifi==2025.4.26
 cffi==1.17.1
-cryptography==44.0.3
+cryptography==46.0.5
 numpy==2.2.5
 pycparser==2.22
 python-dotenv==1.1.0
