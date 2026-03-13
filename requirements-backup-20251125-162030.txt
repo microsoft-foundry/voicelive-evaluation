@@ -75,7 +75,7 @@ networkx==3.5
 nltk==3.9.2
 nodeenv==1.9.1
 numba==0.62.1
-numpy==2.2.5
+numpy==2.4.3
 oauthlib==3.3.1
 openai==2.2.0
 openpyxl==3.1.5
