@@ -214,20 +214,27 @@ def upload_dataset_from_transcripts(dataset_path: str, project_client: AIProject
     else:
         new_version = 1
 
-    # Upload the dataset file and create a new Dataset to reference the file.
-    print("Upload dataset file and create a new Dataset for evaluation.")
-    try:
-        dataset: DatasetVersion = project_client.datasets.upload_file(
-            name=dataset_name,
-            version=str(new_version),
-            file_path=dataset_path
-        )
-        pprint(dataset)
-        print("Dataset uploaded for evaluation run.")
-    except Exception as e:
-        print(f"Error uploading dataset: {e}")
-        raise e
-    return dataset
+    # Upload with retry for soft-deleted version conflicts
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            dataset: DatasetVersion = project_client.datasets.upload_file(
+                name=dataset_name,
+                version=str(new_version),
+                file_path=dataset_path
+            )
+            pprint(dataset)
+            print("Dataset uploaded for evaluation run.")
+            return dataset
+        except Exception as e:
+            error_str = str(e).lower()
+            if "already exists" in error_str and attempt < max_retries - 1:
+                print(f"Version {new_version} conflict (soft-deleted?), trying v{new_version + 1}")
+                new_version += 1
+                continue
+            print(f"Error uploading dataset: {e}")
+            raise e
+    raise RuntimeError(f"Failed to upload dataset after {max_retries} attempts")
 
 def create_custom_evaluators(project_client: AIProjectClient):
     """ Creates a custom transcript evaluator for quality assessment using a prompt-based approach.
@@ -576,25 +583,28 @@ def main(eval_input_path: str, referenceTranscriptFilePath: str = "", output_fol
     ## Setup eval group
     if eval_object_id == "" or eval_object_id is None:
         print("Preparing Eval Group...")
-        # Create Eval Group
+        # Check if eval group with same name already exists
         try:
-            print("Creating Eval Group...")
-            eval_object = client.evals.create(
-                name=eval_group_name,
-                data_source_config=data_source_config,
-                testing_criteria=testing_criteria,
-            )
+            existing_groups = list(client.evals.list())
+            for group in existing_groups:
+                if group.name == eval_group_name:
+                    print(f"Found existing eval group with matching name: {group.id}")
+                    eval_id = group.id
+                    break
+            else:
+                # No match found — create new
+                print("Creating Eval Group...")
+                eval_object = client.evals.create(
+                    name=eval_group_name,
+                    data_source_config=data_source_config,
+                    testing_criteria=testing_criteria,
+                )
+                eval_object_response = client.evals.retrieve(eval_object.id)
+                print(f"Eval Group created with Id : {eval_object.id}")
+                pprint(eval_object_response)
+                eval_id = eval_object.id
         except Exception as e:
-            print(f"Error creating eval group: {e}")
-            exit(1)
-        try:
-            eval_object_response = client.evals.retrieve(eval_object.id)
-            print(f"Eval Group created with Id : {eval_object.id}")
-            print("Eval Run Response:")
-            pprint(eval_object_response)
-            eval_id = eval_object.id
-        except Exception as e:
-            print(f"Error retrieving eval group id: {e}")
+            print(f"Error with eval group setup: {e}")
             exit(1)
     else:
         print("Using existing Eval Group!")

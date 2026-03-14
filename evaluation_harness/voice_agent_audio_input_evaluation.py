@@ -9,6 +9,7 @@ Patterns aligned with the container-app implementation.
 import os
 import re
 import json
+import secrets
 import sys
 import wave
 import base64
@@ -53,6 +54,65 @@ logger = logging.getLogger(__name__)
 # Default system instruction
 # ---------------------------------------------------------------------------
 SYSTEM_INSTRUCTION = "You are a helpful agent assisting users with their questions."
+
+
+# ---------------------------------------------------------------------------
+# Eval naming helpers (aligned with evaluation agent naming)
+# ---------------------------------------------------------------------------
+
+def generate_harness_eval_group_name(config) -> str:
+    """Generate eval group name from session config, matching agent naming pattern.
+    Format: harness_{model}_{voice}_{vad}_{eod}
+    """
+    model = getattr(config, 'model', 'gpt-realtime') if hasattr(config, 'model') else config.get('model', 'gpt-realtime')
+    voice = getattr(config, 'voice', 'alloy') if hasattr(config, 'voice') else config.get('voice', 'alloy')
+    vad = getattr(config, 'vad_threshold', '0.5') if hasattr(config, 'vad_threshold') else config.get('vad_threshold', '0.5')
+    eod = getattr(config, 'end_of_speech_timeout', '500') if hasattr(config, 'end_of_speech_timeout') else config.get('end_of_speech_timeout', '500')
+    model_clean = str(model).replace("-", "").replace(".", "")
+    return f"harness_{model_clean}_{voice}_{vad}_{eod}"
+
+
+def generate_harness_run_name(dataset_name: str, dataset_version: str, evaluators: list) -> str:
+    """Generate run name with metadata, matching agent naming pattern.
+    Format: YYYYMMDD-HHMMSS-xxx | {dataset}_v{version} | {evaluator_summary}
+    """
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    random_suffix = secrets.token_hex(2)[:3]
+    if not evaluators or len(evaluators) >= 10:
+        eval_summary = "all"
+    elif len(evaluators) >= 5:
+        eval_summary = "default"
+    else:
+        eval_summary = "subset"
+    dataset_base = os.path.splitext(os.path.basename(dataset_name))[0] if dataset_name else "dataset"
+    return f"{timestamp}-{random_suffix} | {dataset_base}_v{dataset_version} | {eval_summary}"
+
+
+def journal_harness_eval_group(
+    eval_group_name: str,
+    config,
+    eval_group_id: str = "",
+    output_dir: str = ".",
+) -> None:
+    """Record eval group -> config mapping in a local journal file.
+    Writes to {output_dir}/eval_journal.jsonl (append mode).
+    """
+    journal_path = os.path.join(output_dir, "eval_journal.jsonl")
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "eval_group_name": eval_group_name,
+        "eval_group_id": eval_group_id,
+        "model": getattr(config, 'model', '') if config else '',
+        "voice": getattr(config, 'voice', '') if config else '',
+        "vad_threshold": str(getattr(config, 'vad_threshold', '')) if config else '',
+        "end_of_speech_timeout": str(getattr(config, 'end_of_speech_timeout', '')) if config else '',
+    }
+    try:
+        with open(journal_path, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(entry) + '\n')
+        logger.info(f"Journaled eval group: {eval_group_name} -> {journal_path}")
+    except Exception as e:
+        logger.warning(f"Failed to journal eval group: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -591,9 +651,15 @@ async def process_audio(
                         turn.assistant_audio_received = True
                     if hasattr(event, 'delta') and event.delta:
                         try:
-                            turn.response_audio_chunks.append(base64.b64decode(event.delta))
+                            chunk = event.delta if isinstance(event.delta, bytes) else bytes(event.delta)
+                            turn.response_audio_chunks.append(chunk)
+                            if len(turn.response_audio_chunks) % 50 == 1:
+                                total = sum(len(c) for c in turn.response_audio_chunks)
+                                logger.debug(f"Audio chunk #{len(turn.response_audio_chunks)}: {len(chunk)}B, total={total}B ({total/48000:.1f}s)")
                         except Exception as e:
                             logger.debug(f"Skipped malformed audio chunk: {e}")
+                    else:
+                        logger.debug(f"RESPONSE_AUDIO_DELTA with no delta: hasattr={hasattr(event, 'delta')}, delta_truthy={bool(getattr(event, 'delta', None))}")
 
                 # Auto-truncation: user interrupted during agent playback
                 elif etype == ServerEventType.CONVERSATION_ITEM_TRUNCATED:
@@ -679,11 +745,12 @@ async def _drain_late_events(
     turn: ConversationTurn,
     audio_transcript_buffer: str,
     text_buffer: str,
-    drain_seconds: float = 2.0,
+    drain_seconds: float = 5.0,
 ) -> None:
-    """Wait briefly for late-arriving transcript events after response.done."""
+    """Wait briefly for late-arriving transcript and audio events after response.done."""
     late_audio = audio_transcript_buffer
     late_text = text_buffer
+    late_audio_chunks = 0
     try:
         async with asyncio.timeout(drain_seconds):
             async for event in connection:
@@ -692,6 +759,14 @@ async def _drain_late_events(
                     turn.transcription_complete_time = datetime.now()
                     if hasattr(event, 'transcript') and event.transcript:
                         turn.user_transcription = event.transcript
+                elif etype == ServerEventType.RESPONSE_AUDIO_DELTA:
+                    if hasattr(event, 'delta') and event.delta:
+                        try:
+                            chunk = event.delta if isinstance(event.delta, bytes) else bytes(event.delta)
+                            turn.response_audio_chunks.append(chunk)
+                            late_audio_chunks += 1
+                        except Exception as e:
+                            logger.debug(f"Skipped malformed late audio chunk: {e}")
                 elif etype == ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA:
                     if hasattr(event, 'delta') and event.delta:
                         late_audio += event.delta
@@ -716,6 +791,8 @@ async def _drain_late_events(
         elif late_text and len(late_text) > len(turn.assistant_response):
             turn.assistant_response = late_text
         logger.debug("Post-response drain completed (timeout)")
+    if late_audio_chunks > 0:
+        logger.info(f"Captured {late_audio_chunks} late audio chunks in drain phase")
 
 
 async def _execute_and_send_tool_result(
@@ -914,8 +991,12 @@ async def process_conversation(
 
             # Save response audio as WAV
             if turn.response_audio_chunks:
+                total_bytes = sum(len(c) for c in turn.response_audio_chunks)
+                logger.info(f"Turn {turn.turn_number}: {len(turn.response_audio_chunks)} audio chunks, {total_bytes} bytes ({total_bytes/48000:.1f}s at 24kHz)")
                 audio_out_dir = os.path.join(output_dir, entry.conversation_id)
                 save_response_audio(turn, audio_out_dir, entry.conversation_id, conv_config.sample_rate)
+            else:
+                logger.warning(f"Turn {turn.turn_number}: NO audio chunks collected (audio_received={turn.assistant_audio_received})")
 
             # Update conversation history for subsequent turns
             turn_messages: List[Dict[str, Any]] = []
@@ -1178,7 +1259,8 @@ async def main_async(args: argparse.Namespace) -> None:
     if not skip_eval and not aggregate_eval_file and eval_output_file:
         _run_evaluation(eval_output_file, args.output_dir,
                         eval_object_id=getattr(args, "eval_object_id", None),
-                        evaluators=evaluators)
+                        evaluators=evaluators,
+                        session_config=config)
 
     logger.info(f"Done — {len(all_results)} results written to {out_path}")
 
@@ -1212,6 +1294,7 @@ def _run_evaluation(
     output_dir: str,
     eval_object_id: Optional[str] = None,
     evaluators: Optional[str] = None,
+    session_config=None,
 ) -> None:
     """Run voice_agent_evaluation.main() if the module is available."""
     try:
@@ -1222,7 +1305,7 @@ def _run_evaluation(
     try:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         eval_name = os.path.basename(eval_input_path)
-        eval_desc = f"Voice Live API: {ts}"
+        eval_desc = generate_harness_eval_group_name(session_config) if session_config else f"harness_default_{ts}"
         eval_output = os.path.join(output_dir, ts)
         os.makedirs(eval_output, exist_ok=True)
 
@@ -1237,6 +1320,8 @@ def _run_evaluation(
         else:
             eval_list = DEFAULT_EVALUATORS  # "default" → 8 defaults
 
+        eval_run_name = generate_harness_run_name(eval_name, "1", eval_list)
+
         logger.info(f"Starting evaluation: {eval_name} (evaluators: {eval_list or 'default'})")
         voice_agent_evaluation.main(
             eval_input_path,
@@ -1244,7 +1329,7 @@ def _run_evaluation(
             output_folder=eval_output,
             eval_group_name=eval_desc,
             eval_object_id=eval_object_id or "",
-            eval_run_name=eval_name,
+            eval_run_name=eval_run_name,
             eval_run_scenario=eval_name,
             dataset_id="",
             dataset_appendix="",
@@ -1252,6 +1337,13 @@ def _run_evaluation(
             evaluators=eval_list,
         )
         logger.info(f"Evaluation completed (results in {eval_output})")
+
+        # Journal the eval group mapping
+        journal_harness_eval_group(
+            eval_group_name=eval_desc,
+            config=session_config,
+            output_dir=output_dir,
+        )
     except Exception as e:
         logger.error(f"Evaluation failed: {e}")
 
