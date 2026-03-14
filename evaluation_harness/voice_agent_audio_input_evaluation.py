@@ -651,9 +651,15 @@ async def process_audio(
                         turn.assistant_audio_received = True
                     if hasattr(event, 'delta') and event.delta:
                         try:
-                            turn.response_audio_chunks.append(base64.b64decode(event.delta))
+                            chunk = event.delta if isinstance(event.delta, bytes) else bytes(event.delta)
+                            turn.response_audio_chunks.append(chunk)
+                            if len(turn.response_audio_chunks) % 50 == 1:
+                                total = sum(len(c) for c in turn.response_audio_chunks)
+                                logger.debug(f"Audio chunk #{len(turn.response_audio_chunks)}: {len(chunk)}B, total={total}B ({total/48000:.1f}s)")
                         except Exception as e:
                             logger.debug(f"Skipped malformed audio chunk: {e}")
+                    else:
+                        logger.debug(f"RESPONSE_AUDIO_DELTA with no delta: hasattr={hasattr(event, 'delta')}, delta_truthy={bool(getattr(event, 'delta', None))}")
 
                 # Auto-truncation: user interrupted during agent playback
                 elif etype == ServerEventType.CONVERSATION_ITEM_TRUNCATED:
@@ -756,7 +762,8 @@ async def _drain_late_events(
                 elif etype == ServerEventType.RESPONSE_AUDIO_DELTA:
                     if hasattr(event, 'delta') and event.delta:
                         try:
-                            turn.response_audio_chunks.append(base64.b64decode(event.delta))
+                            chunk = event.delta if isinstance(event.delta, bytes) else bytes(event.delta)
+                            turn.response_audio_chunks.append(chunk)
                             late_audio_chunks += 1
                         except Exception as e:
                             logger.debug(f"Skipped malformed late audio chunk: {e}")
@@ -984,8 +991,12 @@ async def process_conversation(
 
             # Save response audio as WAV
             if turn.response_audio_chunks:
+                total_bytes = sum(len(c) for c in turn.response_audio_chunks)
+                logger.info(f"Turn {turn.turn_number}: {len(turn.response_audio_chunks)} audio chunks, {total_bytes} bytes ({total_bytes/48000:.1f}s at 24kHz)")
                 audio_out_dir = os.path.join(output_dir, entry.conversation_id)
                 save_response_audio(turn, audio_out_dir, entry.conversation_id, conv_config.sample_rate)
+            else:
+                logger.warning(f"Turn {turn.turn_number}: NO audio chunks collected (audio_received={turn.assistant_audio_received})")
 
             # Update conversation history for subsequent turns
             turn_messages: List[Dict[str, Any]] = []
