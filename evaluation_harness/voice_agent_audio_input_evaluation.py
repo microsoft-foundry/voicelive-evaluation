@@ -16,7 +16,9 @@ import base64
 import logging
 import argparse
 import asyncio
+import tempfile
 import numpy as np
+import requests
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
@@ -243,8 +245,16 @@ class ConversationTurn:
 
 @dataclass
 class DatasetEntry:
-    """Parsed entry from a JSONL dataset file."""
-    audio_path: str
+    """Parsed entry from a JSONL dataset file.
+
+    Supports two audio source formats:
+    - Legacy: ``audio_path`` points to a local WAV file (WavPath field).
+    - Media:  ``audio_media_ref`` holds ``{"data": "<url_or_base64>", "format": "wav"}``
+              from Foundry's ``input_audio`` content type.  Resolved to a temp
+              file at processing time via ``_resolve_audio_from_media()``.
+    """
+    audio_path: Optional[str] = None
+    audio_media_ref: Optional[Dict[str, str]] = None
     ground_truth: Optional[str] = None
     question: Optional[str] = None
     tool_definitions: Optional[List[Dict[str, Any]]] = None
@@ -362,7 +372,15 @@ def load_audio_file(path: str, target_rate: int = 24000) -> bytes:
 # ---------------------------------------------------------------------------
 
 def read_dataset(path: str) -> List[DatasetEntry]:
-    """Read a JSONL dataset file and return parsed entries."""
+    """Read a JSONL dataset file and return parsed entries.
+
+    Supports three audio source formats:
+
+    1. **Legacy (WavPath)** — ``{"WavPath": "file.wav", ...}``
+    2. **Media in messages** — Foundry media dataset with ``input_audio``
+       content parts inside a ``messages`` array.
+    3. **Top-level media** — ``{"audio": {"type": "input_audio", ...}, ...}``
+    """
     if not os.path.exists(path):
         logger.error(f"Dataset file not found: {path}")
         return []
@@ -381,37 +399,115 @@ def read_dataset(path: str) -> List[DatasetEntry]:
                 logger.warning(f"Line {line_num}: JSON parse error: {e}")
                 continue
 
-            wav_path = record.get('WavPath') or record.get('audio') or record.get('audio_path')
-            if not wav_path:
-                logger.warning(f"Line {line_num}: missing audio path field")
+            # --- Detect audio source format --------------------------------
+            audio_path: Optional[str] = None
+            audio_media_ref: Optional[Dict[str, str]] = None
+
+            # 1. Check for input_audio inside messages (Foundry media format)
+            media_ref = _extract_media_ref(record)
+            if media_ref:
+                audio_media_ref = media_ref
+            else:
+                # 2. Legacy WavPath / audio / audio_path field
+                wav_path = record.get('WavPath') or record.get('audio') or record.get('audio_path')
+                if wav_path:
+                    resolved = _resolve_audio_path(wav_path, dataset_dir)
+                    if resolved:
+                        audio_path = resolved
+                    else:
+                        logger.warning(f"Line {line_num}: audio file not found: {wav_path}")
+                        continue
+
+            if not audio_path and not audio_media_ref:
+                logger.warning(f"Line {line_num}: no audio source found (WavPath or input_audio)")
                 continue
 
-            # Resolve path
-            resolved = _resolve_audio_path(wav_path, dataset_dir)
-            if not resolved:
-                logger.warning(f"Audio file not found: {wav_path}")
-                continue
-
+            # --- Extract metadata ------------------------------------------
             tool_defs = record.get('tool_definitions', [])
             if isinstance(tool_defs, dict):
                 tool_defs = [tool_defs]
 
-            answer_raw = record.get('Answer') or record.get('answer')
+            answer_raw = record.get('Answer') or record.get('answer') or record.get('expected_output')
             # Normalize list-type answers (e.g. speech-trivia-qa uses ["Paris", "City of Paris"])
             if isinstance(answer_raw, list):
                 answer_raw = " OR ".join(str(a) for a in answer_raw if a) if answer_raw else None
+
+            # Extract question from legacy field or from messages text parts
+            question = record.get('Question') or record.get('question')
+            if not question:
+                question = _extract_text_from_messages(record)
+
+            # Extract system prompt from legacy field or from messages
+            system_prompt = record.get('system_prompt')
+            if not system_prompt:
+                system_prompt = _extract_system_prompt_from_messages(record)
+
             entries.append(DatasetEntry(
-                audio_path=resolved,
+                audio_path=audio_path,
+                audio_media_ref=audio_media_ref,
                 ground_truth=answer_raw,
-                question=record.get('Question') or record.get('question'),
+                question=question,
                 tool_definitions=tool_defs if tool_defs else [],
                 conversation_id=record.get('conversationID') or record.get('conversation_id') or 'default',
-                system_prompt=record.get('system_prompt'),
+                system_prompt=system_prompt,
                 barge_in=bool(record.get('barge_in', False)),
             ))
 
-    logger.info(f"Loaded {len(entries)} entries from {path}")
+    media_count = sum(1 for e in entries if e.audio_media_ref)
+    legacy_count = sum(1 for e in entries if e.audio_path)
+    logger.info(f"Loaded {len(entries)} entries from {path} (legacy={legacy_count}, media={media_count})")
     return entries
+
+
+def _extract_media_ref(record: dict) -> Optional[Dict[str, str]]:
+    """Extract the first ``input_audio`` reference from a record.
+
+    Checks both Foundry ``messages`` array and top-level ``audio`` field.
+    """
+    # Check inside messages array (Foundry media dataset format)
+    for msg in record.get("messages", []):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", [])
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "input_audio":
+                    ref = part.get("input_audio")
+                    if ref and ref.get("data"):
+                        return ref
+    # Check top-level audio field (alternative format)
+    top_audio = record.get("audio")
+    if isinstance(top_audio, dict) and top_audio.get("type") == "input_audio":
+        ref = top_audio.get("input_audio")
+        if ref and ref.get("data"):
+            return ref
+    return None
+
+
+def _extract_text_from_messages(record: dict) -> Optional[str]:
+    """Extract user text from a Foundry messages array."""
+    for msg in record.get("messages", []):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", [])
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            texts = [p.get("text", "") for p in content
+                     if isinstance(p, dict) and p.get("type") == "text"]
+            combined = " ".join(t for t in texts if t)
+            if combined:
+                return combined
+    return None
+
+
+def _extract_system_prompt_from_messages(record: dict) -> Optional[str]:
+    """Extract system message content from a Foundry messages array."""
+    for msg in record.get("messages", []):
+        if msg.get("role") == "system":
+            content = msg.get("content", "")
+            return content if isinstance(content, str) else str(content)
+    return None
 
 
 def _resolve_audio_path(wav_path: str, dataset_dir: str) -> Optional[str]:
@@ -452,6 +548,99 @@ def _resolve_audio_path(wav_path: str, dataset_dir: str) -> Optional[str]:
         if parent == current:
             break
         current = parent
+    return None
+
+
+def _resolve_audio_from_media(
+    audio_ref: Dict[str, str],
+    cache_dir: Optional[str] = None,
+) -> Optional[str]:
+    """Resolve an ``input_audio`` media reference to a local WAV file path.
+
+    Supports three data forms:
+    - **URL** (``https://...``)  — downloaded via ``requests``; Azure blob
+      URLs are attempted with ``DefaultAzureCredential`` bearer token first.
+    - **Base64 data-URI** (``data:audio/wav;base64,...``) — prefix stripped
+      and decoded.
+    - **Raw base64** (long string without URL/data-URI prefix) — decoded
+      directly.
+
+    Args:
+        audio_ref: ``{"data": "<url_or_base64>", "format": "wav"}``
+        cache_dir: Directory for downloaded/decoded files.  A temp dir is
+            created when *None*.
+
+    Returns:
+        Absolute path to the local WAV file, or *None* on failure.
+    """
+    data = (audio_ref or {}).get("data", "")
+    fmt = (audio_ref or {}).get("format", "wav")
+    if not data:
+        logger.warning("Empty media data in input_audio reference")
+        return None
+
+    target_dir = cache_dir or tempfile.mkdtemp(prefix="voicelive_media_")
+    suffix = f".{fmt}" if fmt else ".wav"
+
+    # --- URL ---------------------------------------------------------------
+    if data.startswith("http://") or data.startswith("https://"):
+        try:
+            headers: Dict[str, str] = {}
+            # Azure blob URLs — attempt bearer-token auth
+            if ".blob.core.windows.net" in data or ".blob.storage.azure.net" in data:
+                try:
+                    cred = DefaultAzureCredential()
+                    token = cred.get_token("https://storage.azure.com/.default")
+                    headers["Authorization"] = f"Bearer {token.token}"
+                    logger.debug("Using Azure credential for blob URL")
+                except Exception:
+                    logger.debug("Azure credential unavailable; falling back to anonymous download")
+
+            resp = requests.get(data, headers=headers, timeout=120)
+            resp.raise_for_status()
+
+            dest = os.path.join(target_dir, f"media_download_{secrets.token_hex(4)}{suffix}")
+            with open(dest, "wb") as fout:
+                fout.write(resp.content)
+            logger.info(f"Downloaded media audio ({len(resp.content)} bytes) → {dest}")
+            return os.path.abspath(dest)
+        except Exception as exc:
+            logger.error(f"Failed to download media audio from URL: {exc}")
+            return None
+
+    # --- Base64 data-URI ---------------------------------------------------
+    if data.startswith("data:"):
+        # Strip "data:audio/wav;base64," prefix
+        try:
+            _, encoded = data.split(",", 1)
+        except ValueError:
+            logger.error("Malformed base64 data-URI (no comma separator)")
+            return None
+        try:
+            raw_bytes = base64.b64decode(encoded)
+        except Exception as exc:
+            logger.error(f"Base64 decode failed for data-URI: {exc}")
+            return None
+        dest = os.path.join(target_dir, f"media_b64_{secrets.token_hex(4)}{suffix}")
+        with open(dest, "wb") as fout:
+            fout.write(raw_bytes)
+        logger.info(f"Decoded base64 data-URI ({len(raw_bytes)} bytes) → {dest}")
+        return os.path.abspath(dest)
+
+    # --- Raw base64 (no prefix) --------------------------------------------
+    if len(data) > 200:
+        try:
+            raw_bytes = base64.b64decode(data)
+        except Exception as exc:
+            logger.error(f"Base64 decode failed for raw data: {exc}")
+            return None
+        dest = os.path.join(target_dir, f"media_b64_{secrets.token_hex(4)}{suffix}")
+        with open(dest, "wb") as fout:
+            fout.write(raw_bytes)
+        logger.info(f"Decoded raw base64 ({len(raw_bytes)} bytes) → {dest}")
+        return os.path.abspath(dest)
+
+    logger.warning(f"Unrecognised media data format (length={len(data)})")
     return None
 
 
@@ -921,7 +1110,7 @@ def build_evaluation_data(
         "tool_definitions": tool_definitions or [],
         "ground_truth": entry.ground_truth or "",
         "conversation_id": entry.conversation_id,
-        "source_file": entry.audio_path,
+        "source_file": entry.audio_path or "(media)",
         "turn_number": turn.turn_number,
     }
 
@@ -962,8 +1151,22 @@ async def process_conversation(
     for i, entry in enumerate(entries):
         turn_number = i + 1
         try:
-            audio_data = load_audio_file(entry.audio_path, conv_config.sample_rate)
-            logger.info(f"Loaded {entry.audio_path} ({len(audio_data)} bytes)")
+            # Resolve audio: media reference (URL/base64) or legacy file path
+            if entry.audio_media_ref:
+                local_path = _resolve_audio_from_media(
+                    entry.audio_media_ref, cache_dir=output_dir,
+                )
+                if not local_path:
+                    raise FileNotFoundError(
+                        f"Failed to resolve media audio for turn {turn_number}"
+                    )
+                audio_source_label = f"media:{local_path}"
+            else:
+                local_path = entry.audio_path
+                audio_source_label = entry.audio_path
+
+            audio_data = load_audio_file(local_path, conv_config.sample_rate)
+            logger.info(f"Loaded {audio_source_label} ({len(audio_data)} bytes)")
 
             turn = await process_audio(
                 connection,
@@ -1022,13 +1225,14 @@ async def process_conversation(
                 turn_messages.append({"role": "assistant", "content": resp_text})
             conversation_history.append({"turn": turn_number, "messages": turn_messages})
 
-            logger.info(f"Turn {turn_number} done: {os.path.basename(entry.audio_path)}")
+            logger.info(f"Turn {turn_number} done: {os.path.basename(audio_source_label)}")
 
         except Exception as e:
-            logger.error(f"Error processing {entry.audio_path}: {e}")
+            source_label = entry.audio_path or "(media)"
+            logger.error(f"Error processing {source_label}: {e}")
             results.append({
                 "conversation_id": entry.conversation_id,
-                "source_file": entry.audio_path,
+                "source_file": source_label,
                 "error": str(e),
                 "turn_number": turn_number,
             })
