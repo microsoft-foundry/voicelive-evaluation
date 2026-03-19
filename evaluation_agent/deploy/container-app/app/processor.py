@@ -6,16 +6,21 @@ Orchestrates the processing of audio files through VoiceLive.
 
 import os
 import asyncio
+import base64
 import json
 import logging
+import secrets
 import tempfile
 import wave
 import numpy as np
+import requests
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
 from itertools import groupby
 from operator import attrgetter
+
+from azure.identity import DefaultAzureCredential
 
 from .config import SessionConfig, DEFAULT_SESSION_CONFIG
 from .voicelive_client import VoiceLiveClient, ConversationTurn, sanitize_text_for_utf8
@@ -94,6 +99,70 @@ def load_audio_file(file_path: str, target_sample_rate: int = 24000) -> bytes:
     return audio.tobytes()
 
 
+def _resolve_audio_from_media(
+    audio_ref: Dict[str, str],
+    cache_dir: Optional[str] = None,
+) -> Optional[str]:
+    """Resolve an ``input_audio`` media reference to a local WAV file.
+
+    Supports URLs (with Azure blob auth) and base64 data URIs.
+    Aligned with the evaluation harness implementation.
+    """
+    data = (audio_ref or {}).get("data", "")
+    fmt = (audio_ref or {}).get("format", "wav")
+    if not data:
+        logger.warning("Empty media data in input_audio reference")
+        return None
+
+    target_dir = cache_dir or tempfile.mkdtemp(prefix="voicelive_media_")
+    suffix = f".{fmt}" if fmt else ".wav"
+
+    # URL download
+    if data.startswith("http://") or data.startswith("https://"):
+        try:
+            dest = os.path.join(target_dir, f"media_download_{secrets.token_hex(4)}{suffix}")
+            if ".blob.core.windows.net" in data or ".blob.storage.azure.net" in data:
+                try:
+                    from azure.storage.blob import BlobClient
+                    blob_client = BlobClient.from_blob_url(data, credential=DefaultAzureCredential())
+                    with open(dest, "wb") as fout:
+                        fout.write(blob_client.download_blob().readall())
+                    logger.info(f"Downloaded blob audio ({os.path.getsize(dest)} bytes) → {dest}")
+                    return os.path.abspath(dest)
+                except Exception as exc:
+                    logger.debug(f"BlobClient auth failed ({exc}), trying anonymous HTTP")
+            resp = requests.get(data, timeout=120)
+            resp.raise_for_status()
+            with open(dest, "wb") as fout:
+                fout.write(resp.content)
+            logger.info(f"Downloaded media audio ({len(resp.content)} bytes) → {dest}")
+            return os.path.abspath(dest)
+        except Exception as exc:
+            logger.error(f"Failed to download media audio from URL: {exc}")
+            return None
+
+    # Base64 data URI
+    if data.startswith("data:"):
+        try:
+            _, encoded = data.split(",", 1)
+        except ValueError:
+            logger.error("Malformed base64 data-URI")
+            return None
+        try:
+            raw_bytes = base64.b64decode(encoded)
+        except Exception as exc:
+            logger.error(f"Base64 decode failed: {exc}")
+            return None
+        dest = os.path.join(target_dir, f"media_b64_{secrets.token_hex(4)}{suffix}")
+        with open(dest, "wb") as fout:
+            fout.write(raw_bytes)
+        logger.info(f"Decoded base64 data-URI ({len(raw_bytes)} bytes) → {dest}")
+        return os.path.abspath(dest)
+
+    logger.warning(f"Unrecognised media data format (length={len(data)})")
+    return None
+
+
 async def process_conversation(
     entries: List[DatasetEntry],
     client: VoiceLiveClient,
@@ -151,22 +220,32 @@ async def process_conversation(
         # Update progress
         await job_manager.update_job_progress(
             job_id,
-            current_file=entry.wav_path,
+            current_file=entry.wav_path or "(media)",
             current_conversation=conversation_id
         )
         
         try:
-            # Resolve audio path - prepend base path if wav_path is relative
-            wav_path = entry.wav_path
-            if dataset_base_path and not wav_path.startswith(dataset_base_path):
-                wav_path = f"{dataset_base_path}/{wav_path}"
-            
-            # Download audio file
-            audio_path = storage.download_audio_file(wav_path, temp_dir)
+            # Resolve audio: media reference (URL/base64) or legacy blob path
+            if entry.audio_media_ref:
+                local_path = _resolve_audio_from_media(
+                    entry.audio_media_ref, cache_dir=temp_dir,
+                )
+                if not local_path:
+                    raise FileNotFoundError(
+                        f"Failed to resolve media audio for turn {turn_number}"
+                    )
+                audio_source_label = f"media:{local_path}"
+            else:
+                # Legacy: resolve blob path and download
+                wav_path = entry.wav_path
+                if dataset_base_path and not wav_path.startswith(dataset_base_path):
+                    wav_path = f"{dataset_base_path}/{wav_path}"
+                local_path = storage.download_audio_file(wav_path, temp_dir)
+                audio_source_label = entry.wav_path
             
             # Load audio
-            audio_data = load_audio_file(audio_path, config.audio.sample_rate)
-            logger.debug(f"Loaded audio: {entry.wav_path} ({len(audio_data)} bytes)")
+            audio_data = load_audio_file(local_path, config.audio.sample_rate)
+            logger.debug(f"Loaded audio: {audio_source_label} ({len(audio_data)} bytes)")
             
             # Process through VoiceLive
             turn = await client.process_audio(
