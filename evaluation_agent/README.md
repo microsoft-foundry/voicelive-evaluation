@@ -447,21 +447,30 @@ There are two distinct dataset types with different stores and schemas:
 ### VoiceLive Audio Datasets (Blob Storage)
 
 Stored in blob `datasets/` container. Contains audio files for VoiceLive processing.
+Supports legacy `WavPath` format and Foundry media format (`input_audio`).
 
+**Legacy format** (local file references):
 ```json
 {"WavPath": "file1.wav", "Question": "User query", "Answer": "Expected response", "conversationID": "conv1", "system_prompt": "..."}
-{"WavPath": "file2.wav", "Question": "Another query", "Answer": "Another response", "conversationID": "conv1"}
+```
+
+**Foundry media format** (inline base64 or blob URLs):
+```json
+{"messages": [{"role": "system", "content": "..."}, {"role": "user", "content": [{"type": "text", "text": "User query"}, {"type": "input_audio", "input_audio": {"data": "data:audio/wav;base64,UklGR...", "format": "wav"}}]}], "expected_output": "Expected response", "conversationID": "conv1"}
 ```
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| WavPath / audio | **Yes** | Path to audio file |
-| Question | No | User query text |
-| Answer | No | Expected response text |
+| WavPath / audio | **Yes*** | Path to audio file (legacy format) |
+| messages[].input_audio | **Yes*** | Inline audio via base64 data-URI or blob URL (media format) |
+| Question / messages text | No | User query text |
+| Answer / expected_output | No | Expected response text |
 | conversationID | No | Group files by conversation |
-| system_prompt | No | Agent instructions |
+| system_prompt | No | Agent instructions (or `messages[0].role=system`) |
 | tool_definitions | No | Available tools for agent |
 | barge_in | No | Mark turns designed to interrupt prior response |
+
+\* One of `WavPath` or `input_audio` is required per entry.
 
 ### Evaluation-Ready Datasets (Foundry Data Store)
 

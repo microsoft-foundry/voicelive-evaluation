@@ -86,12 +86,16 @@ python voice_agent_audio_input_evaluation.py -f dataset.jsonl --push-to-talk
 
 | Argument | Default | Description |
 |---|---|---|
-| `--test-files`, `-f` | *(required)* | JSONL file listing audio files and metadata |
+| `--test-files`, `-f` | — | JSONL file listing audio files and metadata (local path) |
+| `--foundry-dataset` | — | Read dataset from Foundry Data Store: `NAME[:VERSION]` |
+| `--upload-dataset` | `False` | Upload evaluation results to Foundry after processing |
 | `--output-dir`, `-o` | `output/` | Output directory for results and response audio |
 | `--evaluation-dir`, `-e` | `None` | Evaluation data directory (defaults to output-dir) |
 | `--session-mode` | `per-conversation` | Session handling: `single`, `per-file`, `per-conversation` |
 | `--skip-evaluation` | `False` | Skip running Foundry evaluation after processing |
 | `--verbose`, `-v` | `False` | Enable DEBUG logging |
+
+> **Note:** One of `--test-files` or `--foundry-dataset` is required. `--foundry-dataset` requires `PROJECT_ENDPOINT` env var.
 
 ### VoiceLive Session
 
@@ -180,7 +184,11 @@ The config file uses a flat key format for simplicity. It is conceptually aligne
 
 ## Dataset Format
 
-Input is a JSONL file where each line is a JSON object:
+The harness supports two input dataset formats:
+
+### Legacy Format (WavPath)
+
+JSONL where each line references a local audio file:
 
 ```jsonl
 {"WavPath": "audio/turn1.wav", "Answer": "expected response", "Question": "What is the weather?", "conversationID": "conv-001", "system_prompt": "You are a helpful assistant.", "tool_definitions": [{"type": "function", "name": "get_weather", "description": "Get weather", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}}}]}
@@ -195,6 +203,31 @@ Input is a JSONL file where each line is a JSON object:
 | `system_prompt` | No | Per-conversation system instruction |
 | `tool_definitions` | No | Tool/function definitions to register with the session |
 | `barge_in` | No | Mark turns designed to interrupt prior agent response (enables truncation tracking) |
+
+### Foundry Media Format (input_audio)
+
+JSONL using Foundry's `messages` / `expected_output` schema with inline audio. Audio can be provided as **base64 data-URI** (Foundry Portal compatible, supports playback) or **blob storage URL** (smaller JSONL files).
+
+```jsonl
+{"messages": [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": [{"type": "text", "text": "What is the weather?"}, {"type": "input_audio", "input_audio": {"data": "data:audio/wav;base64,UklGR...", "format": "wav"}}]}], "expected_output": "The weather is sunny.", "conversationID": "conv-001"}
+```
+
+| Content type | `data` field | Description |
+|---|---|---|
+| Base64 data-URI | `data:audio/wav;base64,UklGR...` | Inline audio, Foundry Portal playback ✅ |
+| Blob storage URL | `https://account.blob.core.windows.net/container/file.wav` | Downloaded via `BlobClient` with `DefaultAzureCredential` |
+
+### Foundry Data Store Integration
+
+Datasets can be read directly from Foundry Data Store and results uploaded back:
+
+```bash
+# Read from Foundry (auto-resolves latest version)
+python voice_agent_audio_input_evaluation.py --foundry-dataset my_dataset -o output/
+
+# Read specific version + upload results
+python voice_agent_audio_input_evaluation.py --foundry-dataset my_dataset:2 -o output/ --upload-dataset
+```
 
 ## Output Format
 
