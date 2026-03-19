@@ -592,7 +592,9 @@ def _resolve_audio_from_media(
             dest = os.path.join(target_dir, f"media_download_{secrets.token_hex(4)}{suffix}")
 
             # Azure blob URLs — use BlobClient with DefaultAzureCredential
-            if ".blob.core.windows.net" in data or ".blob.storage.azure.net" in data:
+            from urllib.parse import urlparse
+            hostname = urlparse(data).hostname or ""
+            if hostname.endswith(".blob.core.windows.net") or hostname.endswith(".blob.storage.azure.net"):
                 try:
                     from azure.storage.blob import BlobClient
                     blob_client = BlobClient.from_blob_url(data, credential=DefaultAzureCredential())
