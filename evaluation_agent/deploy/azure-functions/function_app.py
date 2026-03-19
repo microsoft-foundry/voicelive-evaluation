@@ -1293,6 +1293,7 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
                            "conversationID": 0, "conversation_id": 0, "system_prompt": 0}
         eval_fields = {"query": 0, "response": 0, "ground_truth": 0, "context": 0,
                       "tool_calls": 0, "tool_definitions": 0}
+        media_fields = {"messages": 0, "expected_output": 0, "input_audio": 0}
         all_field_names = set()
         entry_count = 0
         
@@ -1312,6 +1313,19 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
                     for field in eval_fields:
                         if field in entry:
                             eval_fields[field] += 1
+                    # Detect Foundry media format (input_audio in messages)
+                    if "messages" in entry:
+                        media_fields["messages"] += 1
+                    if "expected_output" in entry:
+                        media_fields["expected_output"] += 1
+                    for msg in entry.get("messages", []):
+                        if msg.get("role") == "user":
+                            content = msg.get("content", [])
+                            if isinstance(content, list):
+                                for part in content:
+                                    if isinstance(part, dict) and part.get("type") == "input_audio":
+                                        media_fields["input_audio"] += 1
+                                        break
                 except json.JSONDecodeError:
                     pass
         
@@ -1319,9 +1333,13 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
         
         # Detect dataset type
         has_audio = (voicelive_fields["WavPath"] + voicelive_fields["audio"]) > 0
+        has_media_audio = media_fields["input_audio"] > 0
         has_eval = eval_fields["query"] > 0 and eval_fields["response"] > 0
         
-        if has_audio and not has_eval:
+        if has_media_audio:
+            dataset_type = "voicelive_media"
+            recommendation = "Foundry media dataset with input_audio. Use run_voicelive_audio_tests to process (supports base64 data-URI and URL formats)."
+        elif has_audio and not has_eval:
             dataset_type = "voicelive"
             recommendation = "VoiceLive audio dataset. Use validate_voicelive_dataset to validate, then run_voicelive_audio_tests to process."
         elif has_eval and not has_audio:
@@ -1341,6 +1359,7 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
                 "entries_analyzed": entry_count,
                 "fields_found": sorted(list(all_field_names)),
                 "voicelive_fields": {k: v for k, v in voicelive_fields.items() if v > 0},
+                "media_fields": {k: v for k, v in media_fields.items() if v > 0},
                 "evaluation_fields": {k: v for k, v in eval_fields.items() if v > 0},
                 "recommendation": recommendation,
             }),
@@ -1404,10 +1423,21 @@ def validate_voicelive_dataset(req: func.HttpRequest) -> func.HttpResponse:
                     entry = json.loads(line)
                     entry_count += 1
                     
-                    # Check for audio path (required)
-                    audio_path = entry.get("WavPath") or entry.get("audio")
-                    if not audio_path:
-                        errors.append(f"Line {line_num}: Missing audio path (WavPath or audio)")
+                    # Check for audio source (WavPath, audio field, or input_audio in messages)
+                    audio_path = entry.get("WavPath") or (entry.get("audio") if isinstance(entry.get("audio"), str) else None)
+                    has_input_audio = False
+                    for msg in entry.get("messages", []):
+                        if msg.get("role") == "user":
+                            content = msg.get("content", [])
+                            if isinstance(content, list):
+                                for part in content:
+                                    if isinstance(part, dict) and part.get("type") == "input_audio":
+                                        ref = part.get("input_audio", {})
+                                        if ref.get("data"):
+                                            has_input_audio = True
+                                            break
+                    if not audio_path and not has_input_audio:
+                        errors.append(f"Line {line_num}: Missing audio source (WavPath, audio, or input_audio)")
                     
                     # Track conversation IDs if present
                     cid = entry.get("conversationID") or entry.get("conversation_id") or "default"

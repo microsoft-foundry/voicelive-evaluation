@@ -62,9 +62,9 @@ paths:
       operationId: check_dataset_schema
       summary: Check dataset schema and detect type — MUST be called FIRST before any evaluation
       description: |
-        MANDATORY FIRST STEP. Analyzes a JSONL dataset to detect its type (voicelive or evaluation)
+        MANDATORY FIRST STEP. Analyzes a JSONL dataset to detect its type (voicelive, voicelive_media, or evaluation)
         and list all fields found. Returns dataset_type which MUST be used to route to the correct
-        workflow. VoiceLive audio datasets (WavPath/audio fields) must go through
+        workflow. VoiceLive audio datasets (WavPath/audio fields or input_audio media format) must go through
         run_voicelive_audio_tests FIRST, then run_voicelive_evaluation. Evaluation-ready datasets
         (query/response fields) can go directly to run_voicelive_evaluation.
       requestBody:
@@ -178,7 +178,8 @@ paths:
       summary: Validate VoiceLive audio dataset
       description: |
         Validates a VoiceLive audio dataset for structural integrity.
-        Requires WavPath or audio field in every entry.
+        Requires WavPath, audio field, or input_audio media content in every entry.
+        Supports legacy format (WavPath) and Foundry media format (input_audio with base64/URL).
         Use this for datasets with audio files, NOT for evaluation-ready datasets.
       requestBody:
         required: true
@@ -321,7 +322,7 @@ paths:
       summary: Run Foundry evaluation on EVALUATION-READY datasets ONLY
       description: |
         Runs Azure AI Foundry evaluators on an EVALUATION-READY dataset (must have query/response fields).
-        DO NOT call this on VoiceLive audio datasets (WavPath/audio) — those must first be processed
+        DO NOT call this on VoiceLive audio datasets (WavPath/audio or input_audio media) — those must first be processed
         through run_voicelive_audio_tests to produce an evaluation-ready dataset.
         ALWAYS call check_dataset_schema first to verify dataset_type is "evaluation" before calling this.
         This is an async operation - use check_evaluation_status to poll for completion.
