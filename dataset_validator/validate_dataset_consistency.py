@@ -246,7 +246,9 @@ class DatasetConsistencyValidator:
         """
         Validate that all required fields are present and non-empty.
         
-        Required fields: WavPath, Question, Answer, conversationID, system_prompt
+        For legacy format: WavPath, Question, Answer, conversationID, system_prompt
+        For media format (input_audio in messages): expected_output replaces Answer,
+          Question and system_prompt come from messages array.
         Optional fields: tool_definitions
         
         Returns:
@@ -260,19 +262,62 @@ class DatasetConsistencyValidator:
             print("  ❌ FAILED: No entries to validate")
             return False
         
-        required_fields = ['WavPath', 'Question', 'Answer', 'conversationID', 'system_prompt']
+        # Detect if dataset uses media format
+        media_count = sum(1 for e in self.entries if self._has_input_audio(e))
+        legacy_count = len(self.entries) - media_count
+        
+        if media_count > 0:
+            print(f"  ℹ  Format: {media_count} media entries, {legacy_count} legacy entries")
+        
+        all_ok = True
+        audio_missing = 0
+        
+        for idx, entry in enumerate(self.entries, start=1):
+            is_media = self._has_input_audio(entry)
+            
+            # Audio source check: WavPath (legacy) or input_audio (media)
+            if not is_media:
+                wav = entry.get('WavPath')
+                if not wav or (isinstance(wav, str) and not wav.strip()):
+                    audio_missing += 1
+        
+        if audio_missing > 0:
+            all_ok = False
+            status = f"❌ Audio source: {len(self.entries) - audio_missing}/{len(self.entries)} valid ({audio_missing} missing WavPath or input_audio)"
+            self.errors.append(status)
+        else:
+            status = f"✅ Audio source: {len(self.entries)}/{len(self.entries)} valid"
+        print(f"  {status}")
+        
+        # Check metadata fields (adapt to format)
+        required_fields = ['Question', 'Answer', 'conversationID', 'system_prompt'] if legacy_count > 0 else []
         field_stats = defaultdict(lambda: {'present': 0, 'empty': 0, 'missing': 0})
         
         for idx, entry in enumerate(self.entries, start=1):
+            is_media = self._has_input_audio(entry)
+            
             for field in required_fields:
-                if field not in entry:
+                # Media format uses messages/expected_output instead
+                if is_media and field in ('Question', 'Answer', 'system_prompt'):
+                    # Check media equivalents
+                    if field == 'Answer':
+                        val = entry.get('expected_output') or entry.get('Answer')
+                    elif field == 'Question':
+                        val = self._extract_text_from_messages(entry) or entry.get('Question')
+                    elif field == 'system_prompt':
+                        val = self._extract_system_prompt(entry) or entry.get('system_prompt')
+                    else:
+                        val = entry.get(field)
+                else:
+                    val = entry.get(field)
+                
+                if val is None:
                     field_stats[field]['missing'] += 1
-                elif not entry[field] or (isinstance(entry[field], str) and not entry[field].strip()):
+                elif not val or (isinstance(val, str) and not val.strip()):
                     field_stats[field]['empty'] += 1
                 else:
                     field_stats[field]['present'] += 1
         
-        all_ok = True
         for field in required_fields:
             stats = field_stats[field]
             total = len(self.entries)
@@ -298,9 +343,48 @@ class DatasetConsistencyValidator:
         
         return all_ok
     
+    @staticmethod
+    def _has_input_audio(entry: dict) -> bool:
+        """Check if a JSONL entry contains input_audio media content."""
+        for msg in entry.get("messages", []):
+            if msg.get("role") == "user":
+                content = msg.get("content", [])
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "input_audio":
+                            ref = part.get("input_audio", {})
+                            if ref.get("data"):
+                                return True
+        return False
+    
+    @staticmethod
+    def _extract_text_from_messages(entry: dict) -> str:
+        """Extract user text from messages array."""
+        for msg in entry.get("messages", []):
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content", [])
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                texts = [p.get("text", "") for p in content
+                         if isinstance(p, dict) and p.get("type") == "text"]
+                return " ".join(t for t in texts if t)
+        return ""
+    
+    @staticmethod
+    def _extract_system_prompt(entry: dict) -> str:
+        """Extract system prompt from messages array."""
+        for msg in entry.get("messages", []):
+            if msg.get("role") == "system":
+                c = msg.get("content", "")
+                return c if isinstance(c, str) else str(c)
+        return ""
+    
     def _validate_audio_files(self) -> bool:
         """
         Validate that all referenced audio files exist in the dataset folder.
+        Media entries (input_audio) are validated for non-empty data instead.
         Also checks for unreferenced audio files (warning only).
         
         Returns:
@@ -315,8 +399,15 @@ class DatasetConsistencyValidator:
         
         missing_files = []
         referenced_files = set()
+        media_valid = 0
+        media_invalid = 0
         
         for entry in self.entries:
+            if self._has_input_audio(entry):
+                # Media entry — validate data is non-empty (already checked in _has_input_audio)
+                media_valid += 1
+                continue
+            
             wav_path = entry.get('WavPath')
             if wav_path:
                 referenced_files.add(wav_path)
@@ -327,6 +418,8 @@ class DatasetConsistencyValidator:
         # Count actual WAV files in folder
         actual_wav_files = list(self.folder_path.glob('*.wav'))
         
+        if media_valid > 0:
+            print(f"  Media entries (input_audio): {media_valid} valid")
         print(f"  Referenced in JSONL: {len(referenced_files)} files")
         print(f"  WAV files in folder: {len(actual_wav_files)} files")
         
