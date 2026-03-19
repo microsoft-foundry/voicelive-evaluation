@@ -1327,6 +1327,141 @@ def write_operational_summary(
 
 
 # ---------------------------------------------------------------------------
+# Foundry Data Store integration
+# ---------------------------------------------------------------------------
+
+def download_foundry_dataset(dataset_spec: str) -> str:
+    """Download a dataset JSONL from Foundry Data Store to a local temp file.
+
+    Args:
+        dataset_spec: ``NAME`` or ``NAME:VERSION``.  When version is omitted
+            the latest version is resolved automatically.
+
+    Returns:
+        Path to the downloaded local JSONL file.
+
+    Requires ``PROJECT_ENDPOINT`` environment variable.
+    """
+    from azure.ai.projects import AIProjectClient
+
+    project_endpoint = (
+        os.environ.get("AZURE_AI_PROJECT_ENDPOINT")
+        or os.environ.get("PROJECT_ENDPOINT")
+    )
+    if not project_endpoint:
+        raise ValueError(
+            "PROJECT_ENDPOINT env var required for --foundry-dataset"
+        )
+
+    parts = dataset_spec.split(":", 1)
+    name = parts[0]
+    version = parts[1] if len(parts) > 1 else None
+
+    client = AIProjectClient(
+        endpoint=project_endpoint,
+        credential=DefaultAzureCredential(),
+    )
+
+    # Resolve latest version if not specified
+    if not version:
+        versions = list(client.datasets.list_versions(name=name))
+        if not versions:
+            raise ValueError(f"Foundry dataset '{name}' not found")
+        version = str(max(int(v.version) for v in versions))
+        logger.info(f"Resolved Foundry dataset '{name}' to version {version}")
+
+    # Get SAS-authenticated download URL
+    creds = client.datasets.get_credentials(name=name, version=version)
+    creds_dict = creds.as_dict()
+    blob_ref = (
+        creds_dict.get("blobReferenceForConsumption")
+        or creds_dict.get("blobReference", {})
+    )
+    blob_uri = blob_ref.get("blobUri")
+    sas_uri = blob_ref.get("credential", {}).get("sasUri", "")
+
+    if not blob_uri:
+        raise ValueError(
+            f"Could not get download URI for Foundry dataset '{name}' v{version}"
+        )
+
+    # Build download URL: blob URI + SAS token from container SAS
+    if sas_uri and "?" in sas_uri:
+        sas_token = sas_uri.split("?", 1)[1]
+        download_url = f"{blob_uri}?{sas_token}"
+    else:
+        download_url = blob_uri
+
+    resp = requests.get(download_url, timeout=120)
+    resp.raise_for_status()
+
+    # Write to temp file
+    dest = os.path.join(
+        tempfile.mkdtemp(prefix="foundry_dataset_"),
+        f"{name}_v{version}.jsonl",
+    )
+    with open(dest, "w", encoding="utf-8") as f:
+        f.write(resp.text)
+
+    logger.info(
+        f"Downloaded Foundry dataset '{name}' v{version} "
+        f"({len(resp.text)} bytes) → {dest}"
+    )
+    return dest
+
+
+def upload_dataset_to_foundry(
+    file_path: str,
+    name_prefix: str = "harness",
+) -> str:
+    """Upload a local JSONL file to Foundry Data Store.
+
+    Auto-names the dataset ``{name_prefix}_{basename}`` and auto-versions
+    (increments from latest existing version or starts at 1).
+
+    Returns:
+        The Foundry dataset ID (``azureai://...``).
+    """
+    from azure.ai.projects import AIProjectClient
+
+    project_endpoint = (
+        os.environ.get("AZURE_AI_PROJECT_ENDPOINT")
+        or os.environ.get("PROJECT_ENDPOINT")
+    )
+    if not project_endpoint:
+        raise ValueError(
+            "PROJECT_ENDPOINT env var required for --upload-dataset"
+        )
+
+    client = AIProjectClient(
+        endpoint=project_endpoint,
+        credential=DefaultAzureCredential(),
+    )
+
+    basename = os.path.splitext(os.path.basename(file_path))[0]
+    dataset_name = f"{name_prefix}_{basename}"
+
+    # Auto-version: find latest existing version and increment
+    try:
+        versions = list(client.datasets.list_versions(name=dataset_name))
+        next_version = str(max(int(v.version) for v in versions) + 1)
+    except Exception:
+        next_version = "1"
+
+    result = client.datasets.upload_file(
+        name=dataset_name,
+        version=next_version,
+        file_path=file_path,
+    )
+
+    logger.info(
+        f"Uploaded dataset to Foundry: {result.name} v{result.version} "
+        f"(id={result.id})"
+    )
+    return result.id
+
+
+# ---------------------------------------------------------------------------
 # Async entry point
 # ---------------------------------------------------------------------------
 
@@ -1458,6 +1593,13 @@ async def main_async(args: argparse.Namespace) -> None:
 
     logger.info(f"Done — {len(all_results)} results written to {out_path}")
 
+    # Upload to Foundry if requested
+    if getattr(args, "upload_dataset", False) and eval_output_file:
+        try:
+            upload_dataset_to_foundry(eval_output_file, name_prefix="harness")
+        except Exception as exc:
+            logger.error(f"Foundry upload failed: {exc}")
+
 
 # Default evaluators — aligned with Container App's DEFAULT_EVALUATORS
 DEFAULT_EVALUATORS = [
@@ -1556,8 +1698,16 @@ def main() -> None:
         description="Process audio files through the Azure VoiceLive SDK for evaluation"
     )
     parser.add_argument(
-        '--test-files', '-f', dest='test_files_path', required=True,
+        '--test-files', '-f', dest='test_files_path', default=None,
         help='JSONL file listing audio files and metadata',
+    )
+    parser.add_argument(
+        '--foundry-dataset', dest='foundry_dataset', default=None,
+        help='Read dataset from Foundry Data Store: NAME[:VERSION] (requires PROJECT_ENDPOINT)',
+    )
+    parser.add_argument(
+        '--upload-dataset', dest='upload_dataset', action='store_true',
+        help='Upload evaluation-ready dataset to Foundry after processing',
     )
     parser.add_argument(
         '--output-dir', '-o', dest='output_dir', default='output',
@@ -1670,6 +1820,16 @@ def main() -> None:
         help='Enable DEBUG logging',
     )
     args = parser.parse_args()
+
+    # Validate: one of --test-files or --foundry-dataset is required
+    if not args.test_files_path and not args.foundry_dataset:
+        parser.error("one of --test-files/-f or --foundry-dataset is required")
+
+    # Resolve Foundry dataset to local file
+    if args.foundry_dataset:
+        # Need .env loaded early for PROJECT_ENDPOINT
+        load_dotenv(os.path.join(script_dir, ".env"), override=True)
+        args.test_files_path = download_foundry_dataset(args.foundry_dataset)
 
     # Load config file if specified (CLI args override)
     if args.config_file:
