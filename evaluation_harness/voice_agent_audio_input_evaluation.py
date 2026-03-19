@@ -17,6 +17,7 @@ import logging
 import argparse
 import asyncio
 import tempfile
+import shutil
 import numpy as np
 import requests
 from datetime import datetime
@@ -408,8 +409,13 @@ def read_dataset(path: str) -> List[DatasetEntry]:
             if media_ref:
                 audio_media_ref = media_ref
             else:
-                # 2. Legacy WavPath / audio / audio_path field
-                wav_path = record.get('WavPath') or record.get('audio') or record.get('audio_path')
+                # 2. Legacy WavPath / audio / audio_path field (strings only)
+                raw_audio = record.get('audio')
+                wav_path = (
+                    record.get('WavPath')
+                    or (raw_audio if isinstance(raw_audio, str) else None)
+                    or record.get('audio_path')
+                )
                 if wav_path:
                     resolved = _resolve_audio_path(wav_path, dataset_dir)
                     if resolved:
@@ -1826,10 +1832,12 @@ def main() -> None:
         parser.error("one of --test-files/-f or --foundry-dataset is required")
 
     # Resolve Foundry dataset to local file
+    _foundry_temp_dir = None
     if args.foundry_dataset:
         # Need .env loaded early for PROJECT_ENDPOINT
         load_dotenv(os.path.join(script_dir, ".env"), override=True)
         args.test_files_path = download_foundry_dataset(args.foundry_dataset)
+        _foundry_temp_dir = os.path.dirname(args.test_files_path)
 
     # Load config file if specified (CLI args override)
     if args.config_file:
@@ -1894,7 +1902,12 @@ def main() -> None:
     console_handler.setFormatter(logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s'))
     logging.basicConfig(level=log_level, format='%(asctime)s:%(name)s:%(levelname)s:%(message)s', handlers=[file_handler, console_handler])
 
-    asyncio.run(main_async(args))
+    try:
+        asyncio.run(main_async(args))
+    finally:
+        # Clean up Foundry temp download dir
+        if _foundry_temp_dir and os.path.isdir(_foundry_temp_dir):
+            shutil.rmtree(_foundry_temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

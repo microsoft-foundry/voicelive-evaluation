@@ -274,7 +274,7 @@ async def process_conversation(
             
             # Add metadata
             result["conversation_id"] = conversation_id
-            result["source_file"] = entry.wav_path
+            result["source_file"] = entry.wav_path or "(media)"
             
             # Build history entry for subsequent turns (use transcription, not question)
             turn_messages = []
@@ -302,10 +302,10 @@ async def process_conversation(
             # (don't inflate failure counts with empty turns)
             if turn.user_transcription or turn.assistant_response or turn.tool_calls:
                 results.append(result)
-                logger.info(f"Processed turn {turn_number}: {entry.wav_path[:50]}...")
+                logger.info(f"Processed turn {turn_number}: {audio_source_label}")
             else:
                 logger.warning(
-                    f"Turn {turn_number} ({entry.wav_path}) produced no content "
+                    f"Turn {turn_number} ({audio_source_label}) produced no content "
                     f"(empty query, response, and no tool calls) — skipped"
                 )
                 # Still append with error marker for traceability
@@ -315,10 +315,11 @@ async def process_conversation(
                 await on_file_complete(success=True)
             
         except Exception as e:
-            logger.error(f"Error processing {entry.wav_path}: {e}")
+            source_label = audio_source_label if 'audio_source_label' in dir() else (entry.wav_path or "(media)")
+            logger.error(f"Error processing {source_label}: {e}")
             results.append({
                 "conversation_id": conversation_id,
-                "source_file": entry.wav_path,
+                "source_file": entry.wav_path or "(media)",
                 "error": str(e),
                 "turn_number": turn_number
             })
