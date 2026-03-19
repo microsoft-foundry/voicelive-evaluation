@@ -34,10 +34,11 @@ paths:
                   description: Optional prefix to filter blob storage datasets
                 dataset_type:
                   type: string
-                  enum: [all, voicelive, evaluation]
+                  enum: [all, voicelive, evaluation, voicelive_media]
                   description: >
                     Filter by dataset type. "voicelive" = audio datasets in blob storage.
-                    "evaluation" = query/response datasets in Foundry. "all" = both (default).
+                    "evaluation" = query/response datasets in Foundry. "voicelive_media" = Foundry
+                    datasets with input_audio media content. "all" = all types (default).
       responses:
         '200':
           description: List of datasets with type labels
@@ -734,6 +735,8 @@ paths:
         This is the first step in a full evaluation: audio → VoiceLive → evaluation dataset.
         The resulting dataset can then be evaluated using run_voicelive_evaluation.
         
+        Accepts datasets from blob storage (dataset_path) OR Foundry Data Store (foundry_dataset).
+        For Foundry media datasets (input_audio format), use foundry_dataset parameter.
         This endpoint proxies to the VoiceLive Container App via the Function App.
       requestBody:
         required: true
@@ -741,8 +744,6 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-                - dataset_path
               properties:
                 dataset_path:
                   type: string
@@ -750,6 +751,14 @@ paths:
                     Path to dataset in blob storage. Examples:
                     - "Eiffel_Tower_Visit_1" (folder name)
                     - "datasets/sample.jsonl" (direct path)
+                    One of dataset_path or foundry_dataset is required.
+                foundry_dataset:
+                  type: string
+                  description: |
+                    Foundry Data Store dataset name, optionally with version: "NAME" or "NAME:VERSION".
+                    Use this for media datasets (input_audio format) stored in Foundry.
+                    The dataset is downloaded from Foundry and staged to blob storage for processing.
+                    One of dataset_path or foundry_dataset is required.
                 session_mode:
                   type: string
                   enum: ["per-conversation", "per-file", "single"]

@@ -89,10 +89,12 @@ There are two distinct dataset types with different stores and workflows:
 
 ### Dataset Discovery
 - list_datasets: List datasets from both stores. Use dataset_type parameter:
-  - "all" (default) - Shows both VoiceLive and evaluation datasets
+  - "all" (default) - Shows all dataset types
   - "voicelive" - Only VoiceLive audio datasets from blob storage
   - "evaluation" - Only evaluation-ready datasets from Foundry
-- check_dataset_schema: Detect dataset type and list fields found
+  - "voicelive_media" - Foundry datasets with input_audio media content (for VoiceLive processing)
+- check_dataset_schema: Detect dataset type and list fields found. Returns "voicelive_media" for
+  datasets containing input_audio content — these MUST go through run_voicelive_audio_tests.
 
 ### Dataset Upload (SAS URL Pattern)
 - get_upload_url: Get a time-limited upload URL for a new dataset
@@ -154,7 +156,7 @@ When a user asks to "evaluate", "test", or "run evaluation" on ANY dataset:
    - "unknown" → Do NOT proceed, ask user to verify dataset format
 3. NEVER call run_voicelive_evaluation on a VoiceLive audio dataset directly.
    It will FAIL because Foundry evaluators need query/response format, not WavPath/audio.
-   VoiceLive audio datasets MUST go through run_voicelive_audio_tests FIRST.
+   VoiceLive audio datasets (including voicelive_media) MUST go through run_voicelive_audio_tests FIRST.
 
 ## Workflow Rules
 
@@ -165,12 +167,12 @@ When a user asks to "evaluate", "test", or "run evaluation" on ANY dataset:
 4. finalize_upload → Validates and routes to correct store
 5. Report success with dataset details (version info for evaluation datasets)
 
-### For VoiceLive Audio Datasets:
+### For VoiceLive Audio Datasets (blob storage):
 1. list_datasets(dataset_type="voicelive") → Find audio dataset
 2. validate_voicelive_dataset → Verify structure (WavPath present)
 3. Optionally: validate_dataset_consistency → Check field presence and conversationID grouping
 4. list_session_configs → Show available configs (optional)
-5. run_voicelive_audio_tests → Process audio through VoiceLive
+5. run_voicelive_audio_tests(dataset_path=...) → Process audio through VoiceLive
 6. check_voicelive_job_status → Poll until complete.
    When completed: returns output_path (blob) AND foundry_dataset with foundry_dataset_id.
 7. run_voicelive_evaluation → Pass the output_path as dataset_path.
@@ -180,6 +182,15 @@ When a user asks to "evaluate", "test", or "run evaluation" on ANY dataset:
    When completed: returns eval_id, eval_run_id, eval_group_id, foundry_portal_url, metrics_summary.
    Save eval_id + eval_run_id — use them for faster re-checks instead of instance_id.
 9. Present Foundry Portal URL and metrics summary
+
+### For Foundry Media Datasets (input_audio in Foundry Data Store):
+1. list_datasets(dataset_type="voicelive_media") → Find media dataset in Foundry
+2. check_dataset_schema → Confirm type is "voicelive_media"
+3. run_voicelive_audio_tests(foundry_dataset="NAME" or "NAME:VERSION") → Downloads from Foundry, processes through VoiceLive
+4. check_voicelive_job_status → Poll until complete
+5. run_voicelive_evaluation → Evaluate the resulting dataset
+6. check_evaluation_status → Poll until completed
+7. Present Foundry Portal URL and metrics summary
 
 ### For Evaluation-Ready Datasets:
 1. list_datasets(dataset_type="evaluation") → Find eval-ready dataset

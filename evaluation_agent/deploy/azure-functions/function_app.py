@@ -939,7 +939,7 @@ def list_datasets(req: func.HttpRequest) -> func.HttpResponse:
                         })
         
         # List evaluation datasets from Foundry
-        if dataset_type in ("evaluation", "all"):
+        if dataset_type in ("evaluation", "voicelive_media", "all"):
             try:
                 from azure.ai.projects import AIProjectClient
                 
@@ -959,10 +959,46 @@ def list_datasets(req: func.HttpRequest) -> func.HttpResponse:
                             version_count = 0
                             latest_version = 0
                         
+                        # Classify: peek at first line to detect media vs eval-ready
+                        ds_type = "evaluation"
+                        try:
+                            ver = str(latest_version) if latest_version else "1"
+                            creds = project_client.datasets.get_credentials(name=dataset.name, version=ver)
+                            creds_dict = creds.as_dict()
+                            blob_ref = creds_dict.get("blobReferenceForConsumption") or creds_dict.get("blobReference", {})
+                            blob_uri = blob_ref.get("blobUri", "")
+                            sas_uri = blob_ref.get("credential", {}).get("sasUri", "")
+                            if sas_uri and "?" in sas_uri:
+                                dl_url = f"{blob_uri}?{sas_uri.split('?', 1)[1]}"
+                            else:
+                                dl_url = blob_uri
+                            if dl_url:
+                                import httpx as _httpx_peek
+                                # Download only first 4KB to peek at format
+                                peek_resp = _httpx_peek.get(dl_url, headers={"Range": "bytes=0-4095"}, timeout=10)
+                                if peek_resp.status_code in (200, 206):
+                                    first_line = peek_resp.text.strip().split("\n")[0]
+                                    peek_entry = json.loads(first_line)
+                                    # Check for input_audio in messages
+                                    for msg in peek_entry.get("messages", []):
+                                        if msg.get("role") == "user":
+                                            content = msg.get("content", [])
+                                            if isinstance(content, list):
+                                                for part in content:
+                                                    if isinstance(part, dict) and part.get("type") == "input_audio":
+                                                        ds_type = "voicelive_media"
+                                                        break
+                        except Exception:
+                            pass  # Classification failed — default to evaluation
+                        
+                        # Apply filter
+                        if dataset_type != "all" and ds_type != dataset_type:
+                            continue
+                        
                         all_datasets.append({
                             "path": dataset.id,
                             "name": dataset.name,
-                            "type": "evaluation",
+                            "type": ds_type,
                             "store": "foundry",
                             "version_count": version_count,
                             "latest_version": latest_version,
@@ -3259,6 +3295,29 @@ async def run_voicelive_audio_tests(req: func.HttpRequest) -> func.HttpResponse:
     """
     try:
         body = req.get_json()
+        
+        # Resolve Foundry dataset: download JSONL + upload to blob for container app
+        foundry_dataset = body.pop("foundry_dataset", None)
+        if foundry_dataset:
+            parts = foundry_dataset.split(":", 1)
+            ds_name = parts[0]
+            ds_version = parts[1] if len(parts) > 1 else None
+            
+            logging.info(f"Resolving Foundry dataset '{foundry_dataset}' to blob storage")
+            local_path = _download_foundry_dataset(ds_name, ds_version)
+            
+            # Upload the downloaded JSONL to blob datasets/ container
+            blob_client_svc = get_blob_client()
+            container_name = os.environ.get("AZURE_STORAGE_DATASETS_CONTAINER", "datasets")
+            container_client = blob_client_svc.get_container_client(container_name)
+            
+            blob_name = f"foundry_media/{ds_name}/{os.path.basename(local_path)}"
+            with open(local_path, "rb") as f:
+                container_client.upload_blob(name=blob_name, data=f, overwrite=True)
+            os.unlink(local_path)
+            
+            body["dataset_path"] = f"{container_name}/{blob_name}"
+            logging.info(f"Foundry dataset staged to blob: {blob_name}")
         
         # Resolve session_config name to config dict if it's a string
         config_value = body.get("session_config")
