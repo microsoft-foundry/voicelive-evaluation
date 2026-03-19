@@ -172,18 +172,22 @@ def test_resolve_base64_data_uri():
         assert content == wav_bytes, "Decoded content should match original"
 
 
-def test_resolve_raw_base64():
-    """Resolves raw base64 (no data: prefix) to a local file."""
+def test_resolve_url_returns_none_for_unreachable():
+    """URL that fails to download returns None."""
+    ref = {"data": "https://nonexistent.example.com/audio.wav", "format": "wav"}
+    result = _resolve_audio_from_media(ref)
+    assert result is None, "Unreachable URL should return None"
+
+
+def test_resolve_raw_base64_rejected():
+    """Raw base64 (no data: prefix) is no longer supported."""
     wav_bytes = _make_wav_bytes()
     b64 = base64.b64encode(wav_bytes).decode()
     ref = {"data": b64, "format": "wav"}
 
     with tempfile.TemporaryDirectory() as td:
         result = _resolve_audio_from_media(ref, cache_dir=td)
-        assert result is not None, "Should resolve raw base64"
-        with open(result, 'rb') as f:
-            content = f.read()
-        assert content == wav_bytes
+        assert result is None, "Raw base64 without data: prefix should be rejected"
 
 
 def test_resolve_empty_ref_returns_none():
@@ -328,7 +332,7 @@ def test_read_dataset_actual_base64_file():
         print("    (skipped — test file not found)")
         return
     entries = read_dataset(path)
-    assert len(entries) == 2, f"Expected 2 entries, got {len(entries)}"
+    assert len(entries) == 6, f"Expected 6 entries, got {len(entries)}"
     for e in entries:
         assert e.audio_media_ref is not None, "Should be media ref"
         assert e.audio_media_ref["data"].startswith("data:audio/wav;base64,")
@@ -377,7 +381,8 @@ def main():
 
     print("\n  _resolve_audio_from_media:")
     _run("resolve_base64_data_uri", test_resolve_base64_data_uri)
-    _run("resolve_raw_base64", test_resolve_raw_base64)
+    _run("resolve_url_unreachable_none", test_resolve_url_returns_none_for_unreachable)
+    _run("resolve_raw_base64_rejected", test_resolve_raw_base64_rejected)
     _run("resolve_empty_none", test_resolve_empty_ref_returns_none)
     _run("resolve_invalid_base64_none", test_resolve_invalid_base64_returns_none)
 

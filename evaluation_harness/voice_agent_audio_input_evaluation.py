@@ -557,13 +557,11 @@ def _resolve_audio_from_media(
 ) -> Optional[str]:
     """Resolve an ``input_audio`` media reference to a local WAV file path.
 
-    Supports three data forms:
+    Supports two data forms:
     - **URL** (``https://...``)  — downloaded via ``requests``; Azure blob
       URLs are attempted with ``DefaultAzureCredential`` bearer token first.
     - **Base64 data-URI** (``data:audio/wav;base64,...``) — prefix stripped
-      and decoded.
-    - **Raw base64** (long string without URL/data-URI prefix) — decoded
-      directly.
+      and decoded.  This is the Foundry Portal-compatible format.
 
     Args:
         audio_ref: ``{"data": "<url_or_base64>", "format": "wav"}``
@@ -585,21 +583,25 @@ def _resolve_audio_from_media(
     # --- URL ---------------------------------------------------------------
     if data.startswith("http://") or data.startswith("https://"):
         try:
-            headers: Dict[str, str] = {}
-            # Azure blob URLs — attempt bearer-token auth
+            dest = os.path.join(target_dir, f"media_download_{secrets.token_hex(4)}{suffix}")
+
+            # Azure blob URLs — use BlobClient with DefaultAzureCredential
             if ".blob.core.windows.net" in data or ".blob.storage.azure.net" in data:
                 try:
-                    cred = DefaultAzureCredential()
-                    token = cred.get_token("https://storage.azure.com/.default")
-                    headers["Authorization"] = f"Bearer {token.token}"
-                    logger.debug("Using Azure credential for blob URL")
-                except Exception:
-                    logger.debug("Azure credential unavailable; falling back to anonymous download")
+                    from azure.storage.blob import BlobClient
+                    blob_client = BlobClient.from_blob_url(data, credential=DefaultAzureCredential())
+                    with open(dest, "wb") as fout:
+                        download_stream = blob_client.download_blob()
+                        fout.write(download_stream.readall())
+                    file_size = os.path.getsize(dest)
+                    logger.info(f"Downloaded blob audio ({file_size} bytes) → {dest}")
+                    return os.path.abspath(dest)
+                except Exception as exc:
+                    logger.debug(f"BlobClient auth failed ({exc}), trying anonymous HTTP")
 
-            resp = requests.get(data, headers=headers, timeout=120)
+            # Non-Azure URLs or fallback — plain HTTP GET
+            resp = requests.get(data, timeout=120)
             resp.raise_for_status()
-
-            dest = os.path.join(target_dir, f"media_download_{secrets.token_hex(4)}{suffix}")
             with open(dest, "wb") as fout:
                 fout.write(resp.content)
             logger.info(f"Downloaded media audio ({len(resp.content)} bytes) → {dest}")
@@ -627,20 +629,8 @@ def _resolve_audio_from_media(
         logger.info(f"Decoded base64 data-URI ({len(raw_bytes)} bytes) → {dest}")
         return os.path.abspath(dest)
 
-    # --- Raw base64 (no prefix) --------------------------------------------
-    if len(data) > 200:
-        try:
-            raw_bytes = base64.b64decode(data)
-        except Exception as exc:
-            logger.error(f"Base64 decode failed for raw data: {exc}")
-            return None
-        dest = os.path.join(target_dir, f"media_b64_{secrets.token_hex(4)}{suffix}")
-        with open(dest, "wb") as fout:
-            fout.write(raw_bytes)
-        logger.info(f"Decoded raw base64 ({len(raw_bytes)} bytes) → {dest}")
-        return os.path.abspath(dest)
-
-    logger.warning(f"Unrecognised media data format (length={len(data)})")
+    logger.warning(f"Unrecognised media data format (length={len(data)}). "
+                   "Expected https:// URL or data: URI.")
     return None
 
 
