@@ -16,7 +16,10 @@ import base64
 import logging
 import argparse
 import asyncio
+import tempfile
+import shutil
 import numpy as np
+import requests
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
@@ -243,8 +246,16 @@ class ConversationTurn:
 
 @dataclass
 class DatasetEntry:
-    """Parsed entry from a JSONL dataset file."""
-    audio_path: str
+    """Parsed entry from a JSONL dataset file.
+
+    Supports two audio source formats:
+    - Legacy: ``audio_path`` points to a local WAV file (WavPath field).
+    - Media:  ``audio_media_ref`` holds ``{"data": "<url_or_base64>", "format": "wav"}``
+              from Foundry's ``input_audio`` content type.  Resolved to a temp
+              file at processing time via ``_resolve_audio_from_media()``.
+    """
+    audio_path: Optional[str] = None
+    audio_media_ref: Optional[Dict[str, str]] = None
     ground_truth: Optional[str] = None
     question: Optional[str] = None
     tool_definitions: Optional[List[Dict[str, Any]]] = None
@@ -362,7 +373,15 @@ def load_audio_file(path: str, target_rate: int = 24000) -> bytes:
 # ---------------------------------------------------------------------------
 
 def read_dataset(path: str) -> List[DatasetEntry]:
-    """Read a JSONL dataset file and return parsed entries."""
+    """Read a JSONL dataset file and return parsed entries.
+
+    Supports three audio source formats:
+
+    1. **Legacy (WavPath)** — ``{"WavPath": "file.wav", ...}``
+    2. **Media in messages** — Foundry media dataset with ``input_audio``
+       content parts inside a ``messages`` array.
+    3. **Top-level media** — ``{"audio": {"type": "input_audio", ...}, ...}``
+    """
     if not os.path.exists(path):
         logger.error(f"Dataset file not found: {path}")
         return []
@@ -381,37 +400,120 @@ def read_dataset(path: str) -> List[DatasetEntry]:
                 logger.warning(f"Line {line_num}: JSON parse error: {e}")
                 continue
 
-            wav_path = record.get('WavPath') or record.get('audio') or record.get('audio_path')
-            if not wav_path:
-                logger.warning(f"Line {line_num}: missing audio path field")
+            # --- Detect audio source format --------------------------------
+            audio_path: Optional[str] = None
+            audio_media_ref: Optional[Dict[str, str]] = None
+
+            # 1. Check for input_audio inside messages (Foundry media format)
+            media_ref = _extract_media_ref(record)
+            if media_ref:
+                audio_media_ref = media_ref
+            else:
+                # 2. Legacy WavPath / audio / audio_path field (strings only)
+                raw_audio = record.get('audio')
+                wav_path = (
+                    record.get('WavPath')
+                    or (raw_audio if isinstance(raw_audio, str) else None)
+                    or record.get('audio_path')
+                )
+                if wav_path:
+                    resolved = _resolve_audio_path(wav_path, dataset_dir)
+                    if resolved:
+                        audio_path = resolved
+                    else:
+                        logger.warning(f"Line {line_num}: audio file not found: {wav_path}")
+                        continue
+
+            if not audio_path and not audio_media_ref:
+                logger.warning(f"Line {line_num}: no audio source found (WavPath or input_audio)")
                 continue
 
-            # Resolve path
-            resolved = _resolve_audio_path(wav_path, dataset_dir)
-            if not resolved:
-                logger.warning(f"Audio file not found: {wav_path}")
-                continue
-
+            # --- Extract metadata ------------------------------------------
             tool_defs = record.get('tool_definitions', [])
             if isinstance(tool_defs, dict):
                 tool_defs = [tool_defs]
 
-            answer_raw = record.get('Answer') or record.get('answer')
+            answer_raw = record.get('Answer') or record.get('answer') or record.get('expected_output')
             # Normalize list-type answers (e.g. speech-trivia-qa uses ["Paris", "City of Paris"])
             if isinstance(answer_raw, list):
                 answer_raw = " OR ".join(str(a) for a in answer_raw if a) if answer_raw else None
+
+            # Extract question from legacy field or from messages text parts
+            question = record.get('Question') or record.get('question')
+            if not question:
+                question = _extract_text_from_messages(record)
+
+            # Extract system prompt from legacy field or from messages
+            system_prompt = record.get('system_prompt')
+            if not system_prompt:
+                system_prompt = _extract_system_prompt_from_messages(record)
+
             entries.append(DatasetEntry(
-                audio_path=resolved,
+                audio_path=audio_path,
+                audio_media_ref=audio_media_ref,
                 ground_truth=answer_raw,
-                question=record.get('Question') or record.get('question'),
+                question=question,
                 tool_definitions=tool_defs if tool_defs else [],
                 conversation_id=record.get('conversationID') or record.get('conversation_id') or 'default',
-                system_prompt=record.get('system_prompt'),
+                system_prompt=system_prompt,
                 barge_in=bool(record.get('barge_in', False)),
             ))
 
-    logger.info(f"Loaded {len(entries)} entries from {path}")
+    media_count = sum(1 for e in entries if e.audio_media_ref)
+    legacy_count = sum(1 for e in entries if e.audio_path)
+    logger.info(f"Loaded {len(entries)} entries from {path} (legacy={legacy_count}, media={media_count})")
     return entries
+
+
+def _extract_media_ref(record: dict) -> Optional[Dict[str, str]]:
+    """Extract the first ``input_audio`` reference from a record.
+
+    Checks both Foundry ``messages`` array and top-level ``audio`` field.
+    """
+    # Check inside messages array (Foundry media dataset format)
+    for msg in record.get("messages", []):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", [])
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "input_audio":
+                    ref = part.get("input_audio")
+                    if ref and ref.get("data"):
+                        return ref
+    # Check top-level audio field (alternative format)
+    top_audio = record.get("audio")
+    if isinstance(top_audio, dict) and top_audio.get("type") == "input_audio":
+        ref = top_audio.get("input_audio")
+        if ref and ref.get("data"):
+            return ref
+    return None
+
+
+def _extract_text_from_messages(record: dict) -> Optional[str]:
+    """Extract user text from a Foundry messages array."""
+    for msg in record.get("messages", []):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", [])
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            texts = [p.get("text", "") for p in content
+                     if isinstance(p, dict) and p.get("type") == "text"]
+            combined = " ".join(t for t in texts if t)
+            if combined:
+                return combined
+    return None
+
+
+def _extract_system_prompt_from_messages(record: dict) -> Optional[str]:
+    """Extract system message content from a Foundry messages array."""
+    for msg in record.get("messages", []):
+        if msg.get("role") == "system":
+            content = msg.get("content", "")
+            return content if isinstance(content, str) else str(content)
+    return None
 
 
 def _resolve_audio_path(wav_path: str, dataset_dir: str) -> Optional[str]:
@@ -452,6 +554,108 @@ def _resolve_audio_path(wav_path: str, dataset_dir: str) -> Optional[str]:
         if parent == current:
             break
         current = parent
+    return None
+
+
+def _redact_url_params(text: str) -> str:
+    """Redact query parameters from URLs in error messages to prevent SAS token leakage."""
+    import re
+    return re.sub(r'(https?://[^\s?]+)\?[^\s"\']+', r'\1?[REDACTED]', str(text))
+
+
+def _resolve_audio_from_media(
+    audio_ref: Dict[str, str],
+    cache_dir: Optional[str] = None,
+) -> Optional[str]:
+    """Resolve an ``input_audio`` media reference to a local WAV file path.
+
+    Supports two data forms:
+    - **URL** (``https://...``)  — downloaded via ``requests``; Azure blob
+      URLs are attempted with ``DefaultAzureCredential`` bearer token first.
+    - **Base64 data-URI** (``data:audio/wav;base64,...``) — prefix stripped
+      and decoded.  This is the Foundry Portal-compatible format.
+
+    Args:
+        audio_ref: ``{"data": "<url_or_base64>", "format": "wav"}``
+        cache_dir: Directory for downloaded/decoded files.  A temp dir is
+            created when *None*.
+
+    Returns:
+        Absolute path to the local WAV file, or *None* on failure.
+    """
+    data = (audio_ref or {}).get("data", "")
+    fmt = (audio_ref or {}).get("format", "wav")
+    if not data:
+        logger.warning("Empty media data in input_audio reference")
+        return None
+
+    target_dir = cache_dir or tempfile.mkdtemp(prefix="voicelive_media_")
+    suffix = f".{fmt}" if fmt else ".wav"
+
+    # --- URL ---------------------------------------------------------------
+    if data.startswith("http://") or data.startswith("https://"):
+        try:
+            dest = os.path.join(target_dir, f"media_download_{secrets.token_hex(4)}{suffix}")
+
+            # Azure blob URLs — use BlobClient with DefaultAzureCredential
+            from urllib.parse import urlparse
+            hostname = urlparse(data).hostname or ""
+            if hostname.endswith(".blob.core.windows.net") or hostname.endswith(".blob.storage.azure.net"):
+                try:
+                    from azure.storage.blob import BlobClient
+                    blob_client = BlobClient.from_blob_url(data, credential=DefaultAzureCredential())
+                    with open(dest, "wb") as fout:
+                        download_stream = blob_client.download_blob()
+                        fout.write(download_stream.readall())
+                    file_size = os.path.getsize(dest)
+                    logger.info(f"Downloaded blob audio ({file_size} bytes) → {dest}")
+                    return os.path.abspath(dest)
+                except Exception as exc:
+                    logger.debug(f"BlobClient auth failed ({exc}), trying anonymous HTTP")
+
+            # Non-Azure URLs or fallback — plain HTTP GET (streaming with size limit)
+            resp = requests.get(data, timeout=120, stream=True)
+            resp.raise_for_status()
+            max_size = 500 * 1024 * 1024  # 500MB limit
+            content_length = int(resp.headers.get('content-length', 0))
+            if content_length > max_size:
+                logger.error(f"Audio file too large: {content_length} bytes (max {max_size})")
+                return None
+            with open(dest, "wb") as fout:
+                downloaded = 0
+                for chunk in resp.iter_content(chunk_size=8192):
+                    downloaded += len(chunk)
+                    if downloaded > max_size:
+                        logger.error(f"Audio download exceeded {max_size} byte limit")
+                        return None
+                    fout.write(chunk)
+            logger.info(f"Downloaded media audio ({downloaded} bytes) → {dest}")
+            return os.path.abspath(dest)
+        except Exception as exc:
+            logger.error(f"Failed to download media audio from URL: {_redact_url_params(str(exc))}")
+            return None
+
+    # --- Base64 data-URI ---------------------------------------------------
+    if data.startswith("data:"):
+        # Strip "data:audio/wav;base64," prefix
+        try:
+            _, encoded = data.split(",", 1)
+        except ValueError:
+            logger.error("Malformed base64 data-URI (no comma separator)")
+            return None
+        try:
+            raw_bytes = base64.b64decode(encoded, validate=True)
+        except Exception as exc:
+            logger.error(f"Base64 decode failed for data-URI: {exc}")
+            return None
+        dest = os.path.join(target_dir, f"media_b64_{secrets.token_hex(4)}{suffix}")
+        with open(dest, "wb") as fout:
+            fout.write(raw_bytes)
+        logger.info(f"Decoded base64 data-URI ({len(raw_bytes)} bytes) → {dest}")
+        return os.path.abspath(dest)
+
+    logger.warning(f"Unrecognised media data format (length={len(data)}). "
+                   "Expected https:// URL or data: URI.")
     return None
 
 
@@ -921,7 +1125,7 @@ def build_evaluation_data(
         "tool_definitions": tool_definitions or [],
         "ground_truth": entry.ground_truth or "",
         "conversation_id": entry.conversation_id,
-        "source_file": entry.audio_path,
+        "source_file": entry.audio_path or "(media)",
         "turn_number": turn.turn_number,
     }
 
@@ -962,8 +1166,22 @@ async def process_conversation(
     for i, entry in enumerate(entries):
         turn_number = i + 1
         try:
-            audio_data = load_audio_file(entry.audio_path, conv_config.sample_rate)
-            logger.info(f"Loaded {entry.audio_path} ({len(audio_data)} bytes)")
+            # Resolve audio: media reference (URL/base64) or legacy file path
+            if entry.audio_media_ref:
+                local_path = _resolve_audio_from_media(
+                    entry.audio_media_ref, cache_dir=output_dir,
+                )
+                if not local_path:
+                    raise FileNotFoundError(
+                        f"Failed to resolve media audio for turn {turn_number}"
+                    )
+                audio_source_label = f"media:{local_path}"
+            else:
+                local_path = entry.audio_path
+                audio_source_label = entry.audio_path
+
+            audio_data = load_audio_file(local_path, conv_config.sample_rate)
+            logger.info(f"Loaded {audio_source_label} ({len(audio_data)} bytes)")
 
             turn = await process_audio(
                 connection,
@@ -1022,13 +1240,14 @@ async def process_conversation(
                 turn_messages.append({"role": "assistant", "content": resp_text})
             conversation_history.append({"turn": turn_number, "messages": turn_messages})
 
-            logger.info(f"Turn {turn_number} done: {os.path.basename(entry.audio_path)}")
+            logger.info(f"Turn {turn_number} done: {os.path.basename(audio_source_label)}")
 
         except Exception as e:
-            logger.error(f"Error processing {entry.audio_path}: {e}")
+            source_label = entry.audio_path or "(media)"
+            logger.error(f"Error processing {source_label}: {e}")
             results.append({
                 "conversation_id": entry.conversation_id,
-                "source_file": entry.audio_path,
+                "source_file": source_label,
                 "error": str(e),
                 "turn_number": turn_number,
             })
@@ -1130,6 +1349,144 @@ def write_operational_summary(
         json.dump(summary, f, indent=2)
     logger.info(f"Operational summary written to {out_path}")
     return out_path
+
+
+# ---------------------------------------------------------------------------
+# Foundry Data Store integration
+# ---------------------------------------------------------------------------
+
+def download_foundry_dataset(dataset_spec: str) -> str:
+    """Download a dataset JSONL from Foundry Data Store to a local temp file.
+
+    Args:
+        dataset_spec: ``NAME`` or ``NAME:VERSION``.  When version is omitted
+            the latest version is resolved automatically.
+
+    Returns:
+        Path to the downloaded local JSONL file.
+
+    Requires ``PROJECT_ENDPOINT`` environment variable.
+    """
+    from azure.ai.projects import AIProjectClient
+
+    project_endpoint = (
+        os.environ.get("AZURE_AI_PROJECT_ENDPOINT")
+        or os.environ.get("PROJECT_ENDPOINT")
+    )
+    if not project_endpoint:
+        raise ValueError(
+            "PROJECT_ENDPOINT env var required for --foundry-dataset"
+        )
+
+    parts = dataset_spec.split(":", 1)
+    name = parts[0]
+    version = parts[1] if len(parts) > 1 else None
+
+    client = AIProjectClient(
+        endpoint=project_endpoint,
+        credential=DefaultAzureCredential(),
+    )
+
+    # Resolve latest version if not specified
+    if not version:
+        versions = list(client.datasets.list_versions(name=name))
+        if not versions:
+            raise ValueError(f"Foundry dataset '{name}' not found")
+        version = str(max(int(v.version) for v in versions))
+        logger.info(f"Resolved Foundry dataset '{name}' to version {version}")
+
+    # Get SAS-authenticated download URL
+    creds = client.datasets.get_credentials(name=name, version=version)
+    creds_dict = creds.as_dict()
+    blob_ref = (
+        creds_dict.get("blobReferenceForConsumption")
+        or creds_dict.get("blobReference", {})
+    )
+    blob_uri = blob_ref.get("blobUri")
+    sas_uri = blob_ref.get("credential", {}).get("sasUri", "")
+
+    if not blob_uri:
+        raise ValueError(
+            f"Could not get download URI for Foundry dataset '{name}' v{version}"
+        )
+
+    # Build download URL: blob URI + SAS token from container SAS
+    if sas_uri and "?" in sas_uri:
+        sas_token = sas_uri.split("?", 1)[1]
+        download_url = f"{blob_uri}?{sas_token}"
+    else:
+        download_url = blob_uri
+
+    try:
+        resp = requests.get(download_url, timeout=120)
+        resp.raise_for_status()
+    except Exception as exc:
+        raise ValueError(f"Failed to download Foundry dataset '{name}' v{version}: {_redact_url_params(str(exc))}") from None
+
+    # Write to temp file
+    dest = os.path.join(
+        tempfile.mkdtemp(prefix="foundry_dataset_"),
+        f"{name}_v{version}.jsonl",
+    )
+    with open(dest, "w", encoding="utf-8") as f:
+        f.write(resp.text)
+
+    logger.info(
+        f"Downloaded Foundry dataset '{name}' v{version} "
+        f"({len(resp.text)} bytes) → {dest}"
+    )
+    return dest
+
+
+def upload_dataset_to_foundry(
+    file_path: str,
+    name_prefix: str = "harness",
+) -> str:
+    """Upload a local JSONL file to Foundry Data Store.
+
+    Auto-names the dataset ``{name_prefix}_{basename}`` and auto-versions
+    (increments from latest existing version or starts at 1).
+
+    Returns:
+        The Foundry dataset ID (``azureai://...``).
+    """
+    from azure.ai.projects import AIProjectClient
+
+    project_endpoint = (
+        os.environ.get("AZURE_AI_PROJECT_ENDPOINT")
+        or os.environ.get("PROJECT_ENDPOINT")
+    )
+    if not project_endpoint:
+        raise ValueError(
+            "PROJECT_ENDPOINT env var required for --upload-dataset"
+        )
+
+    client = AIProjectClient(
+        endpoint=project_endpoint,
+        credential=DefaultAzureCredential(),
+    )
+
+    basename = os.path.splitext(os.path.basename(file_path))[0]
+    dataset_name = f"{name_prefix}_{basename}"
+
+    # Auto-version: find latest existing version and increment
+    try:
+        versions = list(client.datasets.list_versions(name=dataset_name))
+        next_version = str(max(int(v.version) for v in versions) + 1)
+    except Exception:
+        next_version = "1"
+
+    result = client.datasets.upload_file(
+        name=dataset_name,
+        version=next_version,
+        file_path=file_path,
+    )
+
+    logger.info(
+        f"Uploaded dataset to Foundry: {result.name} v{result.version} "
+        f"(id={result.id})"
+    )
+    return result.id
 
 
 # ---------------------------------------------------------------------------
@@ -1264,6 +1621,13 @@ async def main_async(args: argparse.Namespace) -> None:
 
     logger.info(f"Done — {len(all_results)} results written to {out_path}")
 
+    # Upload to Foundry if requested
+    if getattr(args, "upload_dataset", False) and eval_output_file:
+        try:
+            upload_dataset_to_foundry(eval_output_file, name_prefix="harness")
+        except Exception as exc:
+            logger.error(f"Foundry upload failed: {exc}")
+
 
 # Default evaluators — aligned with Container App's DEFAULT_EVALUATORS
 DEFAULT_EVALUATORS = [
@@ -1362,8 +1726,16 @@ def main() -> None:
         description="Process audio files through the Azure VoiceLive SDK for evaluation"
     )
     parser.add_argument(
-        '--test-files', '-f', dest='test_files_path', required=True,
+        '--test-files', '-f', dest='test_files_path', default=None,
         help='JSONL file listing audio files and metadata',
+    )
+    parser.add_argument(
+        '--foundry-dataset', dest='foundry_dataset', default=None,
+        help='Read dataset from Foundry Data Store: NAME[:VERSION] (requires PROJECT_ENDPOINT)',
+    )
+    parser.add_argument(
+        '--upload-dataset', dest='upload_dataset', action='store_true',
+        help='Upload evaluation-ready dataset to Foundry after processing',
     )
     parser.add_argument(
         '--output-dir', '-o', dest='output_dir', default='output',
@@ -1477,6 +1849,18 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Validate: one of --test-files or --foundry-dataset is required
+    if not args.test_files_path and not args.foundry_dataset:
+        parser.error("one of --test-files/-f or --foundry-dataset is required")
+
+    # Resolve Foundry dataset to local file
+    _foundry_temp_dir = None
+    if args.foundry_dataset:
+        # Need .env loaded early for PROJECT_ENDPOINT
+        load_dotenv(os.path.join(script_dir, ".env"), override=True)
+        args.test_files_path = download_foundry_dataset(args.foundry_dataset)
+        _foundry_temp_dir = os.path.dirname(args.test_files_path)
+
     # Load config file if specified (CLI args override)
     if args.config_file:
         config_path = args.config_file
@@ -1540,7 +1924,12 @@ def main() -> None:
     console_handler.setFormatter(logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s'))
     logging.basicConfig(level=log_level, format='%(asctime)s:%(name)s:%(levelname)s:%(message)s', handlers=[file_handler, console_handler])
 
-    asyncio.run(main_async(args))
+    try:
+        asyncio.run(main_async(args))
+    finally:
+        # Clean up Foundry temp download dir
+        if _foundry_temp_dir and os.path.isdir(_foundry_temp_dir):
+            shutil.rmtree(_foundry_temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

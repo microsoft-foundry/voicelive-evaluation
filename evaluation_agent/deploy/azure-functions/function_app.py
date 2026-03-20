@@ -939,7 +939,7 @@ def list_datasets(req: func.HttpRequest) -> func.HttpResponse:
                         })
         
         # List evaluation datasets from Foundry
-        if dataset_type in ("evaluation", "all"):
+        if dataset_type in ("evaluation", "voicelive_media", "all"):
             try:
                 from azure.ai.projects import AIProjectClient
                 
@@ -959,10 +959,46 @@ def list_datasets(req: func.HttpRequest) -> func.HttpResponse:
                             version_count = 0
                             latest_version = 0
                         
+                        # Classify: peek at first line to detect media vs eval-ready
+                        ds_type = "evaluation"
+                        try:
+                            ver = str(latest_version) if latest_version else "1"
+                            creds = project_client.datasets.get_credentials(name=dataset.name, version=ver)
+                            creds_dict = creds.as_dict()
+                            blob_ref = creds_dict.get("blobReferenceForConsumption") or creds_dict.get("blobReference", {})
+                            blob_uri = blob_ref.get("blobUri", "")
+                            sas_uri = blob_ref.get("credential", {}).get("sasUri", "")
+                            if sas_uri and "?" in sas_uri:
+                                dl_url = f"{blob_uri}?{sas_uri.split('?', 1)[1]}"
+                            else:
+                                dl_url = blob_uri
+                            if dl_url:
+                                import httpx as _httpx_peek
+                                # Download only first 4KB to peek at format
+                                peek_resp = _httpx_peek.get(dl_url, headers={"Range": "bytes=0-4095"}, timeout=10, follow_redirects=True)
+                                if peek_resp.status_code in (200, 206):
+                                    first_line = peek_resp.text[:4096].strip().split("\n")[0]
+                                    peek_entry = json.loads(first_line)
+                                    # Check for input_audio in messages
+                                    for msg in peek_entry.get("messages", []):
+                                        if msg.get("role") == "user":
+                                            content = msg.get("content", [])
+                                            if isinstance(content, list):
+                                                for part in content:
+                                                    if isinstance(part, dict) and part.get("type") == "input_audio":
+                                                        ds_type = "voicelive_media"
+                                                        break
+                        except Exception:
+                            pass  # Classification failed — default to evaluation
+                        
+                        # Apply filter
+                        if dataset_type != "all" and ds_type != dataset_type:
+                            continue
+                        
                         all_datasets.append({
                             "path": dataset.id,
                             "name": dataset.name,
-                            "type": "evaluation",
+                            "type": ds_type,
                             "store": "foundry",
                             "version_count": version_count,
                             "latest_version": latest_version,
@@ -1293,6 +1329,7 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
                            "conversationID": 0, "conversation_id": 0, "system_prompt": 0}
         eval_fields = {"query": 0, "response": 0, "ground_truth": 0, "context": 0,
                       "tool_calls": 0, "tool_definitions": 0}
+        media_fields = {"messages": 0, "expected_output": 0, "input_audio": 0}
         all_field_names = set()
         entry_count = 0
         
@@ -1312,6 +1349,25 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
                     for field in eval_fields:
                         if field in entry:
                             eval_fields[field] += 1
+                    # Detect Foundry media format (input_audio in messages)
+                    if "messages" in entry:
+                        media_fields["messages"] += 1
+                    if "expected_output" in entry:
+                        media_fields["expected_output"] += 1
+                    for msg in entry.get("messages", []):
+                        if msg.get("role") == "user":
+                            content = msg.get("content", [])
+                            if isinstance(content, list):
+                                for part in content:
+                                    if isinstance(part, dict) and part.get("type") == "input_audio":
+                                        media_fields["input_audio"] += 1
+                                        break
+                    # Also check top-level audio field for media format
+                    top_audio = entry.get("audio")
+                    if isinstance(top_audio, dict) and top_audio.get("type") == "input_audio":
+                        ref = top_audio.get("input_audio", {})
+                        if ref.get("data"):
+                            media_fields["input_audio"] += 1
                 except json.JSONDecodeError:
                     pass
         
@@ -1319,9 +1375,13 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
         
         # Detect dataset type
         has_audio = (voicelive_fields["WavPath"] + voicelive_fields["audio"]) > 0
+        has_media_audio = media_fields["input_audio"] > 0
         has_eval = eval_fields["query"] > 0 and eval_fields["response"] > 0
         
-        if has_audio and not has_eval:
+        if has_media_audio:
+            dataset_type = "voicelive_media"
+            recommendation = "Foundry media dataset with input_audio. Use run_voicelive_audio_tests to process (supports base64 data-URI and URL formats)."
+        elif has_audio and not has_eval:
             dataset_type = "voicelive"
             recommendation = "VoiceLive audio dataset. Use validate_voicelive_dataset to validate, then run_voicelive_audio_tests to process."
         elif has_eval and not has_audio:
@@ -1341,6 +1401,7 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
                 "entries_analyzed": entry_count,
                 "fields_found": sorted(list(all_field_names)),
                 "voicelive_fields": {k: v for k, v in voicelive_fields.items() if v > 0},
+                "media_fields": {k: v for k, v in media_fields.items() if v > 0},
                 "evaluation_fields": {k: v for k, v in eval_fields.items() if v > 0},
                 "recommendation": recommendation,
             }),
@@ -1404,10 +1465,28 @@ def validate_voicelive_dataset(req: func.HttpRequest) -> func.HttpResponse:
                     entry = json.loads(line)
                     entry_count += 1
                     
-                    # Check for audio path (required)
-                    audio_path = entry.get("WavPath") or entry.get("audio")
-                    if not audio_path:
-                        errors.append(f"Line {line_num}: Missing audio path (WavPath or audio)")
+                    # Check for audio source (WavPath, audio field, or input_audio in messages)
+                    audio_path = entry.get("WavPath") or (entry.get("audio") if isinstance(entry.get("audio"), str) else None)
+                    has_input_audio = False
+                    for msg in entry.get("messages", []):
+                        if msg.get("role") == "user":
+                            content = msg.get("content", [])
+                            if isinstance(content, list):
+                                for part in content:
+                                    if isinstance(part, dict) and part.get("type") == "input_audio":
+                                        ref = part.get("input_audio", {})
+                                        if ref.get("data"):
+                                            has_input_audio = True
+                                            break
+                    if not audio_path and not has_input_audio:
+                        # Also check top-level audio field for media format
+                        top_audio = entry.get("audio")
+                        if isinstance(top_audio, dict) and top_audio.get("type") == "input_audio":
+                            ref = top_audio.get("input_audio", {})
+                            if ref.get("data"):
+                                has_input_audio = True
+                    if not audio_path and not has_input_audio:
+                        errors.append(f"Line {line_num}: Missing audio source (WavPath, audio, or input_audio)")
                     
                     # Track conversation IDs if present
                     cid = entry.get("conversationID") or entry.get("conversation_id") or "default"
@@ -3229,6 +3308,37 @@ async def run_voicelive_audio_tests(req: func.HttpRequest) -> func.HttpResponse:
     """
     try:
         body = req.get_json()
+        
+        # Resolve Foundry dataset: download JSONL + upload to blob for container app
+        foundry_dataset = body.pop("foundry_dataset", None)
+        if foundry_dataset:
+            parts = foundry_dataset.split(":", 1)
+            ds_name = parts[0]
+            ds_version = parts[1] if len(parts) > 1 else None
+            
+            logging.info(f"Resolving Foundry dataset '{foundry_dataset}' to blob storage")
+            local_path = _download_foundry_dataset(ds_name, ds_version)
+            
+            # Upload the downloaded JSONL to blob datasets/ container
+            blob_client_svc = get_blob_client()
+            container_name = os.environ.get("AZURE_STORAGE_DATASETS_CONTAINER", "datasets")
+            container_client = blob_client_svc.get_container_client(container_name)
+            
+            blob_name = f"foundry_media/{ds_name}/{os.path.basename(local_path)}"
+            with open(local_path, "rb") as f:
+                container_client.upload_blob(name=blob_name, data=f, overwrite=True)
+            os.unlink(local_path)
+            
+            body["dataset_path"] = f"{container_name}/{blob_name}"
+            logging.info(f"Foundry dataset staged to blob: {blob_name}")
+        
+        # Validate that at least one dataset source is provided
+        if not body.get("dataset_path") and not foundry_dataset:
+            return func.HttpResponse(
+                json.dumps({"error": "One of 'dataset_path' or 'foundry_dataset' is required"}),
+                status_code=400,
+                mimetype="application/json"
+            )
         
         # Resolve session_config name to config dict if it's a string
         config_value = body.get("session_config")

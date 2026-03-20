@@ -21,8 +21,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DatasetEntry:
-    """A single entry from a dataset JSONL file."""
-    wav_path: str
+    """A single entry from a dataset JSONL file.
+
+    Supports two audio source formats:
+    - Legacy: ``wav_path`` points to a blob or local WAV file.
+    - Media:  ``audio_media_ref`` holds ``{"data": "<url_or_base64>", "format": "wav"}``
+              from Foundry's ``input_audio`` content type.
+    """
+    wav_path: Optional[str] = None
+    audio_media_ref: Optional[Dict[str, str]] = None
     question: Optional[str] = None
     answer: Optional[str] = None  # Ground truth
     conversation_id: Optional[str] = None
@@ -41,16 +48,34 @@ class DatasetEntry:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "DatasetEntry":
-        # Normalize list-type answers (e.g. speech-trivia-qa uses ["Paris", "City of Paris"])
-        answer_raw = data.get("Answer")
+        # Normalize list-type answers
+        answer_raw = data.get("Answer") or data.get("answer") or data.get("expected_output")
         if isinstance(answer_raw, list):
             answer_raw = " OR ".join(str(a) for a in answer_raw if a) if answer_raw else None
+
+        # Detect media format (Foundry input_audio)
+        media_ref = _extract_media_ref(data)
+        wav_path = None
+        if not media_ref:
+            raw_path = data.get("WavPath") or data.get("audio_path") or (data.get("audio") if isinstance(data.get("audio"), str) else None)
+            wav_path = raw_path if raw_path else None
+
+        # Extract question/system_prompt from messages if not in top-level fields
+        question = data.get("Question") or data.get("question")
+        if not question:
+            question = _extract_text_from_messages(data)
+
+        system_prompt = data.get("system_prompt")
+        if not system_prompt:
+            system_prompt = _extract_system_prompt_from_messages(data)
+
         return cls(
-            wav_path=data.get("WavPath") or data.get("audio_path") or "",
-            question=data.get("Question"),
+            wav_path=wav_path,
+            audio_media_ref=media_ref,
+            question=question,
             answer=answer_raw,
-            conversation_id=data.get("conversationID"),
-            system_prompt=data.get("system_prompt"),
+            conversation_id=data.get("conversationID") or data.get("conversation_id"),
+            system_prompt=system_prompt,
             tool_definitions=data.get("tool_definitions"),
             query=data.get("query"),
             response=data.get("response"),
@@ -59,10 +84,56 @@ class DatasetEntry:
         )
     
     def has_audio(self) -> bool:
-        return bool(self.wav_path)
+        return bool(self.wav_path) or bool(self.audio_media_ref)
     
     def has_eval_data(self) -> bool:
         return bool(self.query and self.response)
+
+
+def _extract_media_ref(record: dict) -> Optional[Dict[str, str]]:
+    """Extract the first ``input_audio`` reference from a record."""
+    for msg in record.get("messages", []):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", [])
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "input_audio":
+                    ref = part.get("input_audio")
+                    if ref and ref.get("data"):
+                        return ref
+    top_audio = record.get("audio")
+    if isinstance(top_audio, dict) and top_audio.get("type") == "input_audio":
+        ref = top_audio.get("input_audio")
+        if ref and ref.get("data"):
+            return ref
+    return None
+
+
+def _extract_text_from_messages(record: dict) -> Optional[str]:
+    """Extract user text from a Foundry messages array."""
+    for msg in record.get("messages", []):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", [])
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            texts = [p.get("text", "") for p in content
+                     if isinstance(p, dict) and p.get("type") == "text"]
+            combined = " ".join(t for t in texts if t)
+            if combined:
+                return combined
+    return None
+
+
+def _extract_system_prompt_from_messages(record: dict) -> Optional[str]:
+    """Extract system message content from a Foundry messages array."""
+    for msg in record.get("messages", []):
+        if msg.get("role") == "system":
+            content = msg.get("content", "")
+            return content if isinstance(content, str) else str(content)
+    return None
 
 
 class BlobStorageClient:
