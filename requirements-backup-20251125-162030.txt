@@ -138,7 +138,7 @@ tqdm==4.67.1
 transformers==4.57.0
 transformers-stream-generator==0.0.4
 typing-inspection==0.4.2
-typing_extensions==4.13.2
+typing_extensions==4.15.0
 tzdata==2025.2
 urllib3==2.4.0
 virtualenv==21.2.0
