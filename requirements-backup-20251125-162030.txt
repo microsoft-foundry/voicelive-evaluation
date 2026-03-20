@@ -115,7 +115,7 @@ requests-oauthlib==2.0.0
 rich==14.1.0
 ruamel.yaml==0.18.15
 ruamel.yaml.clib==0.2.14
-sacrebleu==1.5.1
+sacrebleu==2.6.0
 safetensors==0.6.2
 scikit-learn==1.7.2
 scipy==1.16.2
