@@ -57,7 +57,7 @@ class DatasetEntry:
         media_ref = _extract_media_ref(data)
         wav_path = None
         if not media_ref:
-            raw_path = data.get("WavPath") or data.get("audio_path")
+            raw_path = data.get("WavPath") or data.get("audio_path") or (data.get("audio") if isinstance(data.get("audio"), str) else None)
             wav_path = raw_path if raw_path else None
 
         # Extract question/system_prompt from messages if not in top-level fields

@@ -99,6 +99,12 @@ def load_audio_file(file_path: str, target_sample_rate: int = 24000) -> bytes:
     return audio.tobytes()
 
 
+def _redact_url_params(text: str) -> str:
+    """Redact query parameters from URLs in error messages to prevent SAS token leakage."""
+    import re
+    return re.sub(r'(https?://[^\s?]+)\?[^\s"\']+', r'\1?[REDACTED]', str(text))
+
+
 def _resolve_audio_from_media(
     audio_ref: Dict[str, str],
     cache_dir: Optional[str] = None,
@@ -133,14 +139,11 @@ def _resolve_audio_from_media(
                     return os.path.abspath(dest)
                 except Exception as exc:
                     logger.debug(f"BlobClient auth failed ({exc}), trying anonymous HTTP")
-            resp = requests.get(data, timeout=120)
-            resp.raise_for_status()
-            with open(dest, "wb") as fout:
-                fout.write(resp.content)
-            logger.info(f"Downloaded media audio ({len(resp.content)} bytes) → {dest}")
-            return os.path.abspath(dest)
+            # Only allow Azure blob URLs for security (prevent SSRF)
+            logger.warning(f"Non-Azure-blob URL rejected for security: {_redact_url_params(data)}")
+            return None
         except Exception as exc:
-            logger.error(f"Failed to download media audio from URL: {exc}")
+            logger.error(f"Failed to download media audio from URL: {_redact_url_params(str(exc))}")
             return None
 
     # Base64 data URI
@@ -151,7 +154,7 @@ def _resolve_audio_from_media(
             logger.error("Malformed base64 data-URI")
             return None
         try:
-            raw_bytes = base64.b64decode(encoded)
+            raw_bytes = base64.b64decode(encoded, validate=True)
         except Exception as exc:
             logger.error(f"Base64 decode failed: {exc}")
             return None

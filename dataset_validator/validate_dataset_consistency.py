@@ -277,7 +277,7 @@ class DatasetConsistencyValidator:
             
             # Audio source check: WavPath (legacy) or input_audio (media)
             if not is_media:
-                wav = entry.get('WavPath')
+                wav = entry.get('WavPath') or entry.get('audio_path') or (entry.get('audio') if isinstance(entry.get('audio'), str) else None)
                 if not wav or (isinstance(wav, str) and not wav.strip()):
                     audio_missing += 1
         
@@ -355,6 +355,12 @@ class DatasetConsistencyValidator:
                             ref = part.get("input_audio", {})
                             if ref.get("data"):
                                 return True
+        # Also check top-level audio field
+        top_audio = entry.get("audio")
+        if isinstance(top_audio, dict) and top_audio.get("type") == "input_audio":
+            ref = top_audio.get("input_audio", {})
+            if ref.get("data"):
+                return True
         return False
     
     @staticmethod
@@ -400,8 +406,6 @@ class DatasetConsistencyValidator:
         missing_files = []
         referenced_files = set()
         media_valid = 0
-        media_invalid = 0
-        
         for entry in self.entries:
             if self._has_input_audio(entry):
                 # Media entry — validate data is non-empty (already checked in _has_input_audio)

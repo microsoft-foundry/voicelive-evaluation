@@ -975,9 +975,9 @@ def list_datasets(req: func.HttpRequest) -> func.HttpResponse:
                             if dl_url:
                                 import httpx as _httpx_peek
                                 # Download only first 4KB to peek at format
-                                peek_resp = _httpx_peek.get(dl_url, headers={"Range": "bytes=0-4095"}, timeout=10)
+                                peek_resp = _httpx_peek.get(dl_url, headers={"Range": "bytes=0-4095"}, timeout=10, follow_redirects=True)
                                 if peek_resp.status_code in (200, 206):
-                                    first_line = peek_resp.text.strip().split("\n")[0]
+                                    first_line = peek_resp.text[:4096].strip().split("\n")[0]
                                     peek_entry = json.loads(first_line)
                                     # Check for input_audio in messages
                                     for msg in peek_entry.get("messages", []):
@@ -1362,6 +1362,12 @@ def check_dataset_schema(req: func.HttpRequest) -> func.HttpResponse:
                                     if isinstance(part, dict) and part.get("type") == "input_audio":
                                         media_fields["input_audio"] += 1
                                         break
+                    # Also check top-level audio field for media format
+                    top_audio = entry.get("audio")
+                    if isinstance(top_audio, dict) and top_audio.get("type") == "input_audio":
+                        ref = top_audio.get("input_audio", {})
+                        if ref.get("data"):
+                            media_fields["input_audio"] += 1
                 except json.JSONDecodeError:
                     pass
         
@@ -1472,6 +1478,13 @@ def validate_voicelive_dataset(req: func.HttpRequest) -> func.HttpResponse:
                                         if ref.get("data"):
                                             has_input_audio = True
                                             break
+                    if not audio_path and not has_input_audio:
+                        # Also check top-level audio field for media format
+                        top_audio = entry.get("audio")
+                        if isinstance(top_audio, dict) and top_audio.get("type") == "input_audio":
+                            ref = top_audio.get("input_audio", {})
+                            if ref.get("data"):
+                                has_input_audio = True
                     if not audio_path and not has_input_audio:
                         errors.append(f"Line {line_num}: Missing audio source (WavPath, audio, or input_audio)")
                     
@@ -3318,6 +3331,14 @@ async def run_voicelive_audio_tests(req: func.HttpRequest) -> func.HttpResponse:
             
             body["dataset_path"] = f"{container_name}/{blob_name}"
             logging.info(f"Foundry dataset staged to blob: {blob_name}")
+        
+        # Validate that at least one dataset source is provided
+        if not body.get("dataset_path") and not foundry_dataset:
+            return func.HttpResponse(
+                json.dumps({"error": "One of 'dataset_path' or 'foundry_dataset' is required"}),
+                status_code=400,
+                mimetype="application/json"
+            )
         
         # Resolve session_config name to config dict if it's a string
         config_value = body.get("session_config")

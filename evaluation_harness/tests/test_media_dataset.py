@@ -174,8 +174,8 @@ def test_resolve_base64_data_uri():
 
 def test_resolve_url_returns_none_for_unreachable():
     """URL that fails to download returns None."""
-    ref = {"data": "https://nonexistent.example.com/audio.wav", "format": "wav"}
-    result = _resolve_audio_from_media(ref)
+    ref = {"data": "https://192.0.2.1/audio.wav", "format": "wav"}  # RFC 5737 TEST-NET, non-routable
+    result = _resolve_audio_from_media(ref, cache_dir=tempfile.mkdtemp())
     assert result is None, "Unreachable URL should return None"
 
 

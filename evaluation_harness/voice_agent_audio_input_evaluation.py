@@ -557,6 +557,12 @@ def _resolve_audio_path(wav_path: str, dataset_dir: str) -> Optional[str]:
     return None
 
 
+def _redact_url_params(text: str) -> str:
+    """Redact query parameters from URLs in error messages to prevent SAS token leakage."""
+    import re
+    return re.sub(r'(https?://[^\s?]+)\?[^\s"\']+', r'\1?[REDACTED]', str(text))
+
+
 def _resolve_audio_from_media(
     audio_ref: Dict[str, str],
     cache_dir: Optional[str] = None,
@@ -607,15 +613,26 @@ def _resolve_audio_from_media(
                 except Exception as exc:
                     logger.debug(f"BlobClient auth failed ({exc}), trying anonymous HTTP")
 
-            # Non-Azure URLs or fallback — plain HTTP GET
-            resp = requests.get(data, timeout=120)
+            # Non-Azure URLs or fallback — plain HTTP GET (streaming with size limit)
+            resp = requests.get(data, timeout=120, stream=True)
             resp.raise_for_status()
+            max_size = 500 * 1024 * 1024  # 500MB limit
+            content_length = int(resp.headers.get('content-length', 0))
+            if content_length > max_size:
+                logger.error(f"Audio file too large: {content_length} bytes (max {max_size})")
+                return None
             with open(dest, "wb") as fout:
-                fout.write(resp.content)
-            logger.info(f"Downloaded media audio ({len(resp.content)} bytes) → {dest}")
+                downloaded = 0
+                for chunk in resp.iter_content(chunk_size=8192):
+                    downloaded += len(chunk)
+                    if downloaded > max_size:
+                        logger.error(f"Audio download exceeded {max_size} byte limit")
+                        return None
+                    fout.write(chunk)
+            logger.info(f"Downloaded media audio ({downloaded} bytes) → {dest}")
             return os.path.abspath(dest)
         except Exception as exc:
-            logger.error(f"Failed to download media audio from URL: {exc}")
+            logger.error(f"Failed to download media audio from URL: {_redact_url_params(str(exc))}")
             return None
 
     # --- Base64 data-URI ---------------------------------------------------
@@ -627,7 +644,7 @@ def _resolve_audio_from_media(
             logger.error("Malformed base64 data-URI (no comma separator)")
             return None
         try:
-            raw_bytes = base64.b64decode(encoded)
+            raw_bytes = base64.b64decode(encoded, validate=True)
         except Exception as exc:
             logger.error(f"Base64 decode failed for data-URI: {exc}")
             return None
@@ -1400,8 +1417,11 @@ def download_foundry_dataset(dataset_spec: str) -> str:
     else:
         download_url = blob_uri
 
-    resp = requests.get(download_url, timeout=120)
-    resp.raise_for_status()
+    try:
+        resp = requests.get(download_url, timeout=120)
+        resp.raise_for_status()
+    except Exception as exc:
+        raise ValueError(f"Failed to download Foundry dataset '{name}' v{version}: {_redact_url_params(str(exc))}") from None
 
     # Write to temp file
     dest = os.path.join(
