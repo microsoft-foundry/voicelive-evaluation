@@ -3311,28 +3311,8 @@ async def run_voicelive_audio_tests(req: func.HttpRequest) -> func.HttpResponse:
     try:
         body = req.get_json()
         
-        # Resolve Foundry dataset: download JSONL + upload to blob for container app
-        foundry_dataset = body.pop("foundry_dataset", None)
-        if foundry_dataset:
-            parts = foundry_dataset.split(":", 1)
-            ds_name = parts[0]
-            ds_version = parts[1] if len(parts) > 1 else None
-            
-            logging.info(f"Resolving Foundry dataset '{foundry_dataset}' to blob storage")
-            local_path = _download_foundry_dataset(ds_name, ds_version)
-            
-            # Upload the downloaded JSONL to blob datasets/ container
-            blob_client_svc = get_blob_client()
-            container_name = os.environ.get("AZURE_STORAGE_DATASETS_CONTAINER", "datasets")
-            container_client = blob_client_svc.get_container_client(container_name)
-            
-            blob_name = f"foundry_media/{ds_name}/{os.path.basename(local_path)}"
-            with open(local_path, "rb") as f:
-                container_client.upload_blob(name=blob_name, data=f, overwrite=True)
-            os.unlink(local_path)
-            
-            body["dataset_path"] = f"{container_name}/{blob_name}"
-            logging.info(f"Foundry dataset staged to blob: {blob_name}")
+        # Pass foundry_dataset directly to container app (it handles download)
+        foundry_dataset = body.get("foundry_dataset")
         
         # Validate that at least one dataset source is provided
         if not body.get("dataset_path") and not foundry_dataset:
