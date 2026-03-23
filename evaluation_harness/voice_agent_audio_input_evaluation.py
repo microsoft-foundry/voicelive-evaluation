@@ -67,10 +67,10 @@ def generate_harness_eval_group_name(config) -> str:
     """Generate eval group name from session config, matching agent naming pattern.
     Format: harness_{model}_{voice}_{vad}_{eod}
     """
-    model = getattr(config, 'model', 'gpt-realtime') if hasattr(config, 'model') else config.get('model', 'gpt-realtime')
-    voice = getattr(config, 'voice', 'alloy') if hasattr(config, 'voice') else config.get('voice', 'alloy')
-    vad = getattr(config, 'vad_threshold', '0.5') if hasattr(config, 'vad_threshold') else config.get('vad_threshold', '0.5')
-    eod = getattr(config, 'end_of_speech_timeout', '500') if hasattr(config, 'end_of_speech_timeout') else config.get('end_of_speech_timeout', '500')
+    model = getattr(config, 'model', 'gpt-realtime')
+    voice = getattr(config, 'voice', 'alloy')
+    vad = getattr(config, 'vad_threshold', '0.5')
+    eod = getattr(config, 'silence_duration_ms', '500')
     model_clean = str(model).replace("-", "").replace(".", "")
     return f"harness_{model_clean}_{voice}_{vad}_{eod}"
 
@@ -108,7 +108,7 @@ def journal_harness_eval_group(
         "model": getattr(config, 'model', '') if config else '',
         "voice": getattr(config, 'voice', '') if config else '',
         "vad_threshold": str(getattr(config, 'vad_threshold', '')) if config else '',
-        "end_of_speech_timeout": str(getattr(config, 'end_of_speech_timeout', '')) if config else '',
+        "silence_duration_ms": str(getattr(config, 'silence_duration_ms', '')) if config else '',
     }
     try:
         with open(journal_path, 'a', encoding='utf-8') as f:
@@ -1395,31 +1395,49 @@ def download_foundry_dataset(dataset_spec: str) -> str:
         version = str(max(int(v.version) for v in versions))
         logger.info(f"Resolved Foundry dataset '{name}' to version {version}")
 
-    # Get SAS-authenticated download URL
+    # Get SAS-authenticated download URL via the SDK
+    # The SDK returns:
+    #   blob_reference.blob_uri  — blob path, e.g. https://<acct>.blob.../container/path
+    #   blob_reference.credential.sas_uri — container-scoped SAS, e.g. https://<acct>.blob.../container?<sas>
+    # The SAS token is scoped to the *container*, so we must use ContainerClient
+    # with the full sas_uri (matching the SDK's own upload pattern) and then
+    # download the blob(s) under the path prefix extracted from blob_uri.
     creds = client.datasets.get_credentials(name=name, version=version)
-    creds_dict = creds.as_dict()
-    blob_ref = (
-        creds_dict.get("blobReferenceForConsumption")
-        or creds_dict.get("blobReference", {})
-    )
-    blob_uri = blob_ref.get("blobUri")
-    sas_uri = blob_ref.get("credential", {}).get("sasUri", "")
-
-    if not blob_uri:
+    blob_ref = creds.blob_reference
+    if not blob_ref or not blob_ref.blob_uri:
         raise ValueError(
             f"Could not get download URI for Foundry dataset '{name}' v{version}"
         )
+    if not blob_ref.credential or not blob_ref.credential.sas_uri:
+        raise ValueError(
+            f"No SAS credential returned for Foundry dataset '{name}' v{version}"
+        )
 
-    # Build download URL: blob URI + SAS token from container SAS
-    if sas_uri and "?" in sas_uri:
-        sas_token = sas_uri.split("?", 1)[1]
-        download_url = f"{blob_uri}?{sas_token}"
-    else:
-        download_url = blob_uri
+    blob_uri = blob_ref.blob_uri
+    sas_uri = blob_ref.credential.sas_uri
+
+    # Extract blob name prefix from blob_uri (everything after the container segment)
+    # blob_uri:  https://<acct>.blob.core.windows.net/<container>/<blob_path>
+    # sas_uri:   https://<acct>.blob.core.windows.net/<container>?<sas_token>
+    from urllib.parse import urlparse
+    parsed_blob = urlparse(blob_uri)
+    # Path segments: ['', '<container>', '<blob_path_parts>...']
+    blob_path_parts = parsed_blob.path.strip("/").split("/", 1)
+    blob_prefix = blob_path_parts[1] if len(blob_path_parts) > 1 else ""
 
     try:
-        resp = requests.get(download_url, timeout=120)
-        resp.raise_for_status()
+        from azure.storage.blob import ContainerClient
+        container_client = ContainerClient.from_container_url(sas_uri)
+        # List and download all blobs under the prefix
+        parts = []
+        for blob_props in container_client.list_blobs(name_starts_with=blob_prefix or None):
+            data = container_client.download_blob(blob_props).readall()
+            parts.append(data.decode("utf-8"))
+        if not parts:
+            raise ValueError(f"No blobs found in Foundry dataset '{name}' v{version}")
+        content = "\n".join(parts)
+    except ValueError:
+        raise
     except Exception as exc:
         raise ValueError(f"Failed to download Foundry dataset '{name}' v{version}: {_redact_url_params(str(exc))}") from None
 
@@ -1429,11 +1447,11 @@ def download_foundry_dataset(dataset_spec: str) -> str:
         f"{name}_v{version}.jsonl",
     )
     with open(dest, "w", encoding="utf-8") as f:
-        f.write(resp.text)
+        f.write(content)
 
     logger.info(
         f"Downloaded Foundry dataset '{name}' v{version} "
-        f"({len(resp.text)} bytes) → {dest}"
+        f"({len(content)} bytes) → {dest}"
     )
     return dest
 

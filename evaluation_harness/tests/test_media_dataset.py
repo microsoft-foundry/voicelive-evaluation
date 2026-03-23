@@ -22,11 +22,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from voice_agent_audio_input_evaluation import (
     DatasetEntry,
+    SessionConfig,
     read_dataset,
     _extract_media_ref,
     _resolve_audio_from_media,
     _extract_text_from_messages,
     _extract_system_prompt_from_messages,
+    generate_harness_eval_group_name,
+    journal_harness_eval_group,
 )
 
 
@@ -361,6 +364,89 @@ def test_read_dataset_actual_legacy_file():
 
 
 # ---------------------------------------------------------------------------
+# 5. Eval group naming and journal (SessionConfig compatibility)
+# ---------------------------------------------------------------------------
+
+def test_generate_eval_group_name_with_dataclass():
+    """generate_harness_eval_group_name works with SessionConfig dataclass."""
+    config = SessionConfig(model="gpt-4.1", voice="alloy", vad_threshold=0.6, silence_duration_ms=800)
+    name = generate_harness_eval_group_name(config)
+    assert "gpt41" in name, f"Model should be cleaned: {name}"
+    assert "alloy" in name
+    assert "0.6" in name
+    assert "800" in name
+
+
+def test_generate_eval_group_name_defaults():
+    """generate_harness_eval_group_name uses defaults for missing fields."""
+    config = SessionConfig()  # All defaults
+    name = generate_harness_eval_group_name(config)
+    assert "gptrealtime" in name, f"Default model should be gpt-realtime: {name}"
+    assert name  # Should not crash
+
+
+def test_journal_eval_group_with_dataclass():
+    """journal_harness_eval_group works with SessionConfig dataclass (no .get() crash)."""
+    config = SessionConfig(model="gpt-4.1", voice="alloy")
+    with tempfile.TemporaryDirectory() as td:
+        # Should not raise AttributeError: 'SessionConfig' object has no attribute 'get'
+        journal_harness_eval_group("test_group", config, output_dir=td)
+        journal_path = os.path.join(td, "eval_journal.jsonl")
+        assert os.path.exists(journal_path), "Journal file should be created"
+        with open(journal_path, 'r') as f:
+            entry = json.loads(f.readline())
+        assert entry["model"] == "gpt-4.1"
+        assert entry["voice"] == "alloy"
+        assert "silence_duration_ms" in entry, "Should use silence_duration_ms not end_of_speech_timeout"
+
+
+def test_journal_eval_group_none_config():
+    """journal_harness_eval_group handles None config gracefully."""
+    with tempfile.TemporaryDirectory() as td:
+        journal_harness_eval_group("test_group", None, output_dir=td)
+        journal_path = os.path.join(td, "eval_journal.jsonl")
+        assert os.path.exists(journal_path)
+        with open(journal_path, 'r') as f:
+            entry = json.loads(f.readline())
+        assert entry["model"] == ""
+
+
+# ---------------------------------------------------------------------------
+# 6. Legacy field compatibility
+# ---------------------------------------------------------------------------
+
+def test_read_dataset_legacy_audio_field():
+    """read_dataset accepts 'audio' string field as legacy path (not just WavPath)."""
+    wav_bytes = _make_wav_bytes()
+    with tempfile.TemporaryDirectory() as td:
+        wav_file = os.path.join(td, "test.wav")
+        with open(wav_file, 'wb') as f:
+            f.write(wav_bytes)
+        jsonl_file = os.path.join(td, "test.jsonl")
+        record = {"audio": "test.wav", "Question": "Hello", "Answer": "Hi"}
+        with open(jsonl_file, 'w') as f:
+            f.write(json.dumps(record) + "\n")
+        entries = read_dataset(jsonl_file)
+        assert len(entries) == 1, f"Should parse 'audio' string field, got {len(entries)}"
+        assert entries[0].audio_path is not None
+
+
+def test_read_dataset_audio_dict_not_legacy():
+    """read_dataset does NOT treat audio dict as legacy path."""
+    with tempfile.TemporaryDirectory() as td:
+        jsonl_file = os.path.join(td, "test.jsonl")
+        # audio field is a dict (media-style), not a string — should not be treated as file path
+        record = {"audio": {"type": "input_audio", "input_audio": {"data": "data:audio/wav;base64,AAAA", "format": "wav"}}}
+        with open(jsonl_file, 'w') as f:
+            f.write(json.dumps(record) + "\n")
+        entries = read_dataset(jsonl_file)
+        assert len(entries) == 1
+        # Should be detected as media via top-level audio field
+        assert entries[0].audio_media_ref is not None or entries[0].audio_path is None, \
+            "Dict audio field should not be treated as file path"
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -393,6 +479,14 @@ def main():
     _run("mixed_formats", test_read_dataset_mixed_formats)
     _run("actual_base64_file", test_read_dataset_actual_base64_file)
     _run("actual_legacy_file", test_read_dataset_actual_legacy_file)
+    _run("legacy_audio_field", test_read_dataset_legacy_audio_field)
+    _run("audio_dict_not_legacy", test_read_dataset_audio_dict_not_legacy)
+
+    print("\n  eval group naming / journal (SessionConfig):")
+    _run("eval_name_dataclass", test_generate_eval_group_name_with_dataclass)
+    _run("eval_name_defaults", test_generate_eval_group_name_defaults)
+    _run("journal_dataclass", test_journal_eval_group_with_dataclass)
+    _run("journal_none_config", test_journal_eval_group_none_config)
 
     # Summary
     passed = sum(1 for _, s, _ in _results if s == "PASS")
