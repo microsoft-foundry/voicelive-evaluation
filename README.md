@@ -25,9 +25,13 @@ For dataset validation before running evaluations, see [`dataset_validator/READM
 # Unit tests (no Azure credentials needed)
 python evaluation_harness/tests/test_config_and_evaluators.py   # 40 tests
 python evaluation_harness/tests/test_e2e_pipeline.py            # Format + structure tests
+python evaluation_harness/tests/test_media_dataset.py           # 24 tests — media format + Foundry dataset support
 
 # E2E pipeline (requires Azure credentials + VoiceLive endpoint)
 python evaluation_harness/tests/test_e2e_full_pipeline.py --mode both --skip-evaluation
+
+# Integration tests (requires deployed infrastructure)
+python evaluation_agent/tests/test_media_integration.py         # 8 tests — media + Foundry integration
 ```
 
 ## Setup

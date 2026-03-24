@@ -18,6 +18,7 @@ Integration and E2E test suites for the VoiceLive Evaluation Agent. These are **
 | `test_agent_e2e.py` | End-to-end pipeline tests | 20 tests across 8 categories — Discovery, validation, upload, VoiceLive processing, evaluation, resource management, results, edge cases |
 | `test_agent_responses.py` | Responses API tests | Tests agent via Azure AI Projects Responses API (SDK 2.0+), validates streaming and non-streaming responses |
 | `test_agent_sdk.py` | Direct SDK/endpoint tests | Tests Azure Functions endpoints directly via HTTP requests (bypasses agent), validates tool API contracts |
+| `test_media_integration.py` | Media + Foundry integration | 8 tests — Function App and Container App endpoints for media dataset schema detection, validation, and `foundry_dataset` passthrough |
 
 ## Running Tests
 
@@ -38,6 +39,11 @@ python tests/test_agent_e2e.py
 
 # Direct endpoint tests (no agent needed)
 python tests/test_agent_sdk.py --base-url https://func-vh7j24h6z2pgw.azurewebsites.net/api
+
+# Media + Foundry integration tests
+python tests/test_media_integration.py
+python tests/test_media_integration.py --function-url https://func-xxx.azurewebsites.net/api
+python tests/test_media_integration.py --container-url https://ca-xxx.azurecontainerapps.io
 ```
 
 ## Manual Test Guide

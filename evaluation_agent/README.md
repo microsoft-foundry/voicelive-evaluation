@@ -236,7 +236,7 @@ run_voicelive_audio_tests → Container App → VoiceLive SDK → blob storage
 ```
 
 1. Function App proxy (`run_voicelive_audio_tests`) resolves session config and forwards to Container App
-2. Container App downloads audio dataset from `datasets/` container
+2. Container App downloads audio dataset from `datasets/` container (or directly from Foundry Data Store when `foundry_dataset` is provided — bypassing blob staging)
 3. Container App sends each audio file to VoiceLive SDK, collects transcriptions and responses
 4. Results JSONL + metadata uploaded to `outputs/voicelive_jobs/{job_id}/`
 
@@ -361,10 +361,12 @@ To compare push-to-talk vs VAD on the same dataset:
 
 | Tool | Description |
 |------|-------------|
-| `run_voicelive_audio_tests` | Process audio files through VoiceLive SDK (results saved to blob storage) |
+| `run_voicelive_audio_tests` | Process audio files through VoiceLive SDK (results saved to blob storage). Accepts `dataset_path` (blob) or `foundry_dataset` (Foundry Data Store name) |
 | `check_voicelive_job_status` | Check audio processing job status |
 
 > **Note:** The Container App only writes results to blob storage (`outputs/voicelive_jobs/{job_id}/`). It does **not** upload to Foundry. Use `run_voicelive_evaluation` to create Foundry datasets and run evaluators on the results.
+
+> **Foundry dataset support:** When `foundry_dataset` is passed, the Function App forwards it to the Container App, which downloads the dataset directly from Foundry Data Store (requires `PROJECT_ENDPOINT` env var on the Container App). The Function App does not download or stage the dataset — the Container App handles Foundry access independently.
 
 > **Note:** The agent cannot autonomously poll for status updates. When checking job or evaluation status, ask the agent explicitly — it will not loop or track status on its own.
 

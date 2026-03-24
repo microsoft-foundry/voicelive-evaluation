@@ -355,6 +355,26 @@ Each line should be a valid JSON object with these fields:
 - **system_prompt**: Agent instructions (must be consistent within a conversation)
 - **tool_definitions**: Tool/function definitions (optional, can be null)
 
+### Media Dataset Format (Foundry)
+
+Datasets using the Foundry media format are also supported. Instead of `WavPath`, audio is provided inline via `input_audio`:
+
+```json
+{
+  "messages": [
+    {"role": "system", "content": "Agent instructions"},
+    {"role": "user", "content": [
+      {"type": "text", "text": "User query"},
+      {"type": "input_audio", "input_audio": {"data": "data:audio/wav;base64,UklGR...", "format": "wav"}}
+    ]}
+  ],
+  "expected_output": "Expected response",
+  "conversationID": "conv1"
+}
+```
+
+Audio can be a base64 data-URI (`data:audio/wav;base64,...`) or an Azure Blob Storage URL. The consistency validator detects both formats automatically.
+
 ### File Organization
 ```
 dataset_folder/

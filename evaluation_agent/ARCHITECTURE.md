@@ -226,12 +226,12 @@ Datasets are stored in **two distinct stores** based on type:
 
 | Aspect | VoiceLive Audio | Evaluation-Ready |
 |--------|----------------|-----------------|
-| **Store** | Blob `datasets/` | Foundry Data Store |
-| **Format** | Zip (.wav + .jsonl) or .jsonl with WavPath | .jsonl with query/response |
-| **Required fields** | `WavPath` or `audio` | `query`, `response` |
+| **Store** | Blob `datasets/` or Foundry Data Store | Foundry Data Store |
+| **Format** | Zip (.wav + .jsonl), .jsonl with WavPath, or media format (`input_audio`) | .jsonl with query/response |
+| **Required fields** | `WavPath` or `input_audio` (base64 data-URI / blob URL) | `query`, `response` |
 | **Validation** | `validate_voicelive_dataset` | `validate_eval_dataset` |
 | **Upload via** | SAS URL → blob extraction | SAS URL → staging → Foundry upload |
-| **Versioning** | Folder-based (manual) | Foundry native (auto-increment on same name) |
+| **Versioning** | Folder-based (manual) or Foundry native | Foundry native (auto-increment on same name) |
 | **Discovery** | `list_datasets(type=voicelive)` | `list_datasets(type=evaluation)` |
 | **Future** | Migrate to Foundry when audio supported | Already in Foundry |
 
@@ -483,8 +483,8 @@ The system separates concerns across three primary services:
 
 | Service | Purpose | Timeout | Auth |
 |---------|---------|---------|------|
-| **Container App** | VoiceLive audio processing | Unlimited | Managed Identity |
-| **Azure Functions** | Dataset validation, Foundry evaluations | 10 min (Durable) | Function Key |
+| **Container App** | VoiceLive audio processing (supports `foundry_dataset` direct download) | Unlimited | Managed Identity |
+| **Azure Functions** | Dataset validation, Foundry evaluations, `foundry_dataset` passthrough | 10 min (Durable) | Function Key |
 | **Foundry Agent** | Natural language orchestration | N/A | Foundry Connection |
 
 ## VoiceLive Audio Processing
@@ -985,11 +985,13 @@ return func.HttpResponse(
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/run_voicelive_audio_tests` | POST | Start audio processing job |
+| `/run_voicelive_audio_tests` | POST | Start audio processing job (`dataset_path` or `foundry_dataset`) |
 | `/check_job_status` | POST | Poll job status |
 | `/jobs` | GET | List all jobs |
 | `/jobs/{job_id}` | GET | Get job details |
 | `/health` | GET | Health check |
+
+> **Media dataset processing:** When a dataset contains `input_audio` entries (base64 data-URI or blob URL), the Container App resolves the audio inline — base64 is decoded to a local temp WAV, blob URLs are downloaded with `DefaultAzureCredential`. Legacy `WavPath` entries continue to work unchanged.
 
 ### Blob Storage Structure
 
