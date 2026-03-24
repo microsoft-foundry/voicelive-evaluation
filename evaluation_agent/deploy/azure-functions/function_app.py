@@ -954,7 +954,10 @@ def list_datasets(req: func.HttpRequest) -> func.HttpResponse:
                         endpoint=project_endpoint
                     )
                     
-                    for dataset in project_client.datasets.list():
+                    foundry_datasets = list(project_client.datasets.list())
+                    enable_peek = len(foundry_datasets) <= 30
+                    
+                    for dataset in foundry_datasets:
                         try:
                             versions = list(project_client.datasets.list_versions(name=dataset.name))
                             version_count = len(versions)
@@ -964,34 +967,49 @@ def list_datasets(req: func.HttpRequest) -> func.HttpResponse:
                             latest_version = 0
                         
                         # Classify: peek at first line to detect media vs eval-ready
+                        # Only peek if dataset count is manageable (avoid timeout)
                         ds_type = "evaluation"
-                        try:
-                            ver = str(latest_version) if latest_version else "1"
-                            peek_creds = project_client.datasets.get_credentials(name=dataset.name, version=ver)
-                            peek_ref = peek_creds.blob_reference
-                            if peek_ref and peek_ref.blob_uri and peek_ref.credential and peek_ref.credential.sas_uri:
-                                from urllib.parse import urlparse as _urlparse_peek
-                                from azure.storage.blob import ContainerClient as _ContainerClient_peek
-                                _parsed = _urlparse_peek(peek_ref.blob_uri)
-                                _parts = _parsed.path.strip("/").split("/", 1)
-                                _prefix = _parts[1] if len(_parts) > 1 else ""
-                                _cc = _ContainerClient_peek.from_container_url(peek_ref.credential.sas_uri)
-                                # Read only the first blob (the JSONL file)
-                                for _bp in _cc.list_blobs(name_starts_with=_prefix or None):
-                                    _data = _cc.download_blob(_bp, length=4096).readall()
-                                    first_line = _data.decode("utf-8", errors="replace").strip().split("\n")[0]
-                                    peek_entry = json.loads(first_line)
-                                    for msg in peek_entry.get("messages", []):
-                                        if msg.get("role") == "user":
-                                            content = msg.get("content", [])
-                                            if isinstance(content, list):
-                                                for part in content:
-                                                    if isinstance(part, dict) and part.get("type") == "input_audio":
-                                                        ds_type = "voicelive_media"
-                                                        break
-                                    break  # Only peek at first blob
-                        except Exception:
-                            pass  # Classification failed — default to evaluation
+                        if enable_peek:
+                            try:
+                                ver = str(latest_version) if latest_version else "1"
+                                peek_creds = project_client.datasets.get_credentials(name=dataset.name, version=ver)
+                                peek_ref = peek_creds.blob_reference
+                                if peek_ref and peek_ref.blob_uri and peek_ref.credential and peek_ref.credential.sas_uri:
+                                    from urllib.parse import urlparse as _urlparse_peek
+                                    from azure.storage.blob import ContainerClient as _CC_peek
+                                    _parsed = _urlparse_peek(peek_ref.blob_uri)
+                                    _parts = _parsed.path.strip("/").split("/", 1)
+                                    _prefix = _parts[1] if len(_parts) > 1 else ""
+                                    _cc = _CC_peek.from_container_url(peek_ref.credential.sas_uri)
+                                    for _bp in _cc.list_blobs(name_starts_with=_prefix or None):
+                                        _data = _cc.download_blob(_bp, offset=0, length=4096).readall()
+                                        _text = _data.decode("utf-8", errors="replace")
+                                        # Fast check: if input_audio appears anywhere in first 4KB
+                                        if '"input_audio"' in _text or '"type": "input_audio"' in _text:
+                                            ds_type = "voicelive_media"
+                                        elif '"messages"' in _text and '"expected_output"' in _text:
+                                            # Has messages schema but no input_audio visible in 4KB —
+                                            # could be media with large base64 pushing it past 4KB
+                                            # Try parsing the first line if it's complete
+                                            try:
+                                                first_line = _text.strip().split("\n")[0]
+                                                peek_entry = json.loads(first_line)
+                                                for msg in peek_entry.get("messages", []):
+                                                    if msg.get("role") == "user":
+                                                        c = msg.get("content", [])
+                                                        if isinstance(c, list):
+                                                            for part in c:
+                                                                if isinstance(part, dict) and part.get("type") == "input_audio":
+                                                                    ds_type = "voicelive_media"
+                                                                    break
+                                            except (json.JSONDecodeError, ValueError):
+                                                # First line truncated — check if messages has input_audio
+                                                # by looking for the pattern in raw text
+                                                if '"type":"input_audio"' in _text.replace(" ", ""):
+                                                    ds_type = "voicelive_media"
+                                        break  # Only peek at first blob
+                            except Exception:
+                                pass  # Classification failed — default to evaluation
                         
                         # Apply filter
                         if dataset_type != "all" and ds_type != dataset_type:
