@@ -1,7 +1,7 @@
 absl-py==2.3.1
 accelerate==1.10.1
 aiohappyeyeballs==2.6.1
-aiohttp==3.11.18
+aiohttp==3.13.3
 aiosignal==1.4.0
 annotated-types==0.7.0
 anyio==4.11.0
@@ -34,7 +34,7 @@ editdistance==0.8.1
 einops==0.8.1
 et_xmlfile==2.0.0
 filelock==3.25.2
-fonttools==4.60.1
+fonttools==4.60.2
 frozenlist==1.8.0
 fsspec==2025.3.0
 gdown==5.2.0
@@ -72,7 +72,7 @@ msrest==0.7.1
 multidict==6.7.0
 multiprocess==0.70.19
 networkx==3.6.1
-nltk==3.9.3
+nltk==3.9.4
 nodeenv==1.9.1
 numba==0.62.1
 numpy==2.4.3
@@ -110,7 +110,7 @@ pywin32==311
 PyYAML==6.0.3
 RapidFuzz==3.14.1
 regex==2025.9.18
-requests==2.32.3
+requests==2.32.4
 requests-oauthlib==2.0.0
 rich==14.1.0
 ruamel.yaml==0.18.15
@@ -140,7 +140,7 @@ transformers-stream-generator==0.0.4
 typing-inspection==0.4.2
 typing_extensions==4.13.2
 tzdata==2025.2
-urllib3==2.4.0
+urllib3==2.6.3
 virtualenv==21.2.0
 websocket-client==1.8.0
 websockets==12.0
