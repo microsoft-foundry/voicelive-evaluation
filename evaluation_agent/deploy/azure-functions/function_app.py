@@ -344,6 +344,7 @@ def _download_dataset_flexible(dataset_path: str) -> str:
 def _download_foundry_dataset(name: str, version: str = None) -> str:
     """Download a dataset from Foundry Data Store to a temp file."""
     import tempfile
+    from urllib.parse import urlparse
     
     project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT") or os.environ.get("PROJECT_ENDPOINT")
     if not project_endpoint:
@@ -363,40 +364,43 @@ def _download_foundry_dataset(name: str, version: str = None) -> str:
             raise ValueError(f"Foundry dataset '{name}' not found")
         version = str(max(int(v.version) for v in versions))
     
-    # Get download credentials (SAS URL)
+    # Get download credentials — SDK returns container-scoped SAS
     creds = project_client.datasets.get_credentials(name=name, version=version)
-    creds_dict = creds.as_dict()
-    
-    # Extract SAS-authenticated blob URI
-    blob_ref = creds_dict.get("blobReferenceForConsumption") or creds_dict.get("blobReference", {})
-    blob_uri = blob_ref.get("blobUri")
-    sas_uri = blob_ref.get("credential", {}).get("sasUri")
-    
-    if not blob_uri:
+    blob_ref = creds.blob_reference
+    if not blob_ref or not blob_ref.blob_uri:
         raise ValueError(f"Could not get download URI for Foundry dataset '{name}' v{version}")
+    if not blob_ref.credential or not blob_ref.credential.sas_uri:
+        raise ValueError(f"No SAS credential returned for Foundry dataset '{name}' v{version}")
     
-    # Build download URL: blob URI + SAS token from container SAS
-    if sas_uri:
-        # Extract SAS token from container SAS URI
-        sas_token = sas_uri.split("?", 1)[1] if "?" in sas_uri else ""
-        download_url = f"{blob_uri}?{sas_token}" if sas_token else blob_uri
-    else:
-        download_url = blob_uri
+    blob_uri = blob_ref.blob_uri
+    sas_uri = blob_ref.credential.sas_uri
     
-    # Download to temp file
-    import httpx as _httpx
+    # Extract blob prefix from blob_uri (everything after container segment)
+    parsed_blob = urlparse(blob_uri)
+    blob_path_parts = parsed_blob.path.strip("/").split("/", 1)
+    blob_prefix = blob_path_parts[1] if len(blob_path_parts) > 1 else ""
+    
+    # Download using ContainerClient with container-scoped SAS
     try:
-        resp = _httpx.get(download_url)
-        resp.raise_for_status()
+        from azure.storage.blob import ContainerClient
+        container_client = ContainerClient.from_container_url(sas_uri)
+        parts = []
+        for blob_props in container_client.list_blobs(name_starts_with=blob_prefix or None):
+            data = container_client.download_blob(blob_props).readall()
+            parts.append(data.decode("utf-8"))
+        if not parts:
+            raise ValueError(f"No blobs found in Foundry dataset '{name}' v{version}")
+        content = "\n".join(parts)
+    except ValueError:
+        raise
     except Exception as e:
-        # Redact SAS token from error messages
         raise ValueError(f"Failed to download Foundry dataset '{name}' v{version}: {_redact_sas(str(e))}") from None
     
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl", mode="wb")
-    tmp.write(resp.content)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl", mode="w", encoding="utf-8")
+    tmp.write(content)
     tmp.close()
     
-    logging.info(f"Downloaded Foundry dataset '{name}' v{version} ({len(resp.content)} bytes)")
+    logging.info(f"Downloaded Foundry dataset '{name}' v{version} ({len(content)} bytes)")
     return tmp.name
 
 
@@ -430,13 +434,13 @@ def generate_eval_group_name(session_config: dict = None) -> str:
             "model": "gpt-realtime",
             "voice": "alloy",
             "vad_threshold": "0.5",
-            "end_of_speech_timeout": "500"
+            "silence_duration_ms": "500"
         }
     
     model = session_config.get("model", "gpt-realtime")
     voice = session_config.get("voice", "alloy")
     vad = session_config.get("vad_threshold", "0.5")
-    eod = session_config.get("end_of_speech_timeout", "500")
+    eod = session_config.get("silence_duration_ms", "500")
     
     # Clean up model name (remove version suffixes for grouping)
     model_clean = model.replace("-", "").replace(".", "")
@@ -490,7 +494,7 @@ def journal_eval_group(eval_group_name: str, session_config: dict, eval_group_id
             "Model": session_config.get("model", ""),
             "Voice": session_config.get("voice", ""),
             "VadThreshold": str(session_config.get("vad_threshold", "")),
-            "EndOfSpeechTimeout": str(session_config.get("end_of_speech_timeout", "")),
+            "SilenceDurationMs": str(session_config.get("silence_duration_ms", "")),
             "CreatedAt": timestamp,
         }
         
@@ -950,7 +954,10 @@ def list_datasets(req: func.HttpRequest) -> func.HttpResponse:
                         endpoint=project_endpoint
                     )
                     
-                    for dataset in project_client.datasets.list():
+                    foundry_datasets = list(project_client.datasets.list())
+                    enable_peek = len(foundry_datasets) <= 30
+                    
+                    for dataset in foundry_datasets:
                         try:
                             versions = list(project_client.datasets.list_versions(name=dataset.name))
                             version_count = len(versions)
@@ -960,36 +967,49 @@ def list_datasets(req: func.HttpRequest) -> func.HttpResponse:
                             latest_version = 0
                         
                         # Classify: peek at first line to detect media vs eval-ready
+                        # Only peek if dataset count is manageable (avoid timeout)
                         ds_type = "evaluation"
-                        try:
-                            ver = str(latest_version) if latest_version else "1"
-                            creds = project_client.datasets.get_credentials(name=dataset.name, version=ver)
-                            creds_dict = creds.as_dict()
-                            blob_ref = creds_dict.get("blobReferenceForConsumption") or creds_dict.get("blobReference", {})
-                            blob_uri = blob_ref.get("blobUri", "")
-                            sas_uri = blob_ref.get("credential", {}).get("sasUri", "")
-                            if sas_uri and "?" in sas_uri:
-                                dl_url = f"{blob_uri}?{sas_uri.split('?', 1)[1]}"
-                            else:
-                                dl_url = blob_uri
-                            if dl_url:
-                                import httpx as _httpx_peek
-                                # Download only first 4KB to peek at format
-                                peek_resp = _httpx_peek.get(dl_url, headers={"Range": "bytes=0-4095"}, timeout=10, follow_redirects=True)
-                                if peek_resp.status_code in (200, 206):
-                                    first_line = peek_resp.text[:4096].strip().split("\n")[0]
-                                    peek_entry = json.loads(first_line)
-                                    # Check for input_audio in messages
-                                    for msg in peek_entry.get("messages", []):
-                                        if msg.get("role") == "user":
-                                            content = msg.get("content", [])
-                                            if isinstance(content, list):
-                                                for part in content:
-                                                    if isinstance(part, dict) and part.get("type") == "input_audio":
-                                                        ds_type = "voicelive_media"
-                                                        break
-                        except Exception:
-                            pass  # Classification failed — default to evaluation
+                        if enable_peek:
+                            try:
+                                ver = str(latest_version) if latest_version else "1"
+                                peek_creds = project_client.datasets.get_credentials(name=dataset.name, version=ver)
+                                peek_ref = peek_creds.blob_reference
+                                if peek_ref and peek_ref.blob_uri and peek_ref.credential and peek_ref.credential.sas_uri:
+                                    from urllib.parse import urlparse as _urlparse_peek
+                                    from azure.storage.blob import ContainerClient as _CC_peek
+                                    _parsed = _urlparse_peek(peek_ref.blob_uri)
+                                    _parts = _parsed.path.strip("/").split("/", 1)
+                                    _prefix = _parts[1] if len(_parts) > 1 else ""
+                                    _cc = _CC_peek.from_container_url(peek_ref.credential.sas_uri)
+                                    for _bp in _cc.list_blobs(name_starts_with=_prefix or None):
+                                        _data = _cc.download_blob(_bp, offset=0, length=4096).readall()
+                                        _text = _data.decode("utf-8", errors="replace")
+                                        # Fast check: if input_audio appears anywhere in first 4KB
+                                        if '"input_audio"' in _text or '"type": "input_audio"' in _text:
+                                            ds_type = "voicelive_media"
+                                        elif '"messages"' in _text and '"expected_output"' in _text:
+                                            # Has messages schema but no input_audio visible in 4KB —
+                                            # could be media with large base64 pushing it past 4KB
+                                            # Try parsing the first line if it's complete
+                                            try:
+                                                first_line = _text.strip().split("\n")[0]
+                                                peek_entry = json.loads(first_line)
+                                                for msg in peek_entry.get("messages", []):
+                                                    if msg.get("role") == "user":
+                                                        c = msg.get("content", [])
+                                                        if isinstance(c, list):
+                                                            for part in c:
+                                                                if isinstance(part, dict) and part.get("type") == "input_audio":
+                                                                    ds_type = "voicelive_media"
+                                                                    break
+                                            except (json.JSONDecodeError, ValueError):
+                                                # First line truncated — check if messages has input_audio
+                                                # by looking for the pattern in raw text
+                                                if '"type":"input_audio"' in _text.replace(" ", ""):
+                                                    ds_type = "voicelive_media"
+                                        break  # Only peek at first blob
+                            except Exception:
+                                pass  # Classification failed — default to evaluation
                         
                         # Apply filter
                         if dataset_type != "all" and ds_type != dataset_type:
@@ -3309,28 +3329,8 @@ async def run_voicelive_audio_tests(req: func.HttpRequest) -> func.HttpResponse:
     try:
         body = req.get_json()
         
-        # Resolve Foundry dataset: download JSONL + upload to blob for container app
-        foundry_dataset = body.pop("foundry_dataset", None)
-        if foundry_dataset:
-            parts = foundry_dataset.split(":", 1)
-            ds_name = parts[0]
-            ds_version = parts[1] if len(parts) > 1 else None
-            
-            logging.info(f"Resolving Foundry dataset '{foundry_dataset}' to blob storage")
-            local_path = _download_foundry_dataset(ds_name, ds_version)
-            
-            # Upload the downloaded JSONL to blob datasets/ container
-            blob_client_svc = get_blob_client()
-            container_name = os.environ.get("AZURE_STORAGE_DATASETS_CONTAINER", "datasets")
-            container_client = blob_client_svc.get_container_client(container_name)
-            
-            blob_name = f"foundry_media/{ds_name}/{os.path.basename(local_path)}"
-            with open(local_path, "rb") as f:
-                container_client.upload_blob(name=blob_name, data=f, overwrite=True)
-            os.unlink(local_path)
-            
-            body["dataset_path"] = f"{container_name}/{blob_name}"
-            logging.info(f"Foundry dataset staged to blob: {blob_name}")
+        # Pass foundry_dataset directly to container app (it handles download)
+        foundry_dataset = body.get("foundry_dataset")
         
         # Validate that at least one dataset source is provided
         if not body.get("dataset_path") and not foundry_dataset:

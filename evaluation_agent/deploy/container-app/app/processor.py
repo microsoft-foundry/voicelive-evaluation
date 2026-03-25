@@ -168,6 +168,89 @@ def _resolve_audio_from_media(
     return None
 
 
+def _download_foundry_dataset(dataset_spec: str) -> str:
+    """Download a dataset JSONL from Foundry Data Store to a local temp file.
+
+    Args:
+        dataset_spec: ``NAME`` or ``NAME:VERSION``.
+
+    Returns:
+        Path to the downloaded local JSONL file.
+    """
+    from azure.ai.projects import AIProjectClient
+    from urllib.parse import urlparse
+
+    project_endpoint = (
+        os.environ.get("AZURE_AI_PROJECT_ENDPOINT")
+        or os.environ.get("PROJECT_ENDPOINT")
+    )
+    if not project_endpoint:
+        raise ValueError("PROJECT_ENDPOINT env var required for foundry_dataset")
+
+    parts = dataset_spec.split(":", 1)
+    name = parts[0]
+    version = parts[1] if len(parts) > 1 else None
+
+    client = AIProjectClient(
+        endpoint=project_endpoint,
+        credential=DefaultAzureCredential(),
+    )
+
+    if not version:
+        versions = list(client.datasets.list_versions(name=name))
+        if not versions:
+            raise ValueError(f"Foundry dataset '{name}' not found")
+        version = str(max(int(v.version) for v in versions))
+        logger.info(f"Resolved Foundry dataset '{name}' to version {version}")
+
+    creds = client.datasets.get_credentials(name=name, version=version)
+    blob_ref = creds.blob_reference
+    if not blob_ref or not blob_ref.blob_uri:
+        raise ValueError(f"No download URI for Foundry dataset '{name}' v{version}")
+    if not blob_ref.credential or not blob_ref.credential.sas_uri:
+        raise ValueError(f"No SAS credential for Foundry dataset '{name}' v{version}")
+
+    parsed_blob = urlparse(blob_ref.blob_uri)
+    blob_path_parts = parsed_blob.path.strip("/").split("/", 1)
+    blob_prefix = blob_path_parts[1] if len(blob_path_parts) > 1 else ""
+
+    from azure.storage.blob import ContainerClient
+    container_client = ContainerClient.from_container_url(blob_ref.credential.sas_uri)
+    file_parts = []
+    for bp in container_client.list_blobs(name_starts_with=blob_prefix or None):
+        data = container_client.download_blob(bp).readall()
+        file_parts.append(data.decode("utf-8"))
+    if not file_parts:
+        raise ValueError(f"No blobs found in Foundry dataset '{name}' v{version}")
+
+    dest = os.path.join(
+        tempfile.mkdtemp(prefix="foundry_dataset_"),
+        f"{name}_v{version}.jsonl",
+    )
+    with open(dest, "w", encoding="utf-8") as f:
+        f.write("\n".join(file_parts))
+
+    logger.info(f"Downloaded Foundry dataset '{name}' v{version} → {dest}")
+    return dest
+
+
+def _parse_jsonl_entries(local_path: str) -> List[DatasetEntry]:
+    """Parse a local JSONL file into DatasetEntry objects."""
+    import json as _json
+    entries = []
+    with open(local_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith(("#", "//")):
+                try:
+                    data = _json.loads(line)
+                    entries.append(DatasetEntry.from_dict(data))
+                except _json.JSONDecodeError as e:
+                    logger.warning(f"Invalid JSON line: {e}")
+    logger.info(f"Parsed {len(entries)} entries from {local_path}")
+    return entries
+
+
 async def process_conversation(
     entries: List[DatasetEntry],
     client: VoiceLiveClient,
@@ -336,7 +419,8 @@ async def process_conversation(
 
 async def process_dataset(
     job_id: str,
-    dataset_path: str,
+    dataset_path: Optional[str] = None,
+    foundry_dataset: Optional[str] = None,
     session_mode: str = "per-conversation",
     max_workers: int = 4,
     session_config: Optional[Dict[str, Any]] = None
@@ -349,6 +433,7 @@ async def process_dataset(
     Args:
         job_id: Unique job identifier
         dataset_path: Path to dataset in blob storage
+        foundry_dataset: Foundry Data Store dataset (NAME or NAME:VERSION)
         session_mode: How to group files (per-conversation, per-file, single)
         max_workers: Maximum parallel conversations
         session_config: Optional session configuration override
@@ -372,22 +457,27 @@ async def process_dataset(
             config = DEFAULT_SESSION_CONFIG
         config.model = voicelive_model
         
-        # Download and parse dataset
-        local_dataset_path, entries, blob_name = storage.download_dataset(dataset_path)
+        # Download and parse dataset from Foundry or blob
+        if foundry_dataset:
+            local_dataset_path = _download_foundry_dataset(foundry_dataset)
+            entries = _parse_jsonl_entries(local_dataset_path)
+            dataset_base_path = ""
+            blob_name = f"foundry:{foundry_dataset}"
+        else:
+            local_dataset_path, entries, blob_name = storage.download_dataset(dataset_path)
+            # Extract base path for resolving relative audio paths
+            dataset_base_path = ""
+            if "/" in blob_name:
+                dataset_base_path = "/".join(blob_name.split("/")[:-1])
+            elif "\\" in blob_name:
+                dataset_base_path = "\\".join(blob_name.split("\\")[:-1])
         
-        # Extract base path from actual blob name for resolving relative audio paths
-        # E.g., "Eiffel_Tower_Visit_1/Eiffel_Tower_Visit_1.jsonl" -> "Eiffel_Tower_Visit_1"
-        dataset_base_path = ""
-        if "/" in blob_name:
-            dataset_base_path = "/".join(blob_name.split("/")[:-1])
-        elif "\\" in blob_name:
-            dataset_base_path = "\\".join(blob_name.split("\\")[:-1])
         logger.info(f"Dataset base path: {dataset_base_path}")
         
         # Filter to entries with audio
         audio_entries = [e for e in entries if e.has_audio()]
         if not audio_entries:
-            raise ValueError("Dataset contains no audio files (WavPath field required)")
+            raise ValueError("Dataset contains no audio entries (WavPath or input_audio required)")
         
         # Update progress with total
         await job_manager.update_job_progress(job_id, total_files=len(audio_entries))
@@ -498,7 +588,8 @@ async def process_dataset(
 
 
 async def start_processing_job(
-    dataset_path: str,
+    dataset_path: Optional[str] = None,
+    foundry_dataset: Optional[str] = None,
     session_mode: str = "per-conversation",
     max_workers: int = 4,
     session_config: Optional[Dict[str, Any]] = None
@@ -508,6 +599,7 @@ async def start_processing_job(
     
     Args:
         dataset_path: Path to dataset in blob storage
+        foundry_dataset: Foundry Data Store dataset (NAME or NAME:VERSION)
         session_mode: How to group files
         max_workers: Maximum parallel workers
         session_config: Optional session configuration
@@ -519,9 +611,11 @@ async def start_processing_job(
     if not job_manager.can_start_job():
         raise RuntimeError("Maximum concurrent jobs reached. Please wait for running jobs to complete.")
     
+    effective_path = dataset_path or f"foundry:{foundry_dataset}"
+    
     # Create job
     job = await job_manager.create_job(
-        dataset_path=dataset_path,
+        dataset_path=effective_path,
         session_mode=session_mode,
         max_workers=max_workers,
         session_config=session_config
@@ -532,6 +626,7 @@ async def start_processing_job(
         process_dataset(
             job_id=job.job_id,
             dataset_path=dataset_path,
+            foundry_dataset=foundry_dataset,
             session_mode=session_mode,
             max_workers=max_workers,
             session_config=session_config

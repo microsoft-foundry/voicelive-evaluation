@@ -422,7 +422,9 @@ def test_no_polling_promise(client, agent_name: str) -> bool:
     # Should NOT promise continuous tracking
     promises_tracking = any(phrase in t for phrase in [
         "i will monitor", "i'll keep checking", "i will track",
-        "i'll monitor", "i will check back", "i'll let you know when"
+        "i'll monitor", "i will check back", "i'll let you know when",
+        "i'll track", "i will keep", "let me track",
+        "i will follow up automatically", "i'll update you when",
     ])
     suggests_manual = any(phrase in t for phrase in [
         "ask me", "check the status", "check_evaluation_status",

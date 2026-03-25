@@ -60,12 +60,14 @@ classDiagram
     }
     class DatasetEntry {
         +str audio_path
+        +Optional~Dict~ audio_media_ref
         +Optional~str~ ground_truth
         +Optional~str~ question
         +Optional~List~ tool_definitions
         +str conversation_id
         +Optional~str~ system_prompt
         +Optional~bool~ barge_in
+        +has_audio() bool
     }
     DatasetEntry --> SessionConfig : configures
     SessionConfig --> ConversationTurn : produces
@@ -310,6 +312,8 @@ Each subprocess writes to a shared `--aggregate-eval-file` and skips per-subproc
 | Job management | None (batch_processor for parallelism) | Async job queue |
 | Concurrency | Sequential conversations (batch_processor for parallel) | Configurable workers |
 | Audio source | Local WAV files | Blob-downloaded WAV |
+| Dataset source | Local JSONL or `--foundry-dataset` | Blob path or `foundry_dataset` (direct Foundry download) |
+| Media format | `input_audio` via base64 data-URI / blob URL | Same |
 | Output | Local JSONL + WAV + operational summary | Blob-uploaded JSONL |
 | Evaluation | Integrated (voice_agent_evaluation.py) | Not integrated (separate step) |
 | Core patterns | Identical | Identical |

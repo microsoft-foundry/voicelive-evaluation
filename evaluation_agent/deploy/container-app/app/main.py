@@ -47,9 +47,13 @@ app = FastAPI(
 
 class RunAudioTestsRequest(BaseModel):
     """Request to start audio processing job."""
-    dataset_path: str = Field(
-        ...,
+    dataset_path: Optional[str] = Field(
+        default=None,
         description="Path to dataset in blob storage (e.g., 'Eiffel_Tower_Visit_1' or 'datasets/sample.jsonl')"
+    )
+    foundry_dataset: Optional[str] = Field(
+        default=None,
+        description="Foundry Data Store dataset: 'NAME' or 'NAME:VERSION'. Downloads directly from Foundry."
     )
     session_mode: str = Field(
         default="per-conversation",
@@ -146,6 +150,13 @@ async def run_voicelive_audio_tests(
     This is an async operation - returns immediately with job_id for status polling.
     """
     try:
+        # Validate: one of dataset_path or foundry_dataset required
+        if not request.dataset_path and not request.foundry_dataset:
+            raise HTTPException(
+                status_code=400,
+                detail="One of 'dataset_path' or 'foundry_dataset' is required"
+            )
+        
         # Validate session mode
         if request.session_mode not in ["per-conversation", "per-file", "single"]:
             raise HTTPException(
@@ -156,6 +167,7 @@ async def run_voicelive_audio_tests(
         # Start processing job
         job_id = await start_processing_job(
             dataset_path=request.dataset_path,
+            foundry_dataset=request.foundry_dataset,
             session_mode=request.session_mode,
             max_workers=request.max_workers,
             session_config=request.session_config

@@ -226,12 +226,12 @@ Datasets are stored in **two distinct stores** based on type:
 
 | Aspect | VoiceLive Audio | Evaluation-Ready |
 |--------|----------------|-----------------|
-| **Store** | Blob `datasets/` | Foundry Data Store |
-| **Format** | Zip (.wav + .jsonl) or .jsonl with WavPath | .jsonl with query/response |
-| **Required fields** | `WavPath` or `audio` | `query`, `response` |
+| **Store** | Blob `datasets/` or Foundry Data Store | Foundry Data Store |
+| **Format** | Zip (.wav + .jsonl), .jsonl with WavPath, or media format (`input_audio`) | .jsonl with query/response |
+| **Required fields** | `WavPath` or `input_audio` (base64 data-URI / blob URL) | `query`, `response` |
 | **Validation** | `validate_voicelive_dataset` | `validate_eval_dataset` |
 | **Upload via** | SAS URL → blob extraction | SAS URL → staging → Foundry upload |
-| **Versioning** | Folder-based (manual) | Foundry native (auto-increment on same name) |
+| **Versioning** | Folder-based (manual) or Foundry native | Foundry native (auto-increment on same name) |
 | **Discovery** | `list_datasets(type=voicelive)` | `list_datasets(type=evaluation)` |
 | **Future** | Migrate to Foundry when audio supported | Already in Foundry |
 
@@ -483,8 +483,8 @@ The system separates concerns across three primary services:
 
 | Service | Purpose | Timeout | Auth |
 |---------|---------|---------|------|
-| **Container App** | VoiceLive audio processing | Unlimited | Managed Identity |
-| **Azure Functions** | Dataset validation, Foundry evaluations | 10 min (Durable) | Function Key |
+| **Container App** | VoiceLive audio processing (supports `foundry_dataset` direct download) | Unlimited | Managed Identity |
+| **Azure Functions** | Dataset validation, Foundry evaluations, `foundry_dataset` passthrough | 10 min (Durable) | Function Key |
 | **Foundry Agent** | Natural language orchestration | N/A | Foundry Connection |
 
 ## VoiceLive Audio Processing
@@ -985,11 +985,13 @@ return func.HttpResponse(
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/run_voicelive_audio_tests` | POST | Start audio processing job |
+| `/run_voicelive_audio_tests` | POST | Start audio processing job (`dataset_path` or `foundry_dataset`) |
 | `/check_job_status` | POST | Poll job status |
 | `/jobs` | GET | List all jobs |
 | `/jobs/{job_id}` | GET | Get job details |
 | `/health` | GET | Health check |
+
+> **Media dataset processing:** When a dataset contains `input_audio` entries (base64 data-URI or blob URL), the Container App resolves the audio inline — base64 is decoded to a local temp WAV, blob URLs are downloaded with `DefaultAzureCredential`. Legacy `WavPath` entries continue to work unchanged.
 
 ### Blob Storage Structure
 
@@ -1331,6 +1333,11 @@ Auto-registration in `check_voicelive_job_status` attempts Foundry dataset uploa
 ### Feature Backlog
 - [x] **VAD Default End Detection** ✅ — VoiceLive processor default uses VAD (server-side Voice Activity Detection) to detect end of audio input. No explicit `audio_input_finished` event is sent. VAD mode achieves 6/6 queries, 6/6 responses, 1/1 tool calls.
 - [x] **Push-to-Talk Flag** ✅ — `push_to_talk=true` in session config enables PTT mode with `commit()` + `response.create()`. Achieves 4/6 responses due to VAD interference (platform limitation — `turn_detection=None` not supported). See "VoiceLive Audio Processing" section for details.
+- [x] **Media Dataset Support** ✅ — Both harness and Container App support Foundry `input_audio` media format (base64 data-URI and blob storage URLs) alongside legacy `WavPath`. Container App downloads Foundry datasets directly via `foundry_dataset` parameter. PR #43, #54.
+
+### High Priority
+- [ ] **Voice Live Agent Mode Integration** — Add support for VoiceLive Agent Mode in both the evaluation harness and the Container App. Agent Mode enables the VoiceLive service to act as an autonomous agent with tool calling, system prompts, and multi-turn conversation handling server-side, rather than requiring the client to orchestrate each turn. This changes the evaluation flow: instead of sending audio turn-by-turn and collecting responses, the client establishes an agent session and the service handles the full conversation. Requires: new session config options for agent mode, updated VoiceLive client patterns, evaluation data format adaptation for agent-driven conversations, and alignment between harness and container app implementations.
+- [ ] **Container App: Upload Results to Foundry** — When the input was a Foundry dataset (`foundry_dataset` param), the Container App should also upload evaluation-ready results directly to Foundry Data Store, bypassing the blob intermediary. Currently the Function App handles this during `check_voicelive_job_status` polling.
 - [ ] **Blob Output Cleanup** — Endpoint to delete old VoiceLive output blobs from the `outputs` container (Foundry dataset and eval group deletion already implemented)
 - [ ] **Record Response Audio in Container App** — The Container App (`voicelive_client.py`) currently only records `first_audio_response_time` from `RESPONSE_AUDIO_DELTA` events but does not collect or save the actual audio chunks. The evaluation harness saves response audio as WAV files per turn, but the cloud agent pipeline does not. Adding audio output recording would enable: (a) audio quality evaluation via Foundry's `input_audio` media format, (b) playback of agent responses in the portal, (c) TTS quality assessment. Requires: collecting `RESPONSE_AUDIO_DELTA` chunks in `voicelive_client.py`, saving WAV files to blob storage, and including audio URLs or base64 in evaluation datasets.
 

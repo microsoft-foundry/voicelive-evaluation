@@ -8,6 +8,7 @@ uvicorn[standard]>=0.27.0
 # Azure SDKs
 azure-identity>=1.25.1
 azure-ai-voicelive>=1.2.0b4
+azure-ai-projects>=1.0.0b7
 azure-storage-blob>=12.19.0
 azure-data-tables>=12.5.0
 azure-core>=1.36.0
