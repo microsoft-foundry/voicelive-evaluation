@@ -431,6 +431,64 @@ Enable verbose logging to diagnose audio processing or evaluation issues:
 python voice_agent_audio_input_evaluation.py -f dataset.jsonl --verbose
 ```
 
+## Agent Mode (Foundry Agent Integration)
+
+VoiceLive supports connecting to a Foundry Agent instead of a direct model deployment. In agent mode, the agent manages its own instructions, tools, and voice settings — the evaluation pipeline sends minimal session configuration.
+
+### Quick Start
+
+```bash
+# Using CLI arguments
+python evaluation_harness/voice_agent_audio_input_evaluation.py \
+  -f datasets/sample.jsonl -o output \
+  --agent-name voicelive-demo-agent \
+  --project-name your-project-name
+
+# Using config file
+python evaluation_harness/voice_agent_audio_input_evaluation.py \
+  -f datasets/sample.jsonl -o output \
+  --config sample_agent_config.json
+
+# Using environment variables
+export AGENT_NAME=voicelive-demo-agent
+export PROJECT_NAME=your-project-name
+python evaluation_harness/voice_agent_audio_input_evaluation.py \
+  -f datasets/sample.jsonl -o output
+```
+
+### Agent Mode CLI Arguments
+
+| Argument | Env Variable | Description |
+|----------|-------------|-------------|
+| `--agent-name` | `AGENT_NAME` | Foundry agent name (enables agent mode) |
+| `--project-name` | `PROJECT_NAME` | Foundry project name (required for agent mode) |
+| `--agent-version` | `AGENT_VERSION` | Pin to specific agent version (default: latest) |
+| `--foundry-resource-override` | `FOUNDRY_RESOURCE_OVERRIDE` | Cross-resource agent connection |
+| `--agent-auth-identity-client-id` | `AGENT_AUTHENTICATION_IDENTITY_CLIENT_ID` | Managed identity for cross-resource auth |
+
+### Agent Mode Config File
+
+See `sample_agent_config.json` for a complete example. The `"agent"` section enables agent mode:
+
+```json
+{
+  "agent": {
+    "agent_name": "voicelive-demo-agent",
+    "project_name": "your-project-name"
+  }
+}
+```
+
+Voice, VAD, and audio settings are optional overrides — if omitted, the agent's built-in settings apply.
+
+### Config Transparency
+
+> ℹ️ **Agent Mode Config Transparency**: In agent mode, the evaluation pipeline captures the **effective session configuration** returned by VoiceLive in the `SESSION_UPDATED` event. This includes the agent name, description, agent ID, voice settings (name, type, temperature), and thread ID. These are logged and included in evaluation output for traceability. However, some internal agent settings (e.g., full system prompt text, tool definitions, model parameters) may not be fully surfaced in this event. For complete configuration visibility, also review your agent's settings in the [Foundry portal](https://ai.azure.com).
+
+### Authentication
+
+Agent mode requires Microsoft Entra ID authentication (`DefaultAzureCredential`). API key authentication is not supported for agent invocation. Ensure your identity has the `Azure AI User` role on the Foundry project.
+
 ## Version History
 
 | Version | Description |
