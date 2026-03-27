@@ -784,6 +784,17 @@ def create_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             "agent_version": body.get("agent_version", ""),
         }
         
+        # Validate agent mode completeness
+        agent_name = config.get("agent_name", "")
+        project_name_val = config.get("project_name", "")
+        if (agent_name or project_name_val) and not (agent_name and project_name_val):
+            missing = "project_name" if agent_name else "agent_name"
+            return func.HttpResponse(
+                json.dumps({"error": f"Incomplete agent config: {missing} is required when {'agent_name' if agent_name else 'project_name'} is set"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
         success = upsert_session_config(config)
         
         if not success:
@@ -3385,6 +3396,15 @@ async def run_voicelive_audio_tests(req: func.HttpRequest) -> func.HttpResponse:
                     },
                     "push_to_talk": entity.get("PushToTalk", "false").lower() == "true",
                 }
+                # Add agent config if present
+                agent_name = entity.get("AgentName", "")
+                project_name = entity.get("ProjectName", "")
+                if agent_name and project_name:
+                    config_dict["agent"] = {
+                        "agent_name": agent_name,
+                        "project_name": project_name,
+                        "agent_version": entity.get("AgentVersion", ""),
+                    }
                 body["session_config"] = config_dict
                 logging.info(f"Resolved session config '{config_value}' to dict")
             except Exception as e:

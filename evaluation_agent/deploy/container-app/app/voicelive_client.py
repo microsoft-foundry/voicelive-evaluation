@@ -37,7 +37,7 @@ from azure.ai.voicelive.models import (
     ServerEventConversationItemTruncated,
 )
 
-from .config import SessionConfig, VadType, EouModel, AgentConfig
+from .config import SessionConfig, VadType, EouModel, AgentConfig, VoiceConfig, TurnDetectionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -296,19 +296,32 @@ class VoiceLiveClient:
         
         if config.is_agent_mode:
             # Agent mode: minimal session config — agent manages instructions/tools
-            sdk_session = RequestSession(
-                modalities=sdk_modalities,
-                voice=sdk_voice,
-                turn_detection=sdk_turn_detection,
-                input_audio_transcription=sdk_transcription,
-                input_audio_noise_reduction=sdk_noise_reduction,
-                input_audio_echo_cancellation=sdk_echo_cancellation,
-                input_audio_format=InputAudioFormat.PCM16,
-                output_audio_format=OutputAudioFormat.PCM16,
-                input_audio_sampling_rate=config.audio.sample_rate,
-            )
+            # Only include voice/VAD if explicitly overridden from defaults
+            session_kwargs = {
+                "modalities": sdk_modalities,
+                "input_audio_transcription": sdk_transcription,
+                "input_audio_noise_reduction": sdk_noise_reduction,
+                "input_audio_echo_cancellation": sdk_echo_cancellation,
+                "input_audio_format": InputAudioFormat.PCM16,
+                "output_audio_format": OutputAudioFormat.PCM16,
+                "input_audio_sampling_rate": config.audio.sample_rate,
+            }
+            # Include voice only if not default
+            default_voice = VoiceConfig()
+            if config.voice.name != default_voice.name or config.voice.type != default_voice.type:
+                session_kwargs["voice"] = sdk_voice
+                logger.info(f"Agent mode: overriding voice with {config.voice.name}")
+            # Include turn detection only if not default
+            default_td = TurnDetectionConfig()
+            if (config.turn_detection.type != default_td.type or
+                config.turn_detection.threshold != default_td.threshold or
+                config.turn_detection.silence_duration_ms != default_td.silence_duration_ms):
+                session_kwargs["turn_detection"] = sdk_turn_detection
+                logger.info(f"Agent mode: overriding turn_detection with {config.turn_detection.type.value}")
+            
+            sdk_session = RequestSession(**session_kwargs)
             # Note: instructions and tools are NOT sent — agent owns them
-            logger.info(f"Agent mode session configured (minimal): voice={config.voice.name}, "
+            logger.info(f"Agent mode session configured (minimal): "
                        f"noise_reduction={config.audio.noise_reduction}, "
                        f"transcription={config.get_transcription_model()}")
         else:

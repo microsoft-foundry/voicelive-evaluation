@@ -1662,6 +1662,14 @@ async def main_async(args: argparse.Namespace) -> None:
         authentication_identity_client_id=auth_identity_client_id,
     )
 
+    # Validate agent mode config completeness
+    if (config.agent_name or config.project_name) and not config.is_agent_mode:
+        missing = "project_name" if config.agent_name else "agent_name"
+        raise ValueError(
+            f"Incomplete agent mode config: {missing} is required when "
+            f"{'agent_name' if config.agent_name else 'project_name'} is set"
+        )
+
     # Track whether voice/VAD were explicitly overridden (for agent mode)
     is_default_voice = (config.voice == 'en-US-Ava:DragonHDLatestNeural' and config.voice_type == 'azure-standard')
     is_default_vad = (config.vad_type == 'azure_semantic_vad_multilingual')
@@ -1721,6 +1729,12 @@ async def main_async(args: argparse.Namespace) -> None:
             logger.error(f"Error processing conversation '{conv_id}': {e}")
             print(f"⚠️  Conversation '{conv_id}' failed: {e}")
             continue
+
+    # Fail fast if no results were produced
+    if not all_results and conversation_groups:
+        logger.error("All conversations failed — no results produced")
+        print("❌ All conversations failed. Check logs for details.")
+        return
 
     # Session naming
     session_suffix = getattr(args, "session_suffix", None)

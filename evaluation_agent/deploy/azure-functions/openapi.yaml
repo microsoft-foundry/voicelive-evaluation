@@ -769,11 +769,35 @@ paths:
                   default: 4
                   description: Maximum parallel workers
                 session_config:
-                  type: string
+                  oneOf:
+                    - type: string
+                      description: Name of a stored session configuration (e.g., "default", "conf1", "agent-mode")
+                    - type: object
+                      description: Inline session configuration object with optional agent section
+                      properties:
+                        model:
+                          type: string
+                        voice:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        agent:
+                          type: object
+                          description: Agent mode configuration (enables Foundry Agent integration)
+                          properties:
+                            agent_name:
+                              type: string
+                            project_name:
+                              type: string
+                            agent_version:
+                              type: string
                   description: |
-                    Name of session configuration to use (e.g., "default", "conf1", "agent-mode").
-                    Use list_session_configs to see available configurations.
-                    For agent mode evaluations, use a config with agent_name and project_name set.
+                    Session configuration: either a name (string) referencing a stored config,
+                    or an inline config object. Use list_session_configs to see available named configs.
+                    For agent mode, use a config with an "agent" section containing agent_name and project_name.
       responses:
         '200':
           description: Job started

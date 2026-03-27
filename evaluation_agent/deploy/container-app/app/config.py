@@ -257,6 +257,14 @@ class SessionConfig:
                 authentication_identity_client_id=agent_data.get("authentication_identity_client_id"),
             )
             config.mode = ProcessorMode.AGENT_MODE
+            # Validate: agent mode requires both agent_name and project_name
+            if config.agent and (config.agent.agent_name or config.agent.project_name):
+                if not config.agent.agent_name or not config.agent.project_name:
+                    missing = "project_name" if config.agent.agent_name else "agent_name"
+                    raise ValueError(
+                        f"Incomplete agent config: {missing} is required when "
+                        f"{'agent_name' if config.agent.agent_name else 'project_name'} is set"
+                    )
         
         # Tools
         if "tools" in data:
