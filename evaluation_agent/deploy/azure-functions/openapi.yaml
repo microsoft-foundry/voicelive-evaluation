@@ -794,6 +794,12 @@ paths:
                               type: string
                             agent_version:
                               type: string
+                            conversation_id:
+                              type: string
+                            foundry_resource_override:
+                              type: string
+                            authentication_identity_client_id:
+                              type: string
                   description: |
                     Session configuration: either a name (string) referencing a stored config,
                     or an inline config object. Use list_session_configs to see available named configs.
@@ -1112,6 +1118,22 @@ components:
           type: string
           nullable: true
           description: "Agent version pin (default: latest version)"
+        conversation_id:
+          type: string
+          nullable: true
+          description: Optional conversation ID to reconnect to a previous agent conversation
+        foundry_resource_override:
+          type: string
+          nullable: true
+          description: >
+            Foundry resource name for cross-resource agent connections.
+            Use when the agent is hosted on a different Foundry resource than VoiceLive.
+        authentication_identity_client_id:
+          type: string
+          nullable: true
+          description: >
+            Managed identity client ID for cross-resource authentication.
+            Required when foundry_resource_override is set.
     
     SessionConfigInput:
       type: object
@@ -1170,3 +1192,14 @@ components:
           type: string
           nullable: true
           description: "Agent version pin (default: latest)"
+        conversation_id:
+          type: string
+          nullable: true
+        foundry_resource_override:
+          type: string
+          nullable: true
+          description: Foundry resource name for cross-resource agent connections
+        authentication_identity_client_id:
+          type: string
+          nullable: true
+          description: Managed identity client ID for cross-resource auth

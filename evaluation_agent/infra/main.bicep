@@ -66,6 +66,9 @@ param agentName string = ''
 @description('Optional: Foundry project name for agent mode evaluation')
 param agentProjectName string = ''
 
+@description('Optional: Foundry resource override for cross-resource agent connections')
+param foundryResourceOverride string = ''
+
 // Generate unique suffix for resources
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = { 'azd-env-name': environmentName }
@@ -138,6 +141,7 @@ module functionApp 'modules/function-app.bicep' = {
     }
     agentName: agentName
     agentProjectName: agentProjectName
+    foundryResourceOverride: foundryResourceOverride
   }
 }
 
@@ -167,10 +171,11 @@ module containerApp 'modules/container-app.bicep' = if (deployContainerApp) {
     }
     agentName: agentName
     agentProjectName: agentProjectName
+    foundryResourceOverride: foundryResourceOverride
   }
 }
 
-// RBAC: Assign Azure AI User role to Foundry project for tracing
+// RBAC: Assign Azure AI User roleto Foundry project for tracing
 // When createFoundry=true, use the created project's principal ID
 // When using existing, use the manually provided principal ID + account name
 module foundryRbac 'modules/foundry-rbac.bicep' = if (createFoundry || (!empty(foundryProjectPrincipalId) && !empty(foundryAccountName))) {

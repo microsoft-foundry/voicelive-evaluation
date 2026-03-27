@@ -536,6 +536,9 @@ def get_session_configs() -> list:
                 "agent_name": entity.get("AgentName", ""),
                 "project_name": entity.get("ProjectName", ""),
                 "agent_version": entity.get("AgentVersion", ""),
+                "conversation_id": entity.get("ConversationId", ""),
+                "foundry_resource_override": entity.get("FoundryResourceOverride", ""),
+                "authentication_identity_client_id": entity.get("AuthenticationIdentityClientId", ""),
             }
             # Convert threshold to float if present
             if config["vad_threshold"]:
@@ -585,6 +588,9 @@ def get_session_config_by_name(name: str) -> dict:
             "agent_name": entity.get("AgentName", ""),
             "project_name": entity.get("ProjectName", ""),
             "agent_version": entity.get("AgentVersion", ""),
+            "conversation_id": entity.get("ConversationId", ""),
+            "foundry_resource_override": entity.get("FoundryResourceOverride", ""),
+            "authentication_identity_client_id": entity.get("AuthenticationIdentityClientId", ""),
         }
         if config["vad_threshold"]:
             try:
@@ -635,6 +641,9 @@ def upsert_session_config(config: dict) -> bool:
             "AgentName": config.get("agent_name", ""),
             "ProjectName": config.get("project_name", ""),
             "AgentVersion": config.get("agent_version", ""),
+            "ConversationId": config.get("conversation_id", ""),
+            "FoundryResourceOverride": config.get("foundry_resource_override", ""),
+            "AuthenticationIdentityClientId": config.get("authentication_identity_client_id", ""),
         }
         
         table_client.upsert_entity(entity)
@@ -782,6 +791,9 @@ def create_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             "agent_name": body.get("agent_name", ""),
             "project_name": body.get("project_name", ""),
             "agent_version": body.get("agent_version", ""),
+            "conversation_id": body.get("conversation_id", ""),
+            "foundry_resource_override": body.get("foundry_resource_override", ""),
+            "authentication_identity_client_id": body.get("authentication_identity_client_id", ""),
         }
         
         # Validate agent mode completeness
@@ -851,7 +863,8 @@ def update_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         for key in ["description", "model", "sample_rate", "voice_name", "voice_type", 
                     "vad_type", "vad_threshold", "silence_duration_ms", "eou_detection",
                     "eou_model", "transcription_model", "noise_reduction", "echo_cancellation", "is_default",
-                    "push_to_talk", "agent_name", "project_name", "agent_version"]:
+                    "push_to_talk", "agent_name", "project_name", "agent_version",
+                    "conversation_id", "foundry_resource_override", "authentication_identity_client_id"]:
             if key in body:
                 config[key] = body[key]
         
@@ -3404,6 +3417,9 @@ async def run_voicelive_audio_tests(req: func.HttpRequest) -> func.HttpResponse:
                         "agent_name": agent_name,
                         "project_name": project_name,
                         "agent_version": entity.get("AgentVersion", ""),
+                        "conversation_id": entity.get("ConversationId", ""),
+                        "foundry_resource_override": entity.get("FoundryResourceOverride", ""),
+                        "authentication_identity_client_id": entity.get("AuthenticationIdentityClientId", ""),
                     }
                 body["session_config"] = config_dict
                 logging.info(f"Resolved session config '{config_value}' to dict")

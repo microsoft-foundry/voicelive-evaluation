@@ -37,6 +37,9 @@ param agentName string = ''
 @description('Optional: Foundry project name for agent mode')
 param agentProjectName string = ''
 
+@description('Optional: Foundry resource override for cross-resource agent connections')
+param foundryResourceOverride string = ''
+
 // Generate ACR name if not provided
 var effectiveAcrName = !empty(acrName) ? acrName : 'acr${uniqueString(resourceGroup().id)}'
 
@@ -125,6 +128,10 @@ var agentEnvVars = [
   {
     name: 'PROJECT_NAME'
     value: agentProjectName
+  }
+  {
+    name: 'FOUNDRY_RESOURCE_OVERRIDE'
+    value: foundryResourceOverride
   }
 ]
 

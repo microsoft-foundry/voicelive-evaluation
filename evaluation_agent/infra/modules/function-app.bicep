@@ -31,6 +31,9 @@ param agentName string = ''
 @description('Optional: Foundry project name for agent mode')
 param agentProjectName string = ''
 
+@description('Optional: Foundry resource override for cross-resource agent connections')
+param foundryResourceOverride string = ''
+
 // App Service Plan (Consumption)
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
   name: '${name}-plan'
@@ -115,6 +118,10 @@ var agentAppSettings = [
   {
     name: 'PROJECT_NAME'
     value: agentProjectName
+  }
+  {
+    name: 'FOUNDRY_RESOURCE_OVERRIDE'
+    value: foundryResourceOverride
   }
 ]
 
