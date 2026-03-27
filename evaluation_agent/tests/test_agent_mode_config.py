@@ -79,7 +79,7 @@ def test_is_agent_mode_false_only_agent_name() -> tuple:
     """is_agent_mode is False when only agent_name is set."""
     cfg = SessionConfig(agent=AgentConfig(agent_name="agent-only"))
     ok = cfg.is_agent_mode is False
-    print(f"  agent_name only → False: {ok}")
+    print(f"  agent_name only -> False: {ok}")
     return ok, ok
 
 
@@ -87,7 +87,7 @@ def test_is_agent_mode_false_only_project_name() -> tuple:
     """is_agent_mode is False when only project_name is set."""
     cfg = SessionConfig(agent=AgentConfig(project_name="project-only"))
     ok = cfg.is_agent_mode is False
-    print(f"  project_name only → False: {ok}")
+    print(f"  project_name only -> False: {ok}")
     return ok, ok
 
 
@@ -95,7 +95,7 @@ def test_is_agent_mode_true_both_set() -> tuple:
     """is_agent_mode is True when both agent_name and project_name are set."""
     cfg = SessionConfig(agent=AgentConfig(agent_name="a", project_name="p"))
     ok = cfg.is_agent_mode is True
-    print(f"  both set → True: {ok}")
+    print(f"  both set -> True: {ok}")
     return ok, ok
 
 
@@ -105,7 +105,7 @@ def test_is_agent_mode_true_via_from_dict() -> tuple:
         "agent": {"agent_name": "a", "project_name": "p"},
     })
     ok = cfg.is_agent_mode is True
-    print(f"  from_dict agent section → True: {ok}")
+    print(f"  from_dict agent section -> True: {ok}")
     return ok, ok
 
 
