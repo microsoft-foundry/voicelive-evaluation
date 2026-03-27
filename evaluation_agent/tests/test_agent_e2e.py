@@ -384,7 +384,7 @@ def test_off_topic(client, agent_name: str) -> bool:
     redirects = any(w in t for w in ["evaluation", "dataset", "voicelive", "i can help"])
     answers = "paris" in t
     print(f"  Check: redirects={redirects}, answers={answers} (either is acceptable)")
-    return True  # Just verifying no crash
+    return redirects or answers  # Must either redirect to purpose or answer the question
 
 
 def test_ambiguous_request(client, agent_name: str) -> bool:
@@ -401,9 +401,8 @@ def test_ambiguous_request(client, agent_name: str) -> bool:
         "which", "what dataset", "specify", "please provide",
         "could you", "would you", "more information", "clarify"
     ])
-    # Even if it doesn't ask, it should at least not crash
     print(f"  Check: asks_clarification={asks_clarification}")
-    return True  # No crash = pass
+    return asks_clarification  # Should ask for clarification on ambiguous requests
 
 
 def test_capabilities(client, agent_name: str) -> bool:

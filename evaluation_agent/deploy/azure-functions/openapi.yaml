@@ -493,7 +493,7 @@ paths:
                 properties:
                   status:
                     type: string
-                    enum: [pending, running, completed, failed]
+                    enum: [queued, pending, running, completed, failed, cancelled]
                     description: When 'completed', use instance_id with analyze_evaluation_results
                   eval_id:
                     type: string
@@ -853,7 +853,7 @@ paths:
                     type: string
                   status:
                     type: string
-                    enum: ["pending", "running", "completed", "failed"]
+                    enum: ["queued", "pending", "running", "completed", "failed", "cancelled"]
                   progress:
                     type: object
                     properties:

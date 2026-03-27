@@ -45,6 +45,9 @@ def load_audio_file(file_path: str, target_sample_rate: int = 24000) -> bytes:
     """
     import struct as _struct
 
+    # Sanitize path to prevent path traversal
+    file_path = os.path.realpath(file_path)
+
     try:
         with wave.open(file_path, 'rb') as wav:
             n_channels = wav.getnchannels()
@@ -227,6 +230,7 @@ def _download_foundry_dataset(dataset_spec: str) -> str:
         tempfile.mkdtemp(prefix="foundry_dataset_"),
         f"{name}_v{version}.jsonl",
     )
+    dest = os.path.realpath(dest)
     with open(dest, "w", encoding="utf-8") as f:
         f.write("\n".join(file_parts))
 
@@ -237,6 +241,7 @@ def _download_foundry_dataset(dataset_spec: str) -> str:
 def _parse_jsonl_entries(local_path: str) -> List[DatasetEntry]:
     """Parse a local JSONL file into DatasetEntry objects."""
     import json as _json
+    local_path = os.path.realpath(local_path)
     entries = []
     with open(local_path, "r", encoding="utf-8") as f:
         for line in f:
