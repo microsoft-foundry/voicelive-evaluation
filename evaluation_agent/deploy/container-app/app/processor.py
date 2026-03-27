@@ -284,12 +284,13 @@ async def process_conversation(
     
     # Configure session (may include conversation-specific settings)
     conversation_config = config
-    if entries and entries[0].system_prompt:
-        # Override instructions from dataset
-        conversation_config = SessionConfig.from_dict({
-            **config.to_dict(),
-            "instructions": entries[0].system_prompt
-        })
+    if not config.is_agent_mode:
+        # Only set instructions in model mode — agent manages its own
+        if entries and entries[0].system_prompt:
+            conversation_config = SessionConfig.from_dict({
+                **config.to_dict(),
+                "instructions": entries[0].system_prompt
+            })
     if entries and entries[0].tool_definitions:
         tool_defs = entries[0].tool_definitions
         # Normalize: ensure tools is always a list (dataset may have single dict)
@@ -519,13 +520,17 @@ async def process_dataset(
                 files_failed=files_failed
             )
         
+        # Build credential once for all conversations
+        credential = DefaultAzureCredential()
+        
         # Process conversations (with concurrency limit for future parallel support)
         # Currently processing sequentially to maintain conversation context
         for conversation_id, conversation_entries in groups:
             try:
-                async with VoiceLiveClient(
+                async with VoiceLiveClient.from_session_config(
                     endpoint=voicelive_endpoint,
-                    model=voicelive_model
+                    config=config,
+                    credential=credential
                 ) as client:
                     results = await process_conversation(
                         entries=conversation_entries,

@@ -226,6 +226,8 @@ class JobManager:
             self._jobs[job_id] = job
         
         logger.info(f"Created job {job_id} for dataset: {dataset_path}")
+        if session_config and "agent" in session_config:
+            logger.info(f"Job created with agent mode: {session_config['agent'].get('agent_name')}")
         _persist_job(job)
         return job
     
