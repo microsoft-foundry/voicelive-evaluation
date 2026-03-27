@@ -64,6 +64,33 @@ Exploratory script for inspecting HuggingFace dataset structure (columns, splits
 
 Converts Bing Chat evaluation datasets to the JSONL format used by the evaluation pipeline.
 
+### create_voicelive_demo_agent.py
+
+Creates a simple Foundry agent with VoiceLive session configuration for testing agent mode evaluations.
+
+**Prerequisites:**
+- `az login` for Azure authentication
+- `PROJECT_ENDPOINT` environment variable set to your Foundry project endpoint
+
+**Usage:**
+```bash
+# Set environment
+export PROJECT_ENDPOINT="https://your-resource.services.ai.azure.com/api/projects/your-project"
+
+# Create with defaults (agent name: voicelive-demo-agent, model: gpt-4.1-mini)
+python helper_scripts/create_voicelive_demo_agent.py
+
+# Custom agent name
+AGENT_NAME=my-eval-agent python helper_scripts/create_voicelive_demo_agent.py
+```
+
+The created agent can be used with the evaluation harness in agent mode:
+```bash
+python evaluation_harness/voice_agent_audio_input_evaluation.py \
+  -f datasets/sample.jsonl -o output \
+  --agent-name voicelive-demo-agent --project-name your-project
+```
+
 ## Troubleshooting
 
 ### FFmpeg Errors

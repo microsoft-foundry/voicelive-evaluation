@@ -8,3 +8,11 @@ AZURE_VOICE_LIVE_API_KEY=  # Only required if not using DefaultAzureCredential
 PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
 AOAI_DEPLOYMENT_NAME=gpt-4.1-mini
 AOAI_REASONING_DEPLOYMENT_NAME=o4-mini
+
+# --- Agent Mode (Foundry Agent integration) ---
+# Uncomment to enable agent mode instead of model mode
+# AGENT_NAME=voicelive-demo-agent
+# PROJECT_NAME=your-project-name
+# AGENT_VERSION=
+# FOUNDRY_RESOURCE_OVERRIDE=
+# AGENT_AUTHENTICATION_IDENTITY_CLIENT_ID=
