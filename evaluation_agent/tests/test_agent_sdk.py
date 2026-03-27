@@ -74,7 +74,7 @@ def run_tests(function_url: str, function_key: str) -> bool:
     tests = []
     
     # Test 1: list_session_configs
-    print("[1/10] list_session_configs")
+    print("[1/13] list_session_configs")
     success, result = call_endpoint(function_url, "list_session_configs", {}, function_key)
     if success and "configs" in result:
         print(f"   ✓ Found {len(result['configs'])} configs")
@@ -84,7 +84,7 @@ def run_tests(function_url: str, function_key: str) -> bool:
         tests.append(("list_session_configs", False))
     
     # Test 2: get_session_config
-    print("\n[2/10] get_session_config")
+    print("\n[2/13] get_session_config")
     success, result = call_endpoint(function_url, "get_session_config", {"name": "default"}, function_key)
     if success and "config" in result:
         print(f"   ✓ Got config: {result['config'].get('Name')} (Model: {result['config'].get('Model')})")
@@ -94,7 +94,7 @@ def run_tests(function_url: str, function_key: str) -> bool:
         tests.append(("get_session_config", False))
     
     # Test 3: list_datasets
-    print("\n[3/10] list_datasets")
+    print("\n[3/13] list_datasets")
     success, result = call_endpoint(function_url, "list_datasets", {}, function_key)
     if success and "datasets" in result:
         print(f"   ✓ Found {len(result['datasets'])} datasets")
@@ -104,7 +104,7 @@ def run_tests(function_url: str, function_key: str) -> bool:
         tests.append(("list_datasets", False))
     
     # Test 4: validate_dataset_consistency
-    print("\n[4/10] validate_dataset_consistency")
+    print("\n[4/13] validate_dataset_consistency")
     success, result = call_endpoint(function_url, "validate_dataset_consistency", 
                                     {"dataset_path": "test/minimal_test.jsonl"}, function_key)
     if success:
@@ -116,7 +116,7 @@ def run_tests(function_url: str, function_key: str) -> bool:
         tests.append(("validate_dataset_consistency", False))
     
     # Test 5: validate_dataset_quality
-    print("\n[5/10] validate_dataset_quality")
+    print("\n[5/13] validate_dataset_quality")
     success, result = call_endpoint(function_url, "validate_dataset_quality",
                                     {"dataset_path": "test/minimal_test.jsonl"}, function_key)
     if success:
@@ -127,7 +127,7 @@ def run_tests(function_url: str, function_key: str) -> bool:
         tests.append(("validate_dataset_quality", False))
     
     # Test 6: get_evaluation_recommendations
-    print("\n[6/10] get_evaluation_recommendations")
+    print("\n[6/13] get_evaluation_recommendations")
     success, result = call_endpoint(function_url, "get_evaluation_recommendations",
                                     {"dataset_path": "test/minimal_test.jsonl"}, function_key)
     if success and "recommendations" in result:
@@ -138,7 +138,7 @@ def run_tests(function_url: str, function_key: str) -> bool:
         tests.append(("get_evaluation_recommendations", False))
     
     # Test 7: create_session_config
-    print("\n[7/10] create_session_config")
+    print("\n[7/13] create_session_config")
     success, result = call_endpoint(function_url, "create_session_config", {
         "name": "test-integration",
         "model": "gpt-realtime",
@@ -153,7 +153,7 @@ def run_tests(function_url: str, function_key: str) -> bool:
         tests.append(("create_session_config", False))
     
     # Test 8: update_session_config
-    print("\n[8/10] update_session_config")
+    print("\n[8/13] update_session_config")
     success, result = call_endpoint(function_url, "update_session_config", {
         "name": "test-integration",
         "model": "gpt-realtime-mini"
@@ -166,7 +166,7 @@ def run_tests(function_url: str, function_key: str) -> bool:
         tests.append(("update_session_config", False))
     
     # Test 9: list_evaluation_groups
-    print("\n[9/10] list_evaluation_groups")
+    print("\n[9/13] list_evaluation_groups")
     success, result = call_endpoint(function_url, "list_evaluation_groups", {}, function_key)
     if success and ("evaluation_groups" in result or "groups" in result):
         groups = result.get("evaluation_groups", result.get("groups", []))
@@ -182,7 +182,7 @@ def run_tests(function_url: str, function_key: str) -> bool:
             tests.append(("list_evaluation_groups", False))
     
     # Test 10: delete_session_config
-    print("\n[10/10] delete_session_config")
+    print("\n[10/13] delete_session_config")
     success, result = call_endpoint(function_url, "delete_session_config", {
         "name": "test-integration"
     }, function_key)
@@ -193,6 +193,61 @@ def run_tests(function_url: str, function_key: str) -> bool:
         print(f"   ✗ {result}")
         tests.append(("delete_session_config", False))
     
+    # Test 11: create agent-mode session config
+    print("\n[11/13] create_session_config (agent mode)")
+    success, result = call_endpoint(function_url, "create_session_config", {
+        "name": "test-agent-config",
+        "description": "Test agent mode config",
+        "agent_name": "voicelive-demo-agent",
+        "project_name": "test-project",
+        "agent_version": "v1",
+        "model": "",
+        "voice_name": "en-US-Ava:DragonHDLatestNeural",
+        "voice_type": "azure-standard"
+    }, function_key)
+    if success and result.get("status") == "success":
+        config = result.get("config", {})
+        if config.get("agent_name") == "voicelive-demo-agent" and config.get("project_name") == "test-project":
+            print(f"   ✓ Created agent mode config with agent_name={config['agent_name']}")
+            tests.append(("create_session_config_agent", True))
+        else:
+            print(f"   ✗ Agent fields not in response: {config}")
+            tests.append(("create_session_config_agent", False))
+    else:
+        print(f"   ✗ {result}")
+        tests.append(("create_session_config_agent", False))
+
+    # Test 12: get agent-mode session config
+    print("\n[12/13] get_session_config (agent mode)")
+    success, result = call_endpoint(function_url, "get_session_config", {
+        "name": "test-agent-config"
+    }, function_key)
+    if success and result.get("config"):
+        config = result["config"]
+        if (config.get("agent_name") == "voicelive-demo-agent" and
+            config.get("project_name") == "test-project" and
+            config.get("agent_version") == "v1"):
+            print(f"   ✓ Agent fields persisted correctly")
+            tests.append(("get_session_config_agent", True))
+        else:
+            print(f"   ✗ Agent fields missing or wrong: agent_name={config.get('agent_name')}, project_name={config.get('project_name')}")
+            tests.append(("get_session_config_agent", False))
+    else:
+        print(f"   ✗ {result}")
+        tests.append(("get_session_config_agent", False))
+
+    # Test 13: delete agent-mode session config
+    print("\n[13/13] delete_session_config (agent mode)")
+    success, result = call_endpoint(function_url, "delete_session_config", {
+        "name": "test-agent-config"
+    }, function_key)
+    if success:
+        print(f"   ✓ Deleted agent mode config")
+        tests.append(("delete_session_config_agent", True))
+    else:
+        print(f"   ✗ {result}")
+        tests.append(("delete_session_config_agent", False))
+
     # Summary
     print("\n" + "=" * 60)
     print("TEST RESULTS SUMMARY")

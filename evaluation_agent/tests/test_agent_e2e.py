@@ -196,7 +196,7 @@ def test_get_session_config(client, agent_name: str) -> bool:
 
 
 def test_list_configs(client, agent_name: str) -> bool:
-    """List session configs — should return 7 configs."""
+    """List session configs — should return available configs including agent-mode."""
     ok, text = ask_agent(
         client, agent_name,
         "List all session configurations",
@@ -204,7 +204,21 @@ def test_list_configs(client, agent_name: str) -> bool:
     )
     if not ok:
         return False
-    passed, detail = check_response(text, must_contain=["default", "conf1"])
+    passed, detail = check_response(text, must_contain=["default", "conf1", "agent-mode"])
+    print(f"  Check: {detail}")
+    return passed
+
+
+def test_get_agent_mode_config(client, agent_name: str) -> bool:
+    """Get details of the agent-mode session config."""
+    ok, text = ask_agent(
+        client, agent_name,
+        "Show me details of the 'agent-mode' session configuration",
+        "3.3 Get Agent Mode Config"
+    )
+    if not ok:
+        return False
+    passed, detail = check_response(text, must_contain=["agent-mode"], any_of=["voicelive-demo-agent", "agent", "Foundry"])
     print(f"  Check: {detail}")
     return passed
 
@@ -451,6 +465,7 @@ CATEGORIES: dict[str, dict[str, Callable]] = {
     "config": {
         "get_config": test_get_session_config,
         "list_configs": test_list_configs,
+        "get_agent_config": test_get_agent_mode_config,
     },
     "evaluation": {
         "run_eval": test_run_evaluation,
