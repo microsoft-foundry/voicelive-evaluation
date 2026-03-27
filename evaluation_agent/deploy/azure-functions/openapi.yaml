@@ -771,8 +771,9 @@ paths:
                 session_config:
                   type: string
                   description: |
-                    Name of session configuration to use (e.g., "default", "conf1").
+                    Name of session configuration to use (e.g., "default", "conf1", "agent-mode").
                     Use list_session_configs to see available configurations.
+                    For agent mode evaluations, use a config with agent_name and project_name set.
       responses:
         '200':
           description: Job started
@@ -1070,6 +1071,23 @@ components:
         is_default:
           type: boolean
           description: Whether this is the default configuration
+        push_to_talk:
+          type: boolean
+          description: Enable push-to-talk mode (explicit turn boundaries)
+        agent_name:
+          type: string
+          nullable: true
+          description: >
+            Foundry agent name. When set with project_name, enables agent mode.
+            In agent mode, the agent manages its own instructions and tools.
+        project_name:
+          type: string
+          nullable: true
+          description: Foundry project name (required for agent mode)
+        agent_version:
+          type: string
+          nullable: true
+          description: "Agent version pin (default: latest version)"
     
     SessionConfigInput:
       type: object
@@ -1114,3 +1132,17 @@ components:
           type: boolean
         is_default:
           type: boolean
+        push_to_talk:
+          type: boolean
+        agent_name:
+          type: string
+          nullable: true
+          description: Foundry agent name (enables agent mode when set with project_name)
+        project_name:
+          type: string
+          nullable: true
+          description: Foundry project name (required for agent mode)
+        agent_version:
+          type: string
+          nullable: true
+          description: "Agent version pin (default: latest)"

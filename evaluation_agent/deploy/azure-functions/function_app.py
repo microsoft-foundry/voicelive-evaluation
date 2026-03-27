@@ -533,6 +533,9 @@ def get_session_configs() -> list:
                 "echo_cancellation": entity.get("EchoCancellation", "server_echo_cancellation"),
                 "is_default": entity.get("IsDefault", "false").lower() == "true",
                 "push_to_talk": entity.get("PushToTalk", "false").lower() == "true",
+                "agent_name": entity.get("AgentName", ""),
+                "project_name": entity.get("ProjectName", ""),
+                "agent_version": entity.get("AgentVersion", ""),
             }
             # Convert threshold to float if present
             if config["vad_threshold"]:
@@ -579,6 +582,9 @@ def get_session_config_by_name(name: str) -> dict:
             "echo_cancellation": entity.get("EchoCancellation", "server_echo_cancellation"),
             "is_default": entity.get("IsDefault", "false").lower() == "true",
             "push_to_talk": entity.get("PushToTalk", "false").lower() == "true",
+            "agent_name": entity.get("AgentName", ""),
+            "project_name": entity.get("ProjectName", ""),
+            "agent_version": entity.get("AgentVersion", ""),
         }
         if config["vad_threshold"]:
             try:
@@ -626,6 +632,9 @@ def upsert_session_config(config: dict) -> bool:
             "EchoCancellation": config.get("echo_cancellation", "server_echo_cancellation"),
             "IsDefault": "true" if config.get("is_default", False) else "false",
             "PushToTalk": "true" if config.get("push_to_talk", False) else "false",
+            "AgentName": config.get("agent_name", ""),
+            "ProjectName": config.get("project_name", ""),
+            "AgentVersion": config.get("agent_version", ""),
         }
         
         table_client.upsert_entity(entity)
@@ -770,6 +779,9 @@ def create_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             "echo_cancellation": body.get("echo_cancellation", "server_echo_cancellation"),
             "is_default": body.get("is_default", False),
             "push_to_talk": body.get("push_to_talk", False),
+            "agent_name": body.get("agent_name", ""),
+            "project_name": body.get("project_name", ""),
+            "agent_version": body.get("agent_version", ""),
         }
         
         success = upsert_session_config(config)
@@ -828,7 +840,7 @@ def update_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         for key in ["description", "model", "sample_rate", "voice_name", "voice_type", 
                     "vad_type", "vad_threshold", "silence_duration_ms", "eou_detection",
                     "eou_model", "transcription_model", "noise_reduction", "echo_cancellation", "is_default",
-                    "push_to_talk"]:
+                    "push_to_talk", "agent_name", "project_name", "agent_version"]:
             if key in body:
                 config[key] = body[key]
         

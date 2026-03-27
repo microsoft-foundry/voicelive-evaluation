@@ -176,6 +176,29 @@ $configs = @(
         EchoCancellation = "server_echo_cancellation"
         IsDefault = "false"
         PushToTalk = "true"
+    },
+    @{
+        RowKey = "agent-mode"
+        PartitionKey = "voicelive"
+        Name = "agent-mode"
+        Description = "Agent mode - Foundry Agent integration (voicelive-demo-agent). Agent manages instructions and tools."
+        Model = ""
+        SampleRate = "24000"
+        VoiceName = "en-US-Ava:DragonHDLatestNeural"
+        VoiceType = "azure-standard"
+        VadType = "azure_semantic_vad_multilingual"
+        VadThreshold = ""
+        SilenceDurationMs = ""
+        EouDetection = "true"
+        EouModel = "semantic_detection_v1_multilingual"
+        TranscriptionModel = "azure-speech"
+        NoiseReduction = "azure_deep_noise_suppression"
+        EchoCancellation = "server_echo_cancellation"
+        IsDefault = "false"
+        PushToTalk = "false"
+        AgentName = "voicelive-demo-agent"
+        ProjectName = ""
+        AgentVersion = ""
     }
 )
 
