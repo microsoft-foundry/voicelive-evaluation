@@ -110,7 +110,7 @@ pywin32==311
 PyYAML==6.0.3
 RapidFuzz==3.14.1
 regex==2025.9.18
-requests==2.32.5
+requests==2.33.0
 requests-oauthlib==2.0.0
 rich==14.1.0
 ruamel.yaml==0.18.15
