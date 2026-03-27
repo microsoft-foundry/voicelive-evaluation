@@ -60,6 +60,12 @@ param containerAppEntraClientId string = ''
 @description('Function App MI appId for Container App EasyAuth allowedApplications (auto-set by postprovision)')
 param functionAppMiAppId string = ''
 
+@description('Optional: Foundry agent name for agent mode evaluation')
+param agentName string = ''
+
+@description('Optional: Foundry project name for agent mode evaluation')
+param agentProjectName string = ''
+
 // Generate unique suffix for resources
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = { 'azd-env-name': environmentName }
@@ -130,6 +136,8 @@ module functionApp 'modules/function-app.bicep' = {
       // Container App proxy settings (URL set post-deployment via script)
       CONTAINER_APP_ENTRA_CLIENT_ID: containerAppEntraClientId
     }
+    agentName: agentName
+    agentProjectName: agentProjectName
   }
 }
 
@@ -157,6 +165,8 @@ module containerApp 'modules/container-app.bicep' = if (deployContainerApp) {
       AZURE_VOICELIVE_API_VERSION: voiceLiveApiVersion
       EVAL_AGENT_MODE: 'cloud'
     }
+    agentName: agentName
+    agentProjectName: agentProjectName
   }
 }
 

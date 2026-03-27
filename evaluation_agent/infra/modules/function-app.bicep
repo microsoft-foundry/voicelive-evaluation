@@ -25,6 +25,12 @@ param entraClientId string = ''
 @description('Allowed principal IDs that can call the Function App via RBAC')
 param allowedCallerPrincipalIds array = []
 
+@description('Optional: Foundry agent name for agent mode')
+param agentName string = ''
+
+@description('Optional: Foundry project name for agent mode')
+param agentProjectName string = ''
+
 // App Service Plan (Consumption)
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
   name: '${name}-plan'
@@ -101,7 +107,18 @@ var customAppSettings = [for setting in items(appSettings): {
   value: setting.value
 }]
 
-var allAppSettings = concat(baseAppSettings, customAppSettings)
+var agentAppSettings = [
+  {
+    name: 'AGENT_NAME'
+    value: agentName
+  }
+  {
+    name: 'PROJECT_NAME'
+    value: agentProjectName
+  }
+]
+
+var allAppSettings = concat(baseAppSettings, customAppSettings, agentAppSettings)
 
 // Function App
 resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
