@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from azure.identity import DefaultAzureCredential
 from azure.core.credentials import TokenCredential
-from azure.ai.voicelive.aio import connect as voicelive_connect
+from azure.ai.voicelive.aio import connect as voicelive_connect, AgentSessionConfig
 from azure.ai.voicelive.models import (
     ServerEventType,
     RequestSession,
@@ -37,7 +37,7 @@ from azure.ai.voicelive.models import (
     ServerEventConversationItemTruncated,
 )
 
-from .config import SessionConfig, VadType, EouModel
+from .config import SessionConfig, VadType, EouModel, AgentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -188,27 +188,33 @@ class VoiceLiveClient:
         self,
         endpoint: str,
         model: str,
-        credential: Optional[TokenCredential] = None
+        credential: Optional[TokenCredential] = None,
+        agent_config: Optional[Dict[str, Any]] = None,
     ):
         self.endpoint = endpoint
         self.model = model
         self.credential = credential or DefaultAzureCredential()
         self._connection = None
         self._session_id: Optional[str] = None
+        self._agent_config = agent_config
         
     async def __aenter__(self):
         """Establish connection."""
         connect_kwargs = {
             "endpoint": self.endpoint,
             "credential": self.credential,
-            "model": self.model,
         }
+        if self._agent_config:
+            connect_kwargs["agent_config"] = self._agent_config
+            logger.info(f"Connecting to VoiceLive in agent mode: agent={self._agent_config.get('agent_name')}, project={self._agent_config.get('project_name')}")
+        else:
+            connect_kwargs["model"] = self.model
         # Use explicit api_version if set via environment variable
         api_version = os.environ.get("AZURE_VOICELIVE_API_VERSION")
         if api_version:
             connect_kwargs["api_version"] = api_version
         
-        logger.info(f"Connecting to VoiceLive: {self.endpoint}, model: {self.model}, api_version: {api_version or 'SDK default'}")
+        logger.info(f"Connecting to VoiceLive: {self.endpoint}, mode={'agent' if self._agent_config else 'model'}, api_version={api_version or 'SDK default'}")
         self._connection = await voicelive_connect(**connect_kwargs).__aenter__()
         logger.info("VoiceLive connection established")
         return self
@@ -227,6 +233,10 @@ class VoiceLiveClient:
         """
         Configure the VoiceLive session with SDK-native objects.
         
+        In agent mode, sends minimal config — the agent manages its own
+        instructions and tools. Voice/VAD/audio settings are included as
+        overrides only.
+        
         Args:
             config: SessionConfig with all session parameters
         """
@@ -239,7 +249,7 @@ class VoiceLiveClient:
             for m in config.modalities
         ]
         
-        # Build voice - use OpenAIVoice for preset voices, AzureStandardVoice for Azure voices
+        # Build voice
         if config.voice.type == "preset":
             sdk_voice = OpenAIVoice(name=config.voice.name)
         else:
@@ -254,9 +264,6 @@ class VoiceLiveClient:
         )
         
         # Build turn detection
-        # VAD is always configured to ensure valid session. In PTT mode,
-        # we additionally use commit() + response.create() for explicit
-        # turn boundaries, but keep VAD as the base turn detection.
         if config.turn_detection.type == VadType.AZURE_SEMANTIC:
             barge_in = config.turn_detection.enable_barge_in
             if config.supports_eou_detection() and config.turn_detection.use_eou_detection:
@@ -287,20 +294,38 @@ class VoiceLiveClient:
         sdk_noise_reduction = AudioNoiseReduction(type=config.audio.noise_reduction)
         sdk_echo_cancellation = AudioEchoCancellation(type=config.audio.echo_cancellation)
         
-        # Build SDK session request
-        sdk_session = RequestSession(
-            modalities=sdk_modalities,
-            instructions=config.get_final_instructions(),
-            voice=sdk_voice,
-            turn_detection=sdk_turn_detection,
-            input_audio_transcription=sdk_transcription,
-            input_audio_noise_reduction=sdk_noise_reduction,
-            input_audio_echo_cancellation=sdk_echo_cancellation,
-            tools=config.tools,
-            input_audio_format=InputAudioFormat.PCM16,
-            output_audio_format=OutputAudioFormat.PCM16,
-            input_audio_sampling_rate=config.audio.sample_rate,
-        )
+        if config.is_agent_mode:
+            # Agent mode: minimal session config — agent manages instructions/tools
+            sdk_session = RequestSession(
+                modalities=sdk_modalities,
+                voice=sdk_voice,
+                turn_detection=sdk_turn_detection,
+                input_audio_transcription=sdk_transcription,
+                input_audio_noise_reduction=sdk_noise_reduction,
+                input_audio_echo_cancellation=sdk_echo_cancellation,
+                input_audio_format=InputAudioFormat.PCM16,
+                output_audio_format=OutputAudioFormat.PCM16,
+                input_audio_sampling_rate=config.audio.sample_rate,
+            )
+            # Note: instructions and tools are NOT sent — agent owns them
+            logger.info(f"Agent mode session configured (minimal): voice={config.voice.name}, "
+                       f"noise_reduction={config.audio.noise_reduction}, "
+                       f"transcription={config.get_transcription_model()}")
+        else:
+            # Model mode: full session configuration (existing behavior)
+            sdk_session = RequestSession(
+                modalities=sdk_modalities,
+                instructions=config.get_final_instructions(),
+                voice=sdk_voice,
+                turn_detection=sdk_turn_detection,
+                input_audio_transcription=sdk_transcription,
+                input_audio_noise_reduction=sdk_noise_reduction,
+                input_audio_echo_cancellation=sdk_echo_cancellation,
+                tools=config.tools,
+                input_audio_format=InputAudioFormat.PCM16,
+                output_audio_format=OutputAudioFormat.PCM16,
+                input_audio_sampling_rate=config.audio.sample_rate,
+            )
         
         # Send session update
         await self._connection.session.update(session=sdk_session)
@@ -725,3 +750,14 @@ class VoiceLiveClient:
         
         # CR-3: Return explicit error for unknown tools so model can respond appropriately
         return json.dumps({"error": f"Unknown tool: {name}", "status": "not_found"})
+
+    @classmethod
+    def from_session_config(cls, endpoint: str, config: SessionConfig, credential: Optional[TokenCredential] = None) -> "VoiceLiveClient":
+        """Create VoiceLiveClient from SessionConfig, automatically detecting agent mode."""
+        agent_cfg = config.build_agent_config() if config.is_agent_mode else None
+        return cls(
+            endpoint=endpoint,
+            model=config.model,
+            credential=credential,
+            agent_config=agent_cfg,
+        )

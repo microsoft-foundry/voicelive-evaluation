@@ -66,6 +66,17 @@ class AudioConfig:
 
 
 @dataclass
+class AgentConfig:
+    """Foundry Agent configuration for agent mode."""
+    agent_name: str = ""
+    project_name: str = ""
+    agent_version: Optional[str] = None
+    conversation_id: Optional[str] = None
+    foundry_resource_override: Optional[str] = None
+    authentication_identity_client_id: Optional[str] = None
+
+
+@dataclass
 class SessionConfig:
     """
     VoiceLive session configuration.
@@ -103,6 +114,9 @@ class SessionConfig:
     # Processing mode
     mode: ProcessorMode = ProcessorMode.AUDIO_EVALUATION
     
+    # Agent mode (Foundry Agent integration)
+    agent: Optional[AgentConfig] = None
+    
     def get_transcription_model(self) -> str:
         """Get the appropriate transcription model based on main model."""
         if self.transcription_model:
@@ -125,6 +139,29 @@ class SessionConfig:
         if self.tools:
             return f"{self.instructions} Use available tools when appropriate."
         return self.instructions
+    
+    @property
+    def is_agent_mode(self) -> bool:
+        """True when agent config is set with name and project."""
+        return self.agent is not None and bool(self.agent.agent_name and self.agent.project_name)
+
+    def build_agent_config(self) -> Optional[Dict[str, Any]]:
+        """Build AgentSessionConfig dict for VoiceLive connect()."""
+        if not self.is_agent_mode or self.agent is None:
+            return None
+        config: Dict[str, Any] = {
+            "agent_name": self.agent.agent_name,
+            "project_name": self.agent.project_name,
+        }
+        if self.agent.agent_version:
+            config["agent_version"] = self.agent.agent_version
+        if self.agent.conversation_id:
+            config["conversation_id"] = self.agent.conversation_id
+        if self.agent.foundry_resource_override:
+            config["foundry_resource_override"] = self.agent.foundry_resource_override
+        if self.agent.authentication_identity_client_id and self.agent.foundry_resource_override:
+            config["authentication_identity_client_id"] = self.agent.authentication_identity_client_id
+        return config
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for logging/serialization."""
@@ -149,7 +186,12 @@ class SessionConfig:
             "tools_count": len(self.tools) if self.tools else 0,
             "mode": self.mode.value,
             "push_to_talk": self.push_to_talk,
-            "enable_barge_in": self.turn_detection.enable_barge_in
+            "enable_barge_in": self.turn_detection.enable_barge_in,
+            "agent": {
+                "agent_name": self.agent.agent_name,
+                "project_name": self.agent.project_name,
+                "agent_version": self.agent.agent_version,
+            } if self.agent else None,
         }
     
     @classmethod
@@ -202,6 +244,19 @@ class SessionConfig:
                 eou_model=eou_model,
                 enable_barge_in=bool(td_data.get("enable_barge_in", True))
             )
+        
+        # Agent config
+        if "agent" in data:
+            agent_data = data["agent"]
+            config.agent = AgentConfig(
+                agent_name=agent_data.get("agent_name", ""),
+                project_name=agent_data.get("project_name", ""),
+                agent_version=agent_data.get("agent_version"),
+                conversation_id=agent_data.get("conversation_id"),
+                foundry_resource_override=agent_data.get("foundry_resource_override"),
+                authentication_identity_client_id=agent_data.get("authentication_identity_client_id"),
+            )
+            config.mode = ProcessorMode.AGENT_MODE
         
         # Tools
         if "tools" in data:
