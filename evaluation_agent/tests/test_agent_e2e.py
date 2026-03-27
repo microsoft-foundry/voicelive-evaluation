@@ -32,10 +32,10 @@ RATE_LIMIT_DELAY = 3
 
 def ask_agent(openai_client, agent_name: str, prompt: str, label: str) -> tuple[bool, str]:
     """Send a prompt to the agent and return (success, response_text)."""
-    print(f"\n{'─' * 60}")
+    print(f"\n{'-' * 60}")
     print(f"  {label}")
     print(f"  Prompt: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
-    print(f"{'─' * 60}")
+    print(f"{'-' * 60}")
     try:
         resp = openai_client.responses.create(
             input=[{"role": "user", "content": prompt}],
@@ -74,10 +74,10 @@ def check_response(text: str, must_contain: list[str] = None,
     return passed, detail
 
 
-# ─── Category 1: Dataset Discovery & Listing ─────────────────────
+# --- Category 1: Dataset Discovery & Listing ---------------------
 
 def test_list_all_datasets(client, agent_name: str) -> bool:
-    """List all datasets — should show both blob and Foundry datasets."""
+    """List all datasets -- should show both blob and Foundry datasets."""
     ok, text = ask_agent(client, agent_name, "List all datasets", "1.1 List All Datasets")
     if not ok:
         return False
@@ -115,7 +115,7 @@ def test_list_evaluation_datasets(client, agent_name: str) -> bool:
     return passed
 
 
-# ─── Category 2: Dataset Validation ──────────────────────────────
+# --- Category 2: Dataset Validation ------------------------------
 
 def test_validate_voicelive_dataset(client, agent_name: str) -> bool:
     """Validate a VoiceLive audio dataset (has WavPath/Question/Answer)."""
@@ -161,7 +161,7 @@ def test_schema_check(client, agent_name: str) -> bool:
 
 
 def test_validate_nonexistent(client, agent_name: str) -> bool:
-    """Validate a dataset that doesn't exist — should get graceful error."""
+    """Validate a dataset that doesn't exist -- should get graceful error."""
     ok, text = ask_agent(
         client, agent_name,
         "Validate the dataset called totally_fake_dataset_xyz",
@@ -179,7 +179,7 @@ def test_validate_nonexistent(client, agent_name: str) -> bool:
     return passed
 
 
-# ─── Category 3: Session Configuration ───────────────────────────
+# --- Category 3: Session Configuration ---------------------------
 
 def test_get_session_config(client, agent_name: str) -> bool:
     """Get details of a specific session config."""
@@ -196,7 +196,7 @@ def test_get_session_config(client, agent_name: str) -> bool:
 
 
 def test_list_configs(client, agent_name: str) -> bool:
-    """List session configs — should return available configs including agent-mode."""
+    """List session configs -- should return available configs including agent-mode."""
     ok, text = ask_agent(
         client, agent_name,
         "List all session configurations",
@@ -223,7 +223,7 @@ def test_get_agent_mode_config(client, agent_name: str) -> bool:
     return passed
 
 
-# ─── Category 4: Foundry Evaluation ──────────────────────────────
+# --- Category 4: Foundry Evaluation ------------------------------
 
 def test_run_evaluation(client, agent_name: str) -> bool:
     """Start an evaluation with a specific evaluator."""
@@ -255,7 +255,7 @@ def test_get_recommendations(client, agent_name: str) -> bool:
     return has_advice
 
 
-# ─── Category 5: Resource Management ─────────────────────────────
+# --- Category 5: Resource Management -----------------------------
 
 def test_list_eval_groups(client, agent_name: str) -> bool:
     """List evaluation groups."""
@@ -304,13 +304,13 @@ def test_list_evaluators(client, agent_name: str) -> bool:
     return passed
 
 
-# ─── Category 6: Streaming ───────────────────────────────────────
+# --- Category 6: Streaming ---------------------------------------
 
 def test_streaming(client, agent_name: str) -> bool:
     """Verify streaming responses work."""
-    print(f"\n{'─' * 60}")
+    print(f"\n{'-' * 60}")
     print(f"  6.1 Streaming Response")
-    print(f"{'─' * 60}")
+    print(f"{'-' * 60}")
     try:
         stream = client.responses.create(
             stream=True,
@@ -328,13 +328,13 @@ def test_streaming(client, agent_name: str) -> bool:
         return False
 
 
-# ─── Category 7: Multi-turn Conversation ─────────────────────────
+# --- Category 7: Multi-turn Conversation -------------------------
 
 def test_conversation(client, agent_name: str) -> bool:
     """Test multi-turn conversation with context retention."""
-    print(f"\n{'─' * 60}")
+    print(f"\n{'-' * 60}")
     print(f"  7.1 Multi-turn Conversation")
-    print(f"{'─' * 60}")
+    print(f"{'-' * 60}")
     try:
         # Turn 1
         print("  Turn 1: List datasets")
@@ -367,10 +367,10 @@ def test_conversation(client, agent_name: str) -> bool:
         return False
 
 
-# ─── Category 8: Edge Cases & Off-Track Prompts ──────────────────
+# --- Category 8: Edge Cases & Off-Track Prompts ------------------
 
 def test_off_topic(client, agent_name: str) -> bool:
-    """Ask something completely unrelated — should decline gracefully."""
+    """Ask something completely unrelated -- should decline gracefully."""
     ok, text = ask_agent(
         client, agent_name,
         "What is the capital of France?",
@@ -388,7 +388,7 @@ def test_off_topic(client, agent_name: str) -> bool:
 
 
 def test_ambiguous_request(client, agent_name: str) -> bool:
-    """Ambiguous request — should ask for clarification."""
+    """Ambiguous request -- should ask for clarification."""
     ok, text = ask_agent(
         client, agent_name,
         "Run a test",
@@ -448,7 +448,7 @@ def test_no_polling_promise(client, agent_name: str) -> bool:
     return not promises_tracking
 
 
-# ─── Test Registry ────────────────────────────────────────────────
+# --- Test Registry ------------------------------------------------
 
 CATEGORIES: dict[str, dict[str, Callable]] = {
     "discovery": {
@@ -587,30 +587,30 @@ Categories:
                 category_results[cat_name] = cat_results
 
         # Summary
-        print(f"\n{'═' * 60}")
+        print(f"\n{'=' * 60}")
         print("  E2E TEST SUMMARY")
-        print(f"{'═' * 60}")
+        print(f"{'=' * 60}")
 
         total_pass = 0
         total_fail = 0
         for cat_name, cat_results in category_results.items():
             cat_pass = sum(1 for _, p in cat_results if p)
             cat_total = len(cat_results)
-            status = "✅" if cat_pass == cat_total else "⚠️"
+            status = "[OK]" if cat_pass == cat_total else "[!]"
             print(f"\n  {status} {cat_name} ({cat_pass}/{cat_total})")
             for test_name, passed in cat_results:
-                icon = "✓" if passed else "✗"
+                icon = "[OK]" if passed else "[X]"
                 print(f"     {icon} {test_name}")
                 if passed:
                     total_pass += 1
                 else:
                     total_fail += 1
 
-        print(f"\n{'─' * 60}")
+        print(f"\n{'-' * 60}")
         print(f"  Total: {total_pass}/{total_pass + total_fail} passed")
         if total_fail > 0:
             print(f"  Failed: {total_fail}")
-        print(f"{'═' * 60}")
+        print(f"{'=' * 60}")
 
         sys.exit(0 if total_fail == 0 else 1)
 
