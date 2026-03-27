@@ -1710,12 +1710,17 @@ async def main_async(args: argparse.Namespace) -> None:
         if api_version:
             connect_kwargs["api_version"] = api_version
 
-        async with voicelive_connect(**connect_kwargs) as connection:
-            results = await process_conversation(
-                entries, connection, config, args.output_dir,
-                eval_output_file=eval_output_file,
-            )
-            all_results.extend(results)
+        try:
+            async with voicelive_connect(**connect_kwargs) as connection:
+                results = await process_conversation(
+                    entries, connection, config, args.output_dir,
+                    eval_output_file=eval_output_file,
+                )
+                all_results.extend(results)
+        except Exception as e:
+            logger.error(f"Error processing conversation '{conv_id}': {e}")
+            print(f"⚠️  Conversation '{conv_id}' failed: {e}")
+            continue
 
     # Session naming
     session_suffix = getattr(args, "session_suffix", None)
