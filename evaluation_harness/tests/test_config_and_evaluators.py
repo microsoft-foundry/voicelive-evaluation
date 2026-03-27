@@ -588,6 +588,56 @@ def test_agent_mode_with_model_fields_preserved():
     assert c.voice == "en-US-Ava:DragonHDLatestNeural"
 
 
+def test_agent_mode_cross_resource_config():
+    """Cross-resource agent config includes foundry_resource_override."""
+    c = SessionConfig(
+        agent_name="VoiceAgentwBingWebSearch",
+        project_name="jagoerge-voicelive-sec",
+        agent_version="14",
+        foundry_resource_override="jagoerge-voicelive-sec-resource",
+    )
+    assert c.is_agent_mode, "Expected agent mode enabled"
+    cfg = c.build_agent_config()
+    assert cfg["foundry_resource_override"] == "jagoerge-voicelive-sec-resource"
+    assert "authentication_identity_client_id" not in cfg, \
+        "auth client ID should not be included without explicit value"
+
+
+def test_agent_mode_cross_resource_with_auth():
+    """Cross-resource with auth identity client ID."""
+    c = SessionConfig(
+        agent_name="VoiceAgentwBingWebSearch",
+        project_name="jagoerge-voicelive-sec",
+        foundry_resource_override="jagoerge-voicelive-sec-resource",
+        authentication_identity_client_id="test-client-id",
+    )
+    cfg = c.build_agent_config()
+    assert cfg["authentication_identity_client_id"] == "test-client-id"
+    assert cfg["foundry_resource_override"] == "jagoerge-voicelive-sec-resource"
+
+
+def test_agent_mode_cross_resource_config_file():
+    """Loading cross-resource config from sample file."""
+    config_data = {
+        "agent": {
+            "agent_name": "VoiceAgentwBingWebSearch",
+            "project_name": "jagoerge-voicelive-sec",
+            "agent_version": "14",
+            "foundry_resource_override": "jagoerge-voicelive-sec-resource",
+        }
+    }
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(config_data, f)
+        tmp_path = f.name
+    try:
+        with open(tmp_path, 'r') as f:
+            loaded = json.load(f)
+        assert loaded["agent"]["foundry_resource_override"] == "jagoerge-voicelive-sec-resource"
+        assert loaded["agent"]["agent_version"] == "14"
+    finally:
+        os.unlink(tmp_path)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -662,6 +712,9 @@ def main():
             test_agent_mode_config_file_loading,
             test_agent_mode_override_tracking,
             test_agent_mode_with_model_fields_preserved,
+            test_agent_mode_cross_resource_config,
+            test_agent_mode_cross_resource_with_auth,
+            test_agent_mode_cross_resource_config_file,
         ]),
     ]
 

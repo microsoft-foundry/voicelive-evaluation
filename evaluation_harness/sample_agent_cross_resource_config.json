@@ -1,0 +1,20 @@
+{
+    "_description": "Sample config for cross-resource VoiceLive Agent Mode. The agent is hosted on a different Foundry resource than the VoiceLive endpoint. This requires foundry_resource_override and potentially authentication_identity_client_id for cross-resource auth.",
+    "agent": {
+        "agent_name": "VoiceAgentwBingWebSearch",
+        "project_name": "jagoerge-voicelive-sec",
+        "agent_version": "14",
+        "foundry_resource_override": "jagoerge-voicelive-sec-resource",
+        "authentication_identity_client_id": null
+    },
+    "voice": "en-US-Ava:DragonHDLatestNeural",
+    "voice_type": "azure-standard",
+    "sample_rate": 24000,
+    "noise_reduction": "azure_deep_noise_suppression",
+    "echo_cancellation": "server_echo_cancellation",
+    "vad_type": "azure_semantic_vad_multilingual",
+    "use_eou_detection": true,
+    "eou_model": "semantic_detection_v1_multilingual",
+    "push_to_talk": false,
+    "enable_barge_in": true
+}

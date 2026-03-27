@@ -313,6 +313,28 @@ def test_from_session_config_without_agent_mode() -> tuple:
     return ok, ok
 
 
+def test_cross_resource_from_dict() -> tuple:
+    """from_dict() with cross-resource agent config."""
+    cfg = SessionConfig.from_dict({
+        "agent": {
+            "agent_name": "VoiceAgentwBingWebSearch",
+            "project_name": "jagoerge-voicelive-sec",
+            "agent_version": "14",
+            "foundry_resource_override": "jagoerge-voicelive-sec-resource",
+            "authentication_identity_client_id": "test-mi-id",
+        }
+    })
+    agent_cfg = cfg.build_agent_config()
+    ok = (
+        agent_cfg is not None
+        and agent_cfg["foundry_resource_override"] == "jagoerge-voicelive-sec-resource"
+        and agent_cfg["authentication_identity_client_id"] == "test-mi-id"
+        and agent_cfg["agent_version"] == "14"
+    )
+    print(f"  cross-resource config correct: {ok}")
+    return ok, ok
+
+
 # ---------------------------------------------------------------------------
 # Test registry & runner
 # ---------------------------------------------------------------------------
@@ -342,6 +364,8 @@ TESTS = {
     # 6. VoiceLiveClient factory
     "client_agent_mode": test_from_session_config_with_agent_mode,
     "client_no_agent": test_from_session_config_without_agent_mode,
+    # 7. Cross-resource
+    "cross_resource": test_cross_resource_from_dict,
 }
 
 

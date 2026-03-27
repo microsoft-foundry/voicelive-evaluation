@@ -489,6 +489,32 @@ Voice, VAD, and audio settings are optional overrides — if omitted, the agent'
 
 Agent mode requires Microsoft Entra ID authentication (`DefaultAzureCredential`). API key authentication is not supported for agent invocation. Ensure your identity has the `Azure AI User` role on the Foundry project.
 
+#### Cross-Resource Agent Connections
+
+When the Foundry agent is hosted on a **different resource** than the VoiceLive endpoint, use cross-resource configuration:
+
+```bash
+# Cross-resource via CLI
+python evaluation_harness/voice_agent_audio_input_evaluation.py \
+  -f datasets/sample.jsonl -o output \
+  --agent-name VoiceAgentwBingWebSearch \
+  --project-name jagoerge-voicelive-sec \
+  --agent-version 14 \
+  --foundry-resource-override jagoerge-voicelive-sec-resource
+
+# Cross-resource via config file
+python evaluation_harness/voice_agent_audio_input_evaluation.py \
+  -f datasets/sample.jsonl -o output \
+  --config sample_agent_cross_resource_config.json
+```
+
+**Cross-resource prerequisites:**
+1. The VoiceLive resource's managed identity must have the `Azure AI User` role on the target agent's Foundry resource
+2. Set `--foundry-resource-override` to the Foundry resource name (not the full URL)
+3. Set `--agent-auth-identity-client-id` to the VoiceLive resource's managed identity client ID (required for cross-resource auth)
+
+See `sample_agent_cross_resource_config.json` for a complete example.
+
 ## Version History
 
 | Version | Description |
