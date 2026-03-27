@@ -22,7 +22,7 @@ from operator import attrgetter
 
 from azure.identity import DefaultAzureCredential
 
-from .config import SessionConfig, DEFAULT_SESSION_CONFIG
+from .config import SessionConfig, DEFAULT_SESSION_CONFIG, ProcessorMode
 from .voicelive_client import VoiceLiveClient, ConversationTurn, sanitize_text_for_utf8
 from .storage import BlobStorageClient, DatasetEntry
 from .jobs import job_manager, JobStatus
@@ -44,6 +44,9 @@ def load_audio_file(file_path: str, target_sample_rate: int = 24000) -> bytes:
         PCM16 audio bytes
     """
     import struct as _struct
+
+    # Sanitize path to prevent path traversal
+    file_path = os.path.realpath(file_path)
 
     try:
         with wave.open(file_path, 'rb') as wav:
@@ -227,6 +230,7 @@ def _download_foundry_dataset(dataset_spec: str) -> str:
         tempfile.mkdtemp(prefix="foundry_dataset_"),
         f"{name}_v{version}.jsonl",
     )
+    dest = os.path.realpath(dest)
     with open(dest, "w", encoding="utf-8") as f:
         f.write("\n".join(file_parts))
 
@@ -237,6 +241,7 @@ def _download_foundry_dataset(dataset_spec: str) -> str:
 def _parse_jsonl_entries(local_path: str) -> List[DatasetEntry]:
     """Parse a local JSONL file into DatasetEntry objects."""
     import json as _json
+    local_path = os.path.realpath(local_path)
     entries = []
     with open(local_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -284,12 +289,13 @@ async def process_conversation(
     
     # Configure session (may include conversation-specific settings)
     conversation_config = config
-    if entries and entries[0].system_prompt:
-        # Override instructions from dataset
-        conversation_config = SessionConfig.from_dict({
-            **config.to_dict(),
-            "instructions": entries[0].system_prompt
-        })
+    if not config.is_agent_mode:
+        # Only set instructions in model mode — agent manages its own
+        if entries and entries[0].system_prompt:
+            conversation_config = SessionConfig.from_dict({
+                **config.to_dict(),
+                "instructions": entries[0].system_prompt
+            })
     if entries and entries[0].tool_definitions:
         tool_defs = entries[0].tool_definitions
         # Normalize: ensure tools is always a list (dataset may have single dict)
@@ -457,6 +463,22 @@ async def process_dataset(
             config = DEFAULT_SESSION_CONFIG
         config.model = voicelive_model
         
+        # Env var fallback for agent mode
+        if not config.is_agent_mode:
+            env_agent_name = os.environ.get("AGENT_NAME", "")
+            env_project_name = os.environ.get("PROJECT_NAME", "")
+            if env_agent_name and env_project_name:
+                from .config import AgentConfig
+                config.agent = AgentConfig(
+                    agent_name=env_agent_name,
+                    project_name=env_project_name,
+                    agent_version=os.environ.get("AGENT_VERSION"),
+                    foundry_resource_override=os.environ.get("FOUNDRY_RESOURCE_OVERRIDE"),
+                    authentication_identity_client_id=os.environ.get("AGENT_AUTHENTICATION_IDENTITY_CLIENT_ID"),
+                )
+                config.mode = ProcessorMode.AGENT_MODE
+                logger.info(f"Agent mode enabled via env vars: agent={env_agent_name}, project={env_project_name}")
+        
         # Download and parse dataset from Foundry or blob
         if foundry_dataset:
             local_dataset_path = _download_foundry_dataset(foundry_dataset)
@@ -519,13 +541,17 @@ async def process_dataset(
                 files_failed=files_failed
             )
         
+        # Build credential once for all conversations
+        credential = DefaultAzureCredential()
+        
         # Process conversations (with concurrency limit for future parallel support)
         # Currently processing sequentially to maintain conversation context
         for conversation_id, conversation_entries in groups:
             try:
-                async with VoiceLiveClient(
+                async with VoiceLiveClient.from_session_config(
                     endpoint=voicelive_endpoint,
-                    model=voicelive_model
+                    config=config,
+                    credential=credential
                 ) as client:
                     results = await process_conversation(
                         entries=conversation_entries,

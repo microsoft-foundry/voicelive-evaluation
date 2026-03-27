@@ -533,6 +533,12 @@ def get_session_configs() -> list:
                 "echo_cancellation": entity.get("EchoCancellation", "server_echo_cancellation"),
                 "is_default": entity.get("IsDefault", "false").lower() == "true",
                 "push_to_talk": entity.get("PushToTalk", "false").lower() == "true",
+                "agent_name": entity.get("AgentName", ""),
+                "project_name": entity.get("ProjectName", ""),
+                "agent_version": entity.get("AgentVersion", ""),
+                "conversation_id": entity.get("ConversationId", ""),
+                "foundry_resource_override": entity.get("FoundryResourceOverride", ""),
+                "authentication_identity_client_id": entity.get("AuthenticationIdentityClientId", ""),
             }
             # Convert threshold to float if present
             if config["vad_threshold"]:
@@ -579,6 +585,12 @@ def get_session_config_by_name(name: str) -> dict:
             "echo_cancellation": entity.get("EchoCancellation", "server_echo_cancellation"),
             "is_default": entity.get("IsDefault", "false").lower() == "true",
             "push_to_talk": entity.get("PushToTalk", "false").lower() == "true",
+            "agent_name": entity.get("AgentName", ""),
+            "project_name": entity.get("ProjectName", ""),
+            "agent_version": entity.get("AgentVersion", ""),
+            "conversation_id": entity.get("ConversationId", ""),
+            "foundry_resource_override": entity.get("FoundryResourceOverride", ""),
+            "authentication_identity_client_id": entity.get("AuthenticationIdentityClientId", ""),
         }
         if config["vad_threshold"]:
             try:
@@ -626,6 +638,12 @@ def upsert_session_config(config: dict) -> bool:
             "EchoCancellation": config.get("echo_cancellation", "server_echo_cancellation"),
             "IsDefault": "true" if config.get("is_default", False) else "false",
             "PushToTalk": "true" if config.get("push_to_talk", False) else "false",
+            "AgentName": config.get("agent_name", ""),
+            "ProjectName": config.get("project_name", ""),
+            "AgentVersion": config.get("agent_version", ""),
+            "ConversationId": config.get("conversation_id", ""),
+            "FoundryResourceOverride": config.get("foundry_resource_override", ""),
+            "AuthenticationIdentityClientId": config.get("authentication_identity_client_id", ""),
         }
         
         table_client.upsert_entity(entity)
@@ -770,7 +788,24 @@ def create_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             "echo_cancellation": body.get("echo_cancellation", "server_echo_cancellation"),
             "is_default": body.get("is_default", False),
             "push_to_talk": body.get("push_to_talk", False),
+            "agent_name": body.get("agent_name", ""),
+            "project_name": body.get("project_name", ""),
+            "agent_version": body.get("agent_version", ""),
+            "conversation_id": body.get("conversation_id", ""),
+            "foundry_resource_override": body.get("foundry_resource_override", ""),
+            "authentication_identity_client_id": body.get("authentication_identity_client_id", ""),
         }
+        
+        # Validate agent mode completeness
+        agent_name = config.get("agent_name", "")
+        project_name_val = config.get("project_name", "")
+        if (agent_name or project_name_val) and not (agent_name and project_name_val):
+            missing = "project_name" if agent_name else "agent_name"
+            return func.HttpResponse(
+                json.dumps({"error": f"Incomplete agent config: {missing} is required when {'agent_name' if agent_name else 'project_name'} is set"}),
+                status_code=400,
+                mimetype="application/json"
+            )
         
         success = upsert_session_config(config)
         
@@ -828,9 +863,21 @@ def update_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         for key in ["description", "model", "sample_rate", "voice_name", "voice_type", 
                     "vad_type", "vad_threshold", "silence_duration_ms", "eou_detection",
                     "eou_model", "transcription_model", "noise_reduction", "echo_cancellation", "is_default",
-                    "push_to_talk"]:
+                    "push_to_talk", "agent_name", "project_name", "agent_version",
+                    "conversation_id", "foundry_resource_override", "authentication_identity_client_id"]:
             if key in body:
                 config[key] = body[key]
+        
+        # Validate agent mode completeness after merge
+        merged_agent_name = config.get("agent_name", "")
+        merged_project_name = config.get("project_name", "")
+        if (merged_agent_name or merged_project_name) and not (merged_agent_name and merged_project_name):
+            missing = "project_name" if merged_agent_name else "agent_name"
+            return func.HttpResponse(
+                json.dumps({"error": f"Incomplete agent config after merge: {missing} is required when {'agent_name' if merged_agent_name else 'project_name'} is set"}),
+                status_code=400,
+                mimetype="application/json"
+            )
         
         success = upsert_session_config(config)
         
@@ -3373,6 +3420,18 @@ async def run_voicelive_audio_tests(req: func.HttpRequest) -> func.HttpResponse:
                     },
                     "push_to_talk": entity.get("PushToTalk", "false").lower() == "true",
                 }
+                # Add agent config if present
+                agent_name = entity.get("AgentName", "")
+                project_name = entity.get("ProjectName", "")
+                if agent_name and project_name:
+                    config_dict["agent"] = {
+                        "agent_name": agent_name,
+                        "project_name": project_name,
+                        "agent_version": entity.get("AgentVersion", ""),
+                        "conversation_id": entity.get("ConversationId", ""),
+                        "foundry_resource_override": entity.get("FoundryResourceOverride", ""),
+                        "authentication_identity_client_id": entity.get("AuthenticationIdentityClientId", ""),
+                    }
                 body["session_config"] = config_dict
                 logging.info(f"Resolved session config '{config_value}' to dict")
             except Exception as e:

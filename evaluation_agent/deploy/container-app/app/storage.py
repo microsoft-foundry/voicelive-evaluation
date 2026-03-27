@@ -217,6 +217,10 @@ class BlobStorageClient:
         
         temp_dir = tempfile.mkdtemp(prefix="voicelive_dataset_")
         local_path = os.path.join(temp_dir, os.path.basename(blob_name))
+        # Sanitize to prevent path traversal from blob names
+        local_path = os.path.realpath(local_path)
+        if not local_path.startswith(os.path.realpath(temp_dir)):
+            raise ValueError(f"Path traversal detected in blob name: {blob_name}")
         
         with open(local_path, 'wb') as f:
             download_stream = blob_client.download_blob()
@@ -259,6 +263,10 @@ class BlobStorageClient:
         
         blob_client = container_client.get_blob_client(blob_name)
         local_path = os.path.join(local_dir, os.path.basename(blob_name))
+        # Sanitize to prevent path traversal from blob names
+        local_path = os.path.realpath(local_path)
+        if not local_path.startswith(os.path.realpath(local_dir)):
+            raise ValueError(f"Path traversal detected in audio path: {wav_path}")
         
         with open(local_path, 'wb') as f:
             download_stream = blob_client.download_blob()

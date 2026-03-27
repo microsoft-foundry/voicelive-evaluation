@@ -493,7 +493,7 @@ paths:
                 properties:
                   status:
                     type: string
-                    enum: [pending, running, completed, failed]
+                    enum: [queued, pending, running, completed, failed, cancelled]
                     description: When 'completed', use instance_id with analyze_evaluation_results
                   eval_id:
                     type: string
@@ -769,10 +769,41 @@ paths:
                   default: 4
                   description: Maximum parallel workers
                 session_config:
-                  type: string
+                  oneOf:
+                    - type: string
+                      description: Name of a stored session configuration (e.g., "default", "conf1", "agent-mode")
+                    - type: object
+                      description: Inline session configuration object with optional agent section
+                      properties:
+                        model:
+                          type: string
+                        voice:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        agent:
+                          type: object
+                          description: Agent mode configuration (enables Foundry Agent integration)
+                          properties:
+                            agent_name:
+                              type: string
+                            project_name:
+                              type: string
+                            agent_version:
+                              type: string
+                            conversation_id:
+                              type: string
+                            foundry_resource_override:
+                              type: string
+                            authentication_identity_client_id:
+                              type: string
                   description: |
-                    Name of session configuration to use (e.g., "default", "conf1").
-                    Use list_session_configs to see available configurations.
+                    Session configuration: either a name (string) referencing a stored config,
+                    or an inline config object. Use list_session_configs to see available named configs.
+                    For agent mode, use a config with an "agent" section containing agent_name and project_name.
       responses:
         '200':
           description: Job started
@@ -822,7 +853,7 @@ paths:
                     type: string
                   status:
                     type: string
-                    enum: ["pending", "running", "completed", "failed"]
+                    enum: ["queued", "pending", "running", "completed", "failed", "cancelled"]
                   progress:
                     type: object
                     properties:
@@ -1070,6 +1101,39 @@ components:
         is_default:
           type: boolean
           description: Whether this is the default configuration
+        push_to_talk:
+          type: boolean
+          description: Enable push-to-talk mode (explicit turn boundaries)
+        agent_name:
+          type: string
+          nullable: true
+          description: >
+            Foundry agent name. When set with project_name, enables agent mode.
+            In agent mode, the agent manages its own instructions and tools.
+        project_name:
+          type: string
+          nullable: true
+          description: Foundry project name (required for agent mode)
+        agent_version:
+          type: string
+          nullable: true
+          description: "Agent version pin (default: latest version)"
+        conversation_id:
+          type: string
+          nullable: true
+          description: Optional conversation ID to reconnect to a previous agent conversation
+        foundry_resource_override:
+          type: string
+          nullable: true
+          description: >
+            Foundry resource name for cross-resource agent connections.
+            Use when the agent is hosted on a different Foundry resource than VoiceLive.
+        authentication_identity_client_id:
+          type: string
+          nullable: true
+          description: >
+            Managed identity client ID for cross-resource authentication.
+            Required when foundry_resource_override is set.
     
     SessionConfigInput:
       type: object
@@ -1114,3 +1178,28 @@ components:
           type: boolean
         is_default:
           type: boolean
+        push_to_talk:
+          type: boolean
+        agent_name:
+          type: string
+          nullable: true
+          description: Foundry agent name (enables agent mode when set with project_name)
+        project_name:
+          type: string
+          nullable: true
+          description: Foundry project name (required for agent mode)
+        agent_version:
+          type: string
+          nullable: true
+          description: "Agent version pin (default: latest)"
+        conversation_id:
+          type: string
+          nullable: true
+        foundry_resource_override:
+          type: string
+          nullable: true
+          description: Foundry resource name for cross-resource agent connections
+        authentication_identity_client_id:
+          type: string
+          nullable: true
+          description: Managed identity client ID for cross-resource auth

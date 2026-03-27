@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Any
 
 from dotenv import load_dotenv
 from azure.identity import DefaultAzureCredential
-from azure.ai.voicelive.aio import connect as voicelive_connect
+from azure.ai.voicelive.aio import connect as voicelive_connect, AgentSessionConfig
 from azure.ai.voicelive.models import (
     ServerEventType,
     RequestSession,
@@ -182,6 +182,16 @@ class SessionConfig:
     # Tools
     tools: Optional[List[Dict[str, Any]]] = None
     tool_definitions: Optional[List[Dict[str, Any]]] = None
+    # Agent mode (Foundry Agent integration)
+    agent_name: Optional[str] = None
+    project_name: Optional[str] = None
+    agent_version: Optional[str] = None
+    conversation_id: Optional[str] = None
+    foundry_resource_override: Optional[str] = None
+    authentication_identity_client_id: Optional[str] = None
+    # Override tracking (set during config resolution, not by user)
+    _voice_explicitly_set: bool = False
+    _vad_explicitly_set: bool = False
 
     def get_transcription_model(self) -> str:
         """Return the appropriate transcription model for the configured model."""
@@ -202,6 +212,29 @@ class SessionConfig:
         if self.tools:
             return f"{self.instructions} Use available tools when appropriate."
         return self.instructions
+
+    @property
+    def is_agent_mode(self) -> bool:
+        """True when agent_name and project_name are set (Foundry Agent integration)."""
+        return bool(self.agent_name and self.project_name)
+
+    def build_agent_config(self) -> Optional[Dict[str, Any]]:
+        """Build AgentSessionConfig dict for VoiceLive connect() in agent mode."""
+        if not self.is_agent_mode:
+            return None
+        config: Dict[str, Any] = {
+            "agent_name": self.agent_name,
+            "project_name": self.project_name,
+        }
+        if self.agent_version:
+            config["agent_version"] = self.agent_version
+        if self.conversation_id:
+            config["conversation_id"] = self.conversation_id
+        if self.foundry_resource_override:
+            config["foundry_resource_override"] = self.foundry_resource_override
+        if self.authentication_identity_client_id and self.foundry_resource_override:
+            config["authentication_identity_client_id"] = self.authentication_identity_client_id
+        return config
 
 
 @dataclass
@@ -664,7 +697,11 @@ def _resolve_audio_from_media(
 # ---------------------------------------------------------------------------
 
 async def configure_session(connection: Any, config: SessionConfig) -> None:
-    """Send a session.update to the VoiceLive connection."""
+    """Send a session.update to the VoiceLive connection.
+    
+    In agent mode, sends minimal config (the agent manages its own settings).
+    If voice/VAD/audio settings are explicitly overridden, they are included.
+    """
     # Voice
     if config.voice_type == "preset":
         sdk_voice = OpenAIVoice(name=config.voice)
@@ -684,31 +721,61 @@ async def configure_session(connection: Any, config: SessionConfig) -> None:
     if config.vad_type == "server_vad":
         sdk_turn_detection = ServerVad(**vad_kwargs)
     else:
-        # azure_semantic_vad_multilingual (default)
         if config.supports_eou_detection() and config.use_eou_detection:
             vad_kwargs["end_of_utterance_detection"] = EouDetection(model=config.eou_model)
         sdk_turn_detection = AzureSemanticVadMultilingual(**vad_kwargs)
 
-    sdk_session = RequestSession(
-        modalities=[Modality.TEXT, Modality.AUDIO],
-        instructions=config.get_final_instructions(),
-        voice=sdk_voice,
-        turn_detection=sdk_turn_detection,
-        input_audio_transcription=AudioInputTranscriptionOptions(model=config.get_transcription_model()),
-        input_audio_noise_reduction=AudioNoiseReduction(type=config.noise_reduction),
-        input_audio_echo_cancellation=AudioEchoCancellation(type=config.echo_cancellation),
-        tools=config.tools if config.tools else None,
-        input_audio_format=InputAudioFormat.PCM16,
-        output_audio_format=OutputAudioFormat.PCM16,
-        input_audio_sampling_rate=config.sample_rate,
-    )
-    await connection.session.update(session=sdk_session)
-    logger.info(
-        f"Session configured: model={config.model}, voice={config.voice}, "
-        f"ptt={config.push_to_talk}, barge_in={config.enable_barge_in}, "
-        f"vad={config.vad_type}, noise_reduction={config.noise_reduction}, "
-        f"transcription={config.get_transcription_model()}"
-    )
+    if config.is_agent_mode:
+        # Agent mode: minimal session config — agent manages instructions/tools
+        session_kwargs = {
+            "modalities": [Modality.TEXT, Modality.AUDIO],
+            "input_audio_format": InputAudioFormat.PCM16,
+            "output_audio_format": OutputAudioFormat.PCM16,
+            "input_audio_sampling_rate": config.sample_rate,
+        }
+        # Include overrides only if explicitly set (not defaults)
+        if config._voice_explicitly_set:
+            session_kwargs["voice"] = sdk_voice
+            logger.info(f"Agent mode: overriding voice with local value {config.voice}")
+        if config._vad_explicitly_set:
+            session_kwargs["turn_detection"] = sdk_turn_detection
+            logger.info(f"Agent mode: overriding turn_detection with local value {config.vad_type}")
+        # Always include audio processing (these are client-side settings)
+        session_kwargs["input_audio_noise_reduction"] = AudioNoiseReduction(type=config.noise_reduction)
+        session_kwargs["input_audio_echo_cancellation"] = AudioEchoCancellation(type=config.echo_cancellation)
+        # Transcription is useful for evaluation
+        session_kwargs["input_audio_transcription"] = AudioInputTranscriptionOptions(model=config.get_transcription_model())
+        
+        sdk_session = RequestSession(**session_kwargs)
+        await connection.session.update(session=sdk_session)
+        logger.info(
+            f"Agent mode session configured (minimal): voice_override={config._voice_explicitly_set}, "
+            f"vad_override={config._vad_explicitly_set}, "
+            f"noise_reduction={config.noise_reduction}, "
+            f"transcription={config.get_transcription_model()}"
+        )
+    else:
+        # Model mode: full session configuration (existing behavior)
+        sdk_session = RequestSession(
+            modalities=[Modality.TEXT, Modality.AUDIO],
+            instructions=config.get_final_instructions(),
+            voice=sdk_voice,
+            turn_detection=sdk_turn_detection,
+            input_audio_transcription=AudioInputTranscriptionOptions(model=config.get_transcription_model()),
+            input_audio_noise_reduction=AudioNoiseReduction(type=config.noise_reduction),
+            input_audio_echo_cancellation=AudioEchoCancellation(type=config.echo_cancellation),
+            tools=config.tools if config.tools else None,
+            input_audio_format=InputAudioFormat.PCM16,
+            output_audio_format=OutputAudioFormat.PCM16,
+            input_audio_sampling_rate=config.sample_rate,
+        )
+        await connection.session.update(session=sdk_session)
+        logger.info(
+            f"Session configured: model={config.model}, voice={config.voice}, "
+            f"ptt={config.push_to_talk}, barge_in={config.enable_barge_in}, "
+            f"vad={config.vad_type}, noise_reduction={config.noise_reduction}, "
+            f"transcription={config.get_transcription_model()}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -802,6 +869,33 @@ async def process_audio(
 
                 if etype == ServerEventType.SESSION_CREATED:
                     logger.debug(f"Session: {getattr(event.session, 'id', None)}")
+
+                elif etype == ServerEventType.SESSION_UPDATED:
+                    logger.debug("Session updated")
+                    # Capture agent session metadata for transparency
+                    if config.is_agent_mode and hasattr(event, 'session'):
+                        try:
+                            session_data = event.session
+                            agent_meta = {}
+                            if hasattr(session_data, 'agent') and session_data.agent:
+                                a = session_data.agent
+                                agent_meta["agent_name"] = getattr(a, 'name', None)
+                                agent_meta["agent_description"] = getattr(a, 'description', None)
+                                agent_meta["agent_id"] = getattr(a, 'agent_id', None)
+                                agent_meta["thread_id"] = getattr(a, 'thread_id', None)
+                            if hasattr(session_data, 'voice') and session_data.voice:
+                                v = session_data.voice
+                                if isinstance(v, dict):
+                                    agent_meta["effective_voice"] = v
+                                else:
+                                    agent_meta["effective_voice"] = {
+                                        "name": getattr(v, 'name', None),
+                                        "type": getattr(v, 'type', None),
+                                        "temperature": getattr(v, 'temperature', None),
+                                    }
+                            logger.info(f"Agent session metadata: {json.dumps(agent_meta, default=str)}")
+                        except Exception as e:
+                            logger.warning(f"Failed to capture agent session metadata: {e}")
 
                 elif etype == ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
                     logger.debug("Speech started (VAD)")
@@ -1539,6 +1633,13 @@ async def main_async(args: argparse.Namespace) -> None:
         logger.error("No entries found in dataset — exiting")
         return
 
+    # Agent mode (CLI args > env vars)
+    agent_name = getattr(args, 'agent_name', None) or os.environ.get("AGENT_NAME")
+    project_name_val = getattr(args, 'project_name', None) or os.environ.get("PROJECT_NAME")
+    agent_version = getattr(args, 'agent_version', None) or os.environ.get("AGENT_VERSION")
+    foundry_resource_override = getattr(args, 'foundry_resource_override', None) or os.environ.get("FOUNDRY_RESOURCE_OVERRIDE")
+    auth_identity_client_id = getattr(args, 'authentication_identity_client_id', None) or os.environ.get("AGENT_AUTHENTICATION_IDENTITY_CLIENT_ID")
+
     config = SessionConfig(
         model=model,
         voice=args.voice,
@@ -1554,7 +1655,32 @@ async def main_async(args: argparse.Namespace) -> None:
         silence_duration_ms=getattr(args, 'silence_duration_ms', None),
         use_eou_detection=getattr(args, 'use_eou_detection', True),
         eou_model=getattr(args, 'eou_model', 'semantic_detection_v1_multilingual'),
+        agent_name=agent_name,
+        project_name=project_name_val,
+        agent_version=agent_version,
+        foundry_resource_override=foundry_resource_override,
+        authentication_identity_client_id=auth_identity_client_id,
     )
+
+    # Validate agent mode config completeness
+    if (config.agent_name or config.project_name) and not config.is_agent_mode:
+        missing = "project_name" if config.agent_name else "agent_name"
+        raise ValueError(
+            f"Incomplete agent mode config: {missing} is required when "
+            f"{'agent_name' if config.agent_name else 'project_name'} is set"
+        )
+
+    # Track whether voice/VAD were explicitly overridden (for agent mode)
+    is_default_voice = (config.voice == 'en-US-Ava:DragonHDLatestNeural' and config.voice_type == 'azure-standard')
+    is_default_vad = (
+        config.vad_type == 'azure_semantic_vad_multilingual'
+        and config.vad_threshold is None
+        and config.silence_duration_ms is None
+        and config.use_eou_detection is True
+        and config.enable_barge_in is True
+    )
+    config._voice_explicitly_set = not is_default_voice
+    config._vad_explicitly_set = not is_default_vad
 
     # Evaluation output file — aggregate file (batch mode) or auto-generated
     eval_dir = getattr(args, "evaluation_dir", None) or args.output_dir
@@ -1588,17 +1714,33 @@ async def main_async(args: argparse.Namespace) -> None:
         connect_kwargs: Dict[str, Any] = {
             "endpoint": endpoint,
             "credential": credential,
-            "model": model,
         }
+        if config.is_agent_mode:
+            agent_cfg = config.build_agent_config()
+            connect_kwargs["agent_config"] = agent_cfg
+            logger.info(f"Connecting in agent mode: agent={config.agent_name}, project={config.project_name}, version={config.agent_version}")
+        else:
+            connect_kwargs["model"] = model
         if api_version:
             connect_kwargs["api_version"] = api_version
 
-        async with voicelive_connect(**connect_kwargs) as connection:
-            results = await process_conversation(
-                entries, connection, config, args.output_dir,
-                eval_output_file=eval_output_file,
-            )
-            all_results.extend(results)
+        try:
+            async with voicelive_connect(**connect_kwargs) as connection:
+                results = await process_conversation(
+                    entries, connection, config, args.output_dir,
+                    eval_output_file=eval_output_file,
+                )
+                all_results.extend(results)
+        except Exception as e:
+            logger.error(f"Error processing conversation '{conv_id}': {e}")
+            print(f"⚠️  Conversation '{conv_id}' failed: {e}")
+            continue
+
+    # Fail fast if no results were produced
+    if not all_results and conversation_groups:
+        logger.error("All conversations failed — no results produced")
+        print("❌ All conversations failed. Check logs for details.")
+        return
 
     # Session naming
     session_suffix = getattr(args, "session_suffix", None)
@@ -1851,6 +1993,27 @@ def main() -> None:
         '--eou-model', dest='eou_model', default='semantic_detection_v1_multilingual',
         help='EOU detection model (default: semantic_detection_v1_multilingual)',
     )
+    # Agent mode
+    parser.add_argument(
+        '--agent-name', dest='agent_name', default=None,
+        help='Foundry agent name (enables agent mode)',
+    )
+    parser.add_argument(
+        '--project-name', dest='project_name', default=None,
+        help='Foundry project name (required for agent mode)',
+    )
+    parser.add_argument(
+        '--agent-version', dest='agent_version', default=None,
+        help='Agent version pin (default: latest)',
+    )
+    parser.add_argument(
+        '--foundry-resource-override', dest='foundry_resource_override', default=None,
+        help='Foundry resource name for cross-resource agent connections',
+    )
+    parser.add_argument(
+        '--agent-auth-identity-client-id', dest='authentication_identity_client_id', default=None,
+        help='Managed identity client ID for cross-resource agent authentication',
+    )
     # Config file
     parser.add_argument(
         '--config', dest='config_file', default=None,
@@ -1904,6 +2067,13 @@ def main() -> None:
             }
             # Apply file values as defaults (CLI args take precedence)
             for key, val in file_config.items():
+                if key == "agent" and isinstance(val, dict):
+                    # Agent config section
+                    for agent_key, agent_val in val.items():
+                        dest = agent_key  # agent keys map directly
+                        if hasattr(args, dest) and getattr(args, dest) is None:
+                            setattr(args, dest, agent_val)
+                    continue
                 if isinstance(val, dict):
                     for k2, v2 in val.items():
                         dest = nested_to_dest.get((key, k2), k2)

@@ -327,6 +327,32 @@ To compare push-to-talk vs VAD on the same dataset:
 2. Run Phase 2 on each result, passing the same `eval_group_id` to group runs together
 3. Compare metrics side-by-side in the Foundry portal
 
+### Agent Mode Support
+
+The Container App supports agent mode evaluation by including an `"agent"` section in the `session_config` field of API requests:
+
+```json
+{
+  "dataset_name": "sample-dataset",
+  "session_config": {
+    "agent": {
+      "agent_name": "voicelive-demo-agent",
+      "project_name": "your-project-name",
+      "agent_version": null
+    }
+  }
+}
+```
+
+In agent mode:
+- The agent manages its own instructions and tools
+- `system_prompt` from dataset entries is not applied (the agent's built-in prompt is used)
+- Voice/VAD/audio settings in `session_config` serve as optional overrides
+- Agent mode requires Entra ID authentication (no API keys)
+- The effective agent configuration is logged in evaluation output for transparency
+
+**Deployment:** Set `AGENT_NAME` and `PROJECT_NAME` environment variables in your Container App or Function App configuration (via Bicep parameters `agentName` and `agentProjectName`).
+
 ## Available Tools
 
 ### Session Configuration Management

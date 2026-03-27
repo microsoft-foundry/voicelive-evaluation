@@ -164,6 +164,10 @@ async def run_voicelive_audio_tests(
                 detail=f"Invalid session_mode: {request.session_mode}. Must be 'per-conversation', 'per-file', or 'single'"
             )
         
+        # Log agent mode if detected
+        if request.session_config and "agent" in request.session_config:
+            logger.info(f"Agent mode requested: agent={request.session_config['agent'].get('agent_name')}")
+        
         # Start processing job
         job_id = await start_processing_job(
             dataset_path=request.dataset_path,

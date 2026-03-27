@@ -1,0 +1,20 @@
+{
+    "_description": "Sample config for VoiceLive Agent Mode evaluation. The 'agent' section enables Foundry Agent integration. Voice/VAD/audio settings below are OPTIONAL overrides — if omitted, the agent's built-in settings are used. If provided, they override the agent config for this evaluation session.",
+    "agent": {
+        "agent_name": "voicelive-demo-agent",
+        "project_name": "your-project-name",
+        "agent_version": null,
+        "foundry_resource_override": null,
+        "authentication_identity_client_id": null
+    },
+    "voice": "en-US-Ava:DragonHDLatestNeural",
+    "voice_type": "azure-standard",
+    "sample_rate": 24000,
+    "noise_reduction": "azure_deep_noise_suppression",
+    "echo_cancellation": "server_echo_cancellation",
+    "vad_type": "azure_semantic_vad_multilingual",
+    "use_eou_detection": true,
+    "eou_model": "semantic_detection_v1_multilingual",
+    "push_to_talk": false,
+    "enable_barge_in": true
+}

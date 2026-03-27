@@ -484,6 +484,161 @@ def test_model_cli_can_set_gpt_realtime():
 
 
 # ---------------------------------------------------------------------------
+# 7. Agent mode tests
+# ---------------------------------------------------------------------------
+
+def test_agent_mode_defaults_false():
+    """SessionConfig without agent fields is not agent mode."""
+    c = SessionConfig()
+    assert not c.is_agent_mode, f"Expected is_agent_mode=False, got {c.is_agent_mode}"
+
+def test_agent_mode_requires_both_fields():
+    """Agent mode requires both agent_name AND project_name."""
+    c1 = SessionConfig(agent_name="test-agent")
+    assert not c1.is_agent_mode, "agent_name alone should not enable agent mode"
+    
+    c2 = SessionConfig(project_name="test-project")
+    assert not c2.is_agent_mode, "project_name alone should not enable agent mode"
+
+def test_agent_mode_enabled():
+    """Agent mode is enabled when both fields are set."""
+    c = SessionConfig(agent_name="test-agent", project_name="test-project")
+    assert c.is_agent_mode, "Expected is_agent_mode=True"
+
+def test_build_agent_config_minimal():
+    """build_agent_config returns minimal config with required fields."""
+    c = SessionConfig(agent_name="my-agent", project_name="my-project")
+    cfg = c.build_agent_config()
+    assert cfg is not None, "Expected non-None agent config"
+    assert cfg["agent_name"] == "my-agent"
+    assert cfg["project_name"] == "my-project"
+    assert "agent_version" not in cfg
+    assert "conversation_id" not in cfg
+
+def test_build_agent_config_full():
+    """build_agent_config includes optional fields when set."""
+    c = SessionConfig(
+        agent_name="my-agent",
+        project_name="my-project",
+        agent_version="v2",
+        conversation_id="conv-123",
+        foundry_resource_override="other-resource",
+        authentication_identity_client_id="client-id-abc",
+    )
+    cfg = c.build_agent_config()
+    assert cfg["agent_version"] == "v2"
+    assert cfg["conversation_id"] == "conv-123"
+    assert cfg["foundry_resource_override"] == "other-resource"
+    assert cfg["authentication_identity_client_id"] == "client-id-abc"
+
+def test_build_agent_config_none_when_not_agent_mode():
+    """build_agent_config returns None when not in agent mode."""
+    c = SessionConfig()
+    assert c.build_agent_config() is None
+
+def test_build_agent_config_auth_requires_resource_override():
+    """authentication_identity_client_id only included when foundry_resource_override is set."""
+    c = SessionConfig(
+        agent_name="agent",
+        project_name="project",
+        authentication_identity_client_id="client-id",
+    )
+    cfg = c.build_agent_config()
+    assert "authentication_identity_client_id" not in cfg, \
+        "auth client ID should not be included without foundry_resource_override"
+
+def test_agent_mode_config_file_loading():
+    """Config file with agent section sets agent mode fields."""
+    config_data = {
+        "agent": {
+            "agent_name": "file-agent",
+            "project_name": "file-project",
+            "agent_version": "v3",
+        },
+        "voice": "en-US-Andrew:DragonHDLatestNeural",
+    }
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(config_data, f)
+        tmp_path = f.name
+    try:
+        with open(tmp_path, 'r') as f:
+            loaded = json.load(f)
+        assert "agent" in loaded
+        assert loaded["agent"]["agent_name"] == "file-agent"
+        assert loaded["agent"]["project_name"] == "file-project"
+    finally:
+        os.unlink(tmp_path)
+
+def test_agent_mode_override_tracking():
+    """Override tracking fields default to False."""
+    c = SessionConfig()
+    assert c._voice_explicitly_set is False
+    assert c._vad_explicitly_set is False
+
+def test_agent_mode_with_model_fields_preserved():
+    """Agent mode config still has model mode fields accessible."""
+    c = SessionConfig(
+        agent_name="agent",
+        project_name="project",
+        model="gpt-realtime",
+        voice="en-US-Ava:DragonHDLatestNeural",
+    )
+    assert c.is_agent_mode
+    assert c.model == "gpt-realtime"
+    assert c.voice == "en-US-Ava:DragonHDLatestNeural"
+
+
+def test_agent_mode_cross_resource_config():
+    """Cross-resource agent config includes foundry_resource_override."""
+    c = SessionConfig(
+        agent_name="VoiceAgentwBingWebSearch",
+        project_name="jagoerge-voicelive-sec",
+        agent_version="14",
+        foundry_resource_override="jagoerge-voicelive-sec-resource",
+    )
+    assert c.is_agent_mode, "Expected agent mode enabled"
+    cfg = c.build_agent_config()
+    assert cfg["foundry_resource_override"] == "jagoerge-voicelive-sec-resource"
+    assert "authentication_identity_client_id" not in cfg, \
+        "auth client ID should not be included without explicit value"
+
+
+def test_agent_mode_cross_resource_with_auth():
+    """Cross-resource with auth identity client ID."""
+    c = SessionConfig(
+        agent_name="VoiceAgentwBingWebSearch",
+        project_name="jagoerge-voicelive-sec",
+        foundry_resource_override="jagoerge-voicelive-sec-resource",
+        authentication_identity_client_id="test-client-id",
+    )
+    cfg = c.build_agent_config()
+    assert cfg["authentication_identity_client_id"] == "test-client-id"
+    assert cfg["foundry_resource_override"] == "jagoerge-voicelive-sec-resource"
+
+
+def test_agent_mode_cross_resource_config_file():
+    """Loading cross-resource config from sample file."""
+    config_data = {
+        "agent": {
+            "agent_name": "VoiceAgentwBingWebSearch",
+            "project_name": "jagoerge-voicelive-sec",
+            "agent_version": "14",
+            "foundry_resource_override": "jagoerge-voicelive-sec-resource",
+        }
+    }
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(config_data, f)
+        tmp_path = f.name
+    try:
+        with open(tmp_path, 'r') as f:
+            loaded = json.load(f)
+        assert loaded["agent"]["foundry_resource_override"] == "jagoerge-voicelive-sec-resource"
+        assert loaded["agent"]["agent_version"] == "14"
+    finally:
+        os.unlink(tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -545,6 +700,21 @@ def main():
             test_model_cli_overrides_env,
             test_model_no_env_uses_default,
             test_model_cli_can_set_gpt_realtime,
+        ]),
+        ("Agent Mode", [
+            test_agent_mode_defaults_false,
+            test_agent_mode_requires_both_fields,
+            test_agent_mode_enabled,
+            test_build_agent_config_minimal,
+            test_build_agent_config_full,
+            test_build_agent_config_none_when_not_agent_mode,
+            test_build_agent_config_auth_requires_resource_override,
+            test_agent_mode_config_file_loading,
+            test_agent_mode_override_tracking,
+            test_agent_mode_with_model_fields_preserved,
+            test_agent_mode_cross_resource_config,
+            test_agent_mode_cross_resource_with_auth,
+            test_agent_mode_cross_resource_config_file,
         ]),
     ]
 

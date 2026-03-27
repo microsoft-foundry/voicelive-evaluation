@@ -31,6 +31,15 @@ param enableEntraAuth bool = true
 @description('App Registration Client ID for Container App Easy Auth')
 param entraClientId string = ''
 
+@description('Optional: Foundry agent name for agent mode')
+param agentName string = ''
+
+@description('Optional: Foundry project name for agent mode')
+param agentProjectName string = ''
+
+@description('Optional: Foundry resource override for cross-resource agent connections')
+param foundryResourceOverride string = ''
+
 // Generate ACR name if not provided
 var effectiveAcrName = !empty(acrName) ? acrName : 'acr${uniqueString(resourceGroup().id)}'
 
@@ -111,7 +120,22 @@ var appInsightsEnvVar = !empty(appInsightsConnectionString) ? [
   }
 ]
 
-var allEnvVars = concat(baseEnvVars, appInsightsEnvVar)
+var agentEnvVars = [
+  {
+    name: 'AGENT_NAME'
+    value: agentName
+  }
+  {
+    name: 'PROJECT_NAME'
+    value: agentProjectName
+  }
+  {
+    name: 'FOUNDRY_RESOURCE_OVERRIDE'
+    value: foundryResourceOverride
+  }
+]
+
+var allEnvVars = concat(baseEnvVars, appInsightsEnvVar, agentEnvVars)
 
 // Container App
 resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {

@@ -407,6 +407,9 @@ The `sessionconfigs` table stores VoiceLive session presets:
 | VoiceName | string | Voice preset name |
 | VoiceType | string | Voice type (preset/custom) |
 | IsDefault | string | Is this the default config (true/false) |
+| AgentName | string | Optional Foundry agent name (enables agent mode) |
+| ProjectName | string | Optional Foundry project name (required for agent mode) |
+| AgentVersion | string | Optional agent version pin (default: latest) |
 
 ### Job Persistence Table
 
@@ -490,6 +493,10 @@ The system separates concerns across three primary services:
 ## VoiceLive Audio Processing
 
 The VoiceLive Container App processes audio files through the VoiceLive SDK in two modes: **VAD mode** (default) uses server-side Voice Activity Detection to auto-detect speech boundaries and trigger responses, while **PTT mode** (`push_to_talk=true`) has the client send audio, commit the buffer, and explicitly call `response.create()`. Both modes support tool calls via the SDK pattern of `FunctionCallOutputItem` with `previous_item_id`, executed after `RESPONSE_DONE`.
+
+### Agent Mode
+
+In addition to direct model mode, VoiceLive supports **agent mode** — connecting to a Foundry Agent instead of a bare model deployment. When `agent_name` and `project_name` are provided (via `session_config.agent` in API requests or via `AGENT_NAME`/`PROJECT_NAME` env vars), the Container App passes an `agent_config` during connection. The agent manages its own instructions, tools, and voice settings; session configuration fields serve as optional overrides. Agent mode requires Entra ID authentication (`DefaultAzureCredential`). The effective agent configuration (name, description, agent ID, voice, temperature, thread ID) is captured from the `SESSION_UPDATED` event and included in evaluation output.
 
 ### VAD Mode Flow
 

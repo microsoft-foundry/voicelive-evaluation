@@ -42,6 +42,11 @@ classDiagram
         +bool enable_barge_in
         +Optional~List~ tools
         +Optional~List~ tool_definitions
+        +agent_name: Optional~str~
+        +project_name: Optional~str~
+        +agent_version: Optional~str~
+        +is_agent_mode: bool
+        +build_agent_config(): Dict
     }
     class ConversationTurn {
         +int turn_number
@@ -71,6 +76,41 @@ classDiagram
     }
     DatasetEntry --> SessionConfig : configures
     SessionConfig --> ConversationTurn : produces
+```
+
+## Agent Mode Connection Flow
+
+When agent mode is enabled (`--agent-name` + `--project-name`), the connection and session setup differs from model mode:
+
+```mermaid
+sequenceDiagram
+    participant CLI as Harness CLI
+    participant SDK as VoiceLive SDK
+    participant VL as VoiceLive Service
+    participant Agent as Foundry Agent
+
+    CLI->>CLI: Detect agent mode (agent_name + project_name set)
+    CLI->>SDK: connect(endpoint, credential, agent_config={...})
+    SDK->>VL: WebSocket connect with agent_config
+    VL->>Agent: Resolve agent (name, version, project)
+    Agent-->>VL: Agent config (instructions, tools, voice, etc.)
+    VL-->>SDK: Connection established
+    SDK-->>CLI: Connection ready
+
+    CLI->>SDK: session.update(minimal RequestSession)
+    Note over CLI,SDK: Only modalities, audio format,<br/>noise reduction, transcription.<br/>Voice/VAD only if explicitly overridden.
+    SDK->>VL: Session configuration
+    VL-->>SDK: SESSION_UPDATED (effective config)
+    SDK-->>CLI: Agent metadata captured<br/>(name, description, voice, temperature)
+
+    loop Per Audio Turn
+        CLI->>SDK: Send audio
+        SDK->>VL: Audio stream
+        VL->>Agent: Process with agent logic
+        Agent-->>VL: Response
+        VL-->>SDK: Transcription + response
+        SDK-->>CLI: ConversationTurn result
+    end
 ```
 
 ## VAD Mode Processing Flow

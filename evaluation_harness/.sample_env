@@ -8,3 +8,16 @@ AZURE_VOICE_LIVE_API_KEY=  # Only required if not using DefaultAzureCredential
 PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
 AOAI_DEPLOYMENT_NAME=gpt-4.1-mini
 AOAI_REASONING_DEPLOYMENT_NAME=o4-mini
+
+# --- Agent Mode (Foundry Agent integration) ---
+# Same-resource agent (agent on same Foundry resource as VoiceLive endpoint)
+# AGENT_NAME=voicelive-demo-agent
+# PROJECT_NAME=your-project-name
+# AGENT_VERSION=
+
+# Cross-resource agent (agent on a different Foundry resource)
+# AGENT_NAME=VoiceAgentwBingWebSearch
+# PROJECT_NAME=jagoerge-voicelive-sec
+# AGENT_VERSION=14
+# FOUNDRY_RESOURCE_OVERRIDE=jagoerge-voicelive-sec-resource
+# AGENT_AUTHENTICATION_IDENTITY_CLIENT_ID=
