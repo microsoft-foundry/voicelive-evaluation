@@ -64,6 +64,9 @@
     },
     "agentProjectName": {
       "value": "${AGENT_PROJECT_NAME=}"
+    },
+    "foundryResourceOverride": {
+      "value": "${FOUNDRY_RESOURCE_OVERRIDE=}"
     }
   }
 }

@@ -868,6 +868,17 @@ def update_session_config_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             if key in body:
                 config[key] = body[key]
         
+        # Validate agent mode completeness after merge
+        merged_agent_name = config.get("agent_name", "")
+        merged_project_name = config.get("project_name", "")
+        if (merged_agent_name or merged_project_name) and not (merged_agent_name and merged_project_name):
+            missing = "project_name" if merged_agent_name else "agent_name"
+            return func.HttpResponse(
+                json.dumps({"error": f"Incomplete agent config after merge: {missing} is required when {'agent_name' if merged_agent_name else 'project_name'} is set"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
         success = upsert_session_config(config)
         
         if not success:

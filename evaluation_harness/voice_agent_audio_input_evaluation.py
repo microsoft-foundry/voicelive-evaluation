@@ -1672,7 +1672,13 @@ async def main_async(args: argparse.Namespace) -> None:
 
     # Track whether voice/VAD were explicitly overridden (for agent mode)
     is_default_voice = (config.voice == 'en-US-Ava:DragonHDLatestNeural' and config.voice_type == 'azure-standard')
-    is_default_vad = (config.vad_type == 'azure_semantic_vad_multilingual')
+    is_default_vad = (
+        config.vad_type == 'azure_semantic_vad_multilingual'
+        and config.vad_threshold is None
+        and config.silence_duration_ms is None
+        and config.use_eou_detection is True
+        and config.enable_barge_in is True
+    )
     config._voice_explicitly_set = not is_default_voice
     config._vad_explicitly_set = not is_default_vad
 

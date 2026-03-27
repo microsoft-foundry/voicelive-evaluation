@@ -181,7 +181,7 @@ $configs = @(
         RowKey = "agent-mode"
         PartitionKey = "voicelive"
         Name = "agent-mode"
-        Description = "Agent mode - Foundry Agent integration (voicelive-demo-agent). Agent manages instructions and tools."
+        Description = "Agent mode template - Set AgentName and ProjectName to enable Foundry Agent integration"
         Model = ""
         SampleRate = "24000"
         VoiceName = "en-US-Ava:DragonHDLatestNeural"
@@ -196,7 +196,7 @@ $configs = @(
         EchoCancellation = "server_echo_cancellation"
         IsDefault = "false"
         PushToTalk = "false"
-        AgentName = "voicelive-demo-agent"
+        AgentName = ""
         ProjectName = ""
         AgentVersion = ""
     },

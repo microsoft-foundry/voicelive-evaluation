@@ -22,7 +22,7 @@ from operator import attrgetter
 
 from azure.identity import DefaultAzureCredential
 
-from .config import SessionConfig, DEFAULT_SESSION_CONFIG
+from .config import SessionConfig, DEFAULT_SESSION_CONFIG, ProcessorMode
 from .voicelive_client import VoiceLiveClient, ConversationTurn, sanitize_text_for_utf8
 from .storage import BlobStorageClient, DatasetEntry
 from .jobs import job_manager, JobStatus
@@ -457,6 +457,22 @@ async def process_dataset(
         else:
             config = DEFAULT_SESSION_CONFIG
         config.model = voicelive_model
+        
+        # Env var fallback for agent mode
+        if not config.is_agent_mode:
+            env_agent_name = os.environ.get("AGENT_NAME", "")
+            env_project_name = os.environ.get("PROJECT_NAME", "")
+            if env_agent_name and env_project_name:
+                from .config import AgentConfig
+                config.agent = AgentConfig(
+                    agent_name=env_agent_name,
+                    project_name=env_project_name,
+                    agent_version=os.environ.get("AGENT_VERSION"),
+                    foundry_resource_override=os.environ.get("FOUNDRY_RESOURCE_OVERRIDE"),
+                    authentication_identity_client_id=os.environ.get("AGENT_AUTHENTICATION_IDENTITY_CLIENT_ID"),
+                )
+                config.mode = ProcessorMode.AGENT_MODE
+                logger.info(f"Agent mode enabled via env vars: agent={env_agent_name}, project={env_project_name}")
         
         # Download and parse dataset from Foundry or blob
         if foundry_dataset:
