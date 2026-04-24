@@ -17,4 +17,4 @@ python-dotenv>=1.0.0
 # Tracing and Monitoring
 opentelemetry-sdk>=1.20.0
 azure-core-tracing-opentelemetry>=1.0.0b11
-azure-monitor-opentelemetry>=1.6.0  # App Insights integration
+azure-monitor-opentelemetry>=1.8.7  # App Insights integration
