@@ -2,7 +2,7 @@
 # Azure AI Projects SDK based implementation (new Foundry Portal)
 
 # Azure AI SDKs
-azure-ai-projects>=2.0.0b4      # Primary SDK for Foundry (new API)
+azure-ai-projects>=2.1.0      # Primary SDK for Foundry (new API)
 azure-ai-agents>=1.2.0b6        # Agent models (FunctionTool, etc.)
 azure-ai-evaluation>=1.15.3     # Foundry evaluators (stable release)
 azure-identity>=1.25.1
