@@ -18,7 +18,7 @@ azure-monitor-opentelemetry>=1.6.4
 opentelemetry-instrumentation-fastapi>=0.49b0
 
 # Audio processing
-numpy>=1.24.0
+numpy>=2.4.4
 
 # Async utilities
 aiofiles>=23.2.0
