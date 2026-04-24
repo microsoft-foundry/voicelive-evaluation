@@ -6,7 +6,7 @@ fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 
 # Azure SDKs
-azure-identity>=1.25.1
+azure-identity>=1.25.3
 azure-ai-voicelive>=1.2.0b4
 azure-ai-projects>=1.0.0b7
 azure-storage-blob>=12.19.0
