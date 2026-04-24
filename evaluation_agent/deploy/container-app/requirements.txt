@@ -22,7 +22,7 @@ numpy>=1.24.0
 
 # Async utilities
 aiofiles>=23.2.0
-aiohttp>=3.9.0
+aiohttp>=3.13.5
 
 # Environment and utilities
 python-dotenv>=1.0.0
