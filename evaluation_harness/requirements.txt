@@ -11,4 +11,4 @@ azure-core>=1.30.0
 numpy>=1.24.0
 
 # Environment and utilities
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
