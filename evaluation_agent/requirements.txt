@@ -12,7 +12,7 @@ azure-core>=1.36.0
 azure-storage-blob>=12.19.0
 
 # Environment configuration
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
 
 # Tracing and Monitoring
 opentelemetry-sdk>=1.20.0
