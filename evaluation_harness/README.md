@@ -174,6 +174,7 @@ Voice Live transcription handles punctuation automatically:
 | Argument | Default | Description |
 |---|---|---|
 | `--config` | `None` | Load session config from a JSON file (CLI args override file values) |
+| `--api-key` | `None` | Azure VoiceLive API key (overrides `DefaultAzureCredential`; fallback: `AZURE_VOICELIVE_API_KEY` env var) |
 
 ### Batch Processing
 
@@ -431,9 +432,10 @@ The script loads `.env` from its own directory (next to the script) regardless o
 ### Credential Setup
 
 Authentication uses `DefaultAzureCredential`, which tries credentials in this order:
-1. **Environment variables** (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET`)
-2. **Azure CLI** (`az login`) — **recommended for local development**
-3. **Managed Identity** — recommended for cloud/CI environments
+1. **CLI `--api-key` argument** — highest priority, for quick testing
+2. **Environment variables** (`AZURE_VOICELIVE_API_KEY`, or `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_CLIENT_SECRET`)
+3. **Azure CLI** (`az login`) — **recommended for local development**
+4. **Managed Identity** — recommended for cloud/CI environments
 
 #### Quick setup (local development)
 

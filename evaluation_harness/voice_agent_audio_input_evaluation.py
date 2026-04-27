@@ -26,6 +26,7 @@ from typing import Dict, List, Optional, Any
 
 from dotenv import load_dotenv
 from azure.identity import DefaultAzureCredential
+from azure.core.credentials import AzureKeyCredential, AccessToken
 from azure.ai.voicelive.aio import connect as voicelive_connect, AgentSessionConfig
 from azure.ai.voicelive.models import (
     ServerEventType,
@@ -52,6 +53,15 @@ if sys.stderr.encoding != 'utf-8':
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 logger = logging.getLogger(__name__)
+
+
+class StaticTokenCredential:
+    """Credential that returns a pre-fetched bearer token (avoids AzureCLI timeout)."""
+    def __init__(self, token: str):
+        self._token = token
+    def get_token(self, *scopes, **kwargs):
+        return AccessToken(self._token, 0)
+
 
 # ---------------------------------------------------------------------------
 # Default system instruction
@@ -1703,7 +1713,22 @@ async def main_async(args: argparse.Namespace) -> None:
     logger.info(f"Processing {len(all_entries)} files in {len(conversation_groups)} conversation(s)")
 
     all_results: List[Dict[str, Any]] = []
-    credential = DefaultAzureCredential()
+    # Auth priority: bearer token (for agent cross-resource) > CLI --api-key > env API key > DefaultAzureCredential
+    bearer_token = os.environ.get("AZURE_VOICELIVE_BEARER_TOKEN")
+    api_key = (
+        getattr(args, 'api_key', None)
+        or os.environ.get("AZURE_VOICELIVE_API_KEY")
+        or os.environ.get("AZURE_VOICE_LIVE_API_KEY")
+    )
+    if bearer_token:
+        credential = StaticTokenCredential(bearer_token)
+        logger.info("Using pre-fetched bearer token authentication")
+    elif api_key:
+        credential = AzureKeyCredential(api_key)
+        logger.info("Using API key authentication")
+    else:
+        credential = DefaultAzureCredential()
+        logger.info("Using DefaultAzureCredential (no API key found)")
     api_version = (
         os.environ.get("AZURE_VOICELIVE_API_VERSION")
         or os.environ.get("AZURE_VOICE_LIVE_API_VERSION")
@@ -2018,6 +2043,11 @@ def main() -> None:
     parser.add_argument(
         '--config', dest='config_file', default=None,
         help='Load session config from a JSON file (CLI args override file values)',
+    )
+    # Authentication
+    parser.add_argument(
+        '--api-key', dest='api_key', default=None,
+        help='Azure VoiceLive API key (overrides DefaultAzureCredential; fallback: AZURE_VOICELIVE_API_KEY env var)',
     )
     # Evaluators
     parser.add_argument(
