@@ -80,6 +80,40 @@ Client sends all audio, then explicitly commits the buffer and requests a respon
 python voice_agent_audio_input_evaluation.py -f dataset.jsonl --push-to-talk
 ```
 
+### PTT vs VAD Guidance
+
+**VAD mode is recommended for all production evaluations.** PTT mode is experimental and has known platform limitations.
+
+| Aspect | VAD Mode | PTT Mode |
+|---|---|---|
+| **Audio response rate** | ~100% | ~83% (platform limitation) |
+| **Turn detection** | Automatic (semantic VAD) | Client-controlled (commit + response.create) |
+| **EOU detection** | Enabled (recommended) | Disabled (prevents premature cutoff) |
+| **Barge-in** | Enabled (natural conversation) | Disabled (no concurrent playback) |
+| **Best for** | Production evaluation, customer demos | Testing client-controlled scenarios |
+
+#### Why PTT has lower response rates
+
+Voice Live requires a `turn_detection` configuration — `turn_detection=None` is not supported. In PTT mode, the background VAD can interfere with the client's explicit commit/response flow, causing:
+- Premature turn finalization before the client commits
+- `conversation_already_has_active_response` errors when VAD and PTT both trigger
+- Dropped audio responses (~17% of turns affected)
+
+#### PTT configuration strategy
+
+The PTT sample configs use these mitigations:
+1. **`server_vad`** instead of semantic VAD — simpler, less aggressive (200ms speech threshold vs 80ms)
+2. **`silence_duration_ms: 2000`** — extended silence timeout reduces premature end-of-speech detection
+3. **`use_eou_detection: false`** — prevents semantic end-of-utterance from finalizing the turn early
+4. **`enable_barge_in: false`** — prevents auto-truncation interference
+
+#### Transcription and punctuation
+
+Voice Live transcription handles punctuation automatically:
+- **Cascaded models** (gpt-5, gpt-4.1): Azure Speech STT adds punctuation (periods, commas, question marks) based on speech patterns
+- **Real-time models** (gpt-realtime): The model's built-in transcription (e.g., `gpt-4o-transcribe`) handles punctuation
+- Evaluation JSONL output includes the transcribed text as-is; the evaluation SDK's GPT-judge evaluators compare semantically, so minor punctuation differences do not affect scores
+
 ## CLI Arguments
 
 ### Core
@@ -181,6 +215,53 @@ Load session configuration from a JSON file with `--config`. CLI args override f
 ```
 
 The config file uses a flat key format for simplicity. It is conceptually aligned with the Container App's `SessionConfig` options but uses flat keys (e.g., `voice`, `voice_type`) rather than the nested structure from `SessionConfig.to_dict()`. Both flat and nested formats are supported when loading.
+
+### Sample Configs
+
+Pre-built sample configs are available in the `configs/` directory. Use them as starting points for your evaluations:
+
+#### Production-Ready (VAD Mode — Recommended)
+
+| Config File | Model | VAD | EOU | Use Case |
+|---|---|---|---|---|
+| [`sample_vad_realtime.json`](configs/sample_vad_realtime.json) | `gpt-realtime` | `azure_semantic_vad_multilingual` | ✅ Enabled | Real-time native audio model. Lowest latency, recommended for most evaluations. |
+| [`sample_vad_cascaded.json`](configs/sample_vad_cascaded.json) | `gpt-5` | `azure_semantic_vad_multilingual` | ✅ Enabled | Cascaded mode (Azure STT → LLM → Azure TTS). Broader model selection (GPT-5, GPT-4.1, Phi). |
+
+#### Experimental (PTT Mode)
+
+| Config File | Model | VAD | EOU | Use Case |
+|---|---|---|---|---|
+| [`sample_ptt_realtime.json`](configs/sample_ptt_realtime.json) | `gpt-realtime` | `server_vad` (2000ms silence) | ❌ Disabled | Push-to-talk with real-time model. Client controls speech boundaries. |
+| [`sample_ptt_cascaded.json`](configs/sample_ptt_cascaded.json) | `gpt-5` | `server_vad` (2000ms silence) | ❌ Disabled | Push-to-talk with cascaded model. |
+
+> ⚠️ **PTT configs are experimental.** Voice Live does not support `turn_detection=None`, so a VAD configuration is always required even in PTT mode. This causes VAD/PTT interference that can reduce audio response rates (~83% vs 100% for VAD). PTT configs use `server_vad` with an extended 2000ms silence timeout to minimize interference, and disable both EOU detection and barge-in. See [PTT vs VAD Guidance](#ptt-vs-vad-guidance) for details.
+
+#### Other Configs
+
+| Config File | Description |
+|---|---|
+| `sample_config.json` | Basic model-mode config (gpt-realtime, VAD, EOU) |
+| `sample_agent_config.json` | Agent mode config (Foundry Agent integration) |
+| `sample_agent_cross_resource_config.json` | Cross-resource agent mode config |
+| `canonical_vad_config.json` | Canonical VAD config used for internal eval campaigns |
+| `canonical_agent_config.json` | Canonical agent config used for internal eval campaigns |
+
+#### Config Parameter Reference
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `model` | string | `gpt-realtime` | VoiceLive model. Options: `gpt-realtime`, `gpt-realtime-mini`, `gpt-5`, `gpt-5-mini`, `gpt-4.1`, `gpt-4.1-mini`, `phi4-mini`, etc. |
+| `voice` | string | `en-US-Ava:DragonHDLatestNeural` | Azure TTS voice name. HD voices use the `:DragonHDLatestNeural` suffix. |
+| `voice_type` | string | `azure-standard` | Voice type: `azure-standard` (Azure TTS) or `preset` (OpenAI native voices like `alloy`, `echo`). |
+| `sample_rate` | int | `24000` | Audio sample rate in Hz. Supported: `16000`, `24000`. |
+| `noise_reduction` | string | `azure_deep_noise_suppression` | Noise reduction type. Set to `none` to disable. |
+| `echo_cancellation` | string | `server_echo_cancellation` | Echo cancellation type. Set to `none` to disable. |
+| `vad_type` | string | `azure_semantic_vad_multilingual` | Turn detection type: `server_vad`, `azure_semantic_vad`, `azure_semantic_vad_multilingual`. |
+| `silence_duration_ms` | int | `500` (API default) | Silence duration in ms to detect end of speech. Higher values = less aggressive turn detection. |
+| `use_eou_detection` | bool | `true` | Enable semantic end-of-utterance detection. Only supported with non-realtime models (cascaded). |
+| `eou_model` | string | `semantic_detection_v1_multilingual` | EOU model: `semantic_detection_v1` (English) or `semantic_detection_v1_multilingual` (10+ languages). |
+| `push_to_talk` | bool | `false` | Enable push-to-talk mode (client controls speech boundaries). |
+| `enable_barge_in` | bool | `true` | Enable barge-in interruption and auto-truncation. |
 
 ## Dataset Format
 
@@ -341,6 +422,38 @@ The script loads `.env` from its own directory (next to the script) regardless o
 | `PROJECT_ENDPOINT` | For eval | Azure AI Foundry project endpoint (required for evaluation runs) |
 | `AOAI_DEPLOYMENT_NAME` | For eval | Azure OpenAI deployment for evaluators |
 | `AOAI_REASONING_DEPLOYMENT_NAME` | For eval | Reasoning model deployment for evaluators |
+
+### Credential Setup
+
+Authentication uses `DefaultAzureCredential`, which tries credentials in this order:
+1. **Environment variables** (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET`)
+2. **Azure CLI** (`az login`) — **recommended for local development**
+3. **Managed Identity** — recommended for cloud/CI environments
+
+#### Quick setup (local development)
+
+```bash
+# 1. Install Azure CLI (if not already installed)
+# Windows: winget install Microsoft.AzureCLI
+# macOS: brew install azure-cli
+
+# 2. Sign in
+az login
+
+# 3. Ensure your account has the required roles on the Foundry resource:
+#    - "Cognitive Services User" (for VoiceLive API access)
+#    - "Azure AI User" (for agent mode and Foundry features)
+
+# 4. Create .env file in the evaluation_harness directory
+cat > .env << 'EOF'
+AZURE_VOICELIVE_ENDPOINT=wss://<your-resource-name>.services.ai.azure.com
+AZURE_VOICELIVE_MODEL=gpt-realtime
+AZURE_VOICELIVE_API_VERSION=2025-10-01
+PROJECT_ENDPOINT=https://<your-resource-name>.services.ai.azure.com/api/projects/<your-project-name>
+EOF
+```
+
+> 💡 **Finding your endpoint:** In the Azure Portal, navigate to your Foundry resource → **Keys and Endpoint**. The VoiceLive WebSocket endpoint uses `wss://` (not `https://`). The `PROJECT_ENDPOINT` is found in the Foundry Portal under your project's welcome page.
 
 Azure credentials are resolved via `DefaultAzureCredential` — ensure you are logged in with `az login` or have a managed identity configured.
 
@@ -519,7 +632,8 @@ See `sample_agent_cross_resource_config.json` for a complete example.
 
 | Version | Description |
 |---|---|
-| **v3.4** (Current) | Feature parity with Container App — 12 new CLI args for session config (noise reduction, echo cancellation, VAD, EOU, transcription model, voice type), `--evaluators` arg (default/all/custom), `--config` JSON file support, 8 default evaluators aligned with Container App, sample_config.json |
+| **v3.5** (Current) | Sample configs + documentation — PTT/VAD sample configs (4 configs: VAD realtime, VAD cascaded, PTT realtime, PTT cascaded), config parameter reference table, PTT vs VAD guidance section, credential setup guide, punctuation handling notes |
+| **v3.4** | Feature parity with Container App — 12 new CLI args for session config (noise reduction, echo cancellation, VAD, EOU, transcription model, voice type), `--evaluators` arg (default/all/custom), `--config` JSON file support, 8 default evaluators aligned with Container App, sample_config.json |
 | **v3.3** | Code quality fixes — content_index barge-in fix, empty response placeholder, batch race condition fix (per-process files), path traversal validation, async lock safety, SAS token redaction, float32 WAV support, list-type Answer OR-join |
 | **v3.2** | SDK format alignment — tool message flat format (`name`/`tool_call_id`/`arguments` at top level), azure-ai-evaluation 1.15.3, azure-ai-voicelive 1.2.0b4, Foundry UX content validation fixes |
 | **v3.1** | Full evaluation pipeline integration, batch processor compatibility, response audio saving, operational summaries, conversation history tracking, .env/CWD fixes |
