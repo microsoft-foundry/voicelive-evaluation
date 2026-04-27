@@ -31,6 +31,11 @@ Processes pre-recorded audio files through the Azure VoiceLive SDK for evaluatio
 | Azure credentials | `DefaultAzureCredential` — Azure CLI login or managed identity |
 | Audio files | 16-bit PCM WAV (any sample rate; resampled automatically) |
 
+> ⚠️ **Before you start — common blockers:**
+> - **RBAC roles required:** Your identity needs **Cognitive Services User** on the VoiceLive resource (for API access) AND **Azure AI User** on the Foundry project (for evaluation + agent mode). Missing roles cause silent `403` errors that aren't always obvious.
+> - **Region availability:** VoiceLive and the Foundry Evaluations API are only available in select regions. Confirmed working: **Sweden Central**, **East US 2**. Other regions (e.g., `southcentralus`) may fail with no clear error message.
+> - **`.env` file location:** The `.env` file must be in the `evaluation_harness/` directory (next to the script), NOT the repo root.
+
 ### Install
 
 ```bash
@@ -487,6 +492,34 @@ python batch_processor.py --test-files-folder datasets/ --max-workers 4
 
 The batch processor spawns subprocesses that write to a shared aggregated eval JSONL file, then runs a single evaluation on the combined results.
 
+### Interpreting Evaluation Scores
+
+Evaluation scores range from **1-5** (GPT-judge evaluators) or **0/1** (binary evaluators). Here's how to read them:
+
+| Score Range | Interpretation |
+|---|---|
+| **4.0–5.0** | Strong — response matches ground truth and task requirements |
+| **3.0–3.9** | Acceptable — mostly correct with minor gaps |
+| **2.0–2.9** | Weak — partial or incomplete response |
+| **1.0–1.9** | Poor — incorrect or off-topic response |
+
+**Key factors that affect scores:**
+- **Dataset quality matters most.** Datasets with well-written ground truth, specific questions, and matching system prompts score highest. Datasets without ground truth (e.g., open-ended chat) will naturally score lower on factual evaluators.
+- **Evaluator variance is expected.** GPT-judge evaluators (task_adherence, task_completion, response_quality) show natural run-to-run variance of ±0.3–0.5 points due to LLM non-determinism. Always run multiple evaluations and average results before drawing conclusions.
+- **Distinguish Voice Live issues from evaluator issues.** If transcription is accurate but scores are low, the issue is likely in the evaluator prompt or ground truth — not in Voice Live itself. Check the `response` field in the evaluation JSONL to see what Voice Live actually produced.
+
+### Known Evaluator Issues
+
+> ⚠️ **Some built-in evaluators have known issues that can produce misleading results.** These are being tracked with the Azure AI Evaluation team.
+
+| Evaluator | Issue | Impact | Status |
+|---|---|---|---|
+| **task_adherence** | Re-introduction bug — forces model to re-introduce itself every turn in multi-turn conversations | Inflates scores for responses that include greetings; penalizes natural follow-up responses | Being fixed by eval team |
+| **task_completion** | High variance across identical runs (e.g., 0.67 vs 0.33 on same input) | Makes run-to-run comparison unreliable for this metric | Under investigation |
+| **fluency** / **coherence** | Consistently score 5.0 regardless of actual response quality | Provide no discriminative signal; effectively useless | Consider removing from default set |
+
+**Recommendation:** Focus on **response_quality**, **groundedness**, and **relevance** as primary evaluation metrics. Treat task_adherence and task_completion results with caution until the above issues are resolved. Fluency and coherence can be safely excluded from analysis.
+
 ## Known Limitations
 
 1. **PTT mode constrained by VoiceLive VAD requirement** — the platform always requires `turn_detection` to be set, so pure PTT (`turn_detection=None`) is not achievable; PTT results may miss some turns due to `conversation_already_has_active_response` errors.
@@ -514,6 +547,21 @@ python helper_scripts/hf_dataset_to_jsonl.py TwinkStart/llama-questions --limit 
 # Then run evaluation
 python evaluation_harness/voice_agent_audio_input_evaluation.py -f datasets/TwinkStart-llama-questions/TwinkStart-llama-questions.jsonl
 ```
+
+### Dataset Requirements
+
+For reliable evaluation results, your dataset should include:
+
+| Field | Required? | Why It Matters |
+|---|---|---|
+| `WavPath` / `input_audio` | **Yes** | The audio to evaluate — must be clear speech, minimal background noise |
+| `Answer` / `expected_output` | **Strongly recommended** | Without ground truth, factual evaluators (groundedness, relevance) have nothing to compare against |
+| `Question` | Recommended | Used for logging and output context |
+| `system_prompt` | Recommended | Ensures the model's behavior matches your ground truth expectations |
+| `conversationID` | For multi-turn | Required to group turns into conversations |
+| `tool_definitions` | For tool tests | Required if your scenario involves function calling |
+
+> 💡 **Dataset quality correlates strongly with evaluation scores.** In testing, datasets with specific questions + matching ground truth + aligned system prompts scored 4.0+ on average, while datasets with open-ended questions and no ground truth scored 2.0–3.0 — even with identical Voice Live configurations.
 
 **Always validate datasets before running evaluations:**
 
@@ -593,6 +641,16 @@ See `sample_agent_config.json` for a complete example. The `"agent"` section ena
 ```
 
 Voice, VAD, and audio settings are optional overrides — if omitted, the agent's built-in settings apply.
+
+### Agent Testing Best Practices
+
+> 💡 **Use prompt-matched agents for accurate evaluation.** When testing with an agent, ensure the agent's system prompt matches the expected behavior in your dataset. A generic agent (e.g., "You are a helpful assistant") will score lower on task-specific evaluators — not because of Voice Live quality issues, but because the agent's instructions don't align with the ground truth.
+
+**Recommended approach:**
+1. Create a **dedicated test agent** in the Foundry portal with a system prompt that matches your dataset's expected behavior
+2. Include relevant `tool_definitions` in the agent if your dataset expects tool calls
+3. Pin the agent version with `--agent-version` for reproducible results
+4. Compare agent mode scores against a baseline direct-model run with the same dataset to isolate agent routing overhead (~1s additional latency expected)
 
 ### Config Transparency
 
