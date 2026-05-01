@@ -73,11 +73,11 @@ This skill wraps the existing `voice_agent_audio_input_evaluation.py` script to 
 | `AZURE_VOICE_LIVE_ENDPOINT` | Yes | Azure VoiceLive service endpoint URL |
 | `AZURE_VOICE_LIVE_MODEL` | Yes | VoiceLive model deployment name |
 | `AZURE_VOICE_LIVE_API_VERSION` | No | API version (default: 2025-05-01-preview) |
-| `AZURE_VOICE_LIVE_API_KEY` | No | API key (OPTIONAL - Azure Identity preferred) |
+| `AZURE_VOICELIVE_API_KEY` | No | API key (OPTIONAL - Azure Identity preferred) |
 
 **Authentication:**
 - **Primary:** Azure DefaultAzureCredential (Managed Identity, Azure CLI, etc.)
-- **Fallback:** AZURE_VOICE_LIVE_API_KEY environment variable
+- **Fallback:** AZURE_VOICELIVE_API_KEY environment variable
 - **Scope:** `https://ai.azure.com/.default`
 
 ## Usage Examples
@@ -221,7 +221,7 @@ Script uses `DefaultAzureCredential` which tries (in order):
 4. Interactive browser login
 
 ### API Key (Fallback)
-Set `AZURE_VOICE_LIVE_API_KEY` environment variable if Azure Identity cannot be used.
+Set `AZURE_VOICELIVE_API_KEY` environment variable if Azure Identity cannot be used.
 
 ## Error Handling
 

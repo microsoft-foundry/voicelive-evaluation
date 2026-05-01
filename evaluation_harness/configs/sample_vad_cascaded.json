@@ -1,0 +1,16 @@
+{
+    "_description": "Sample: VAD mode with cascaded (non-realtime) model. Uses Azure Speech STT for audio input and Azure TTS for output. Compatible with GPT-5, GPT-4.1, and other non-realtime models.",
+    "_rationale": "Cascaded mode provides broader model selection (GPT-5, GPT-4.1, Phi) with Azure Speech STT handling audio input. VAD mode recommended for reliable turn detection.",
+    "_status": "Production-ready",
+    "model": "gpt-5",
+    "voice": "en-US-Ava:DragonHDLatestNeural",
+    "voice_type": "azure-standard",
+    "sample_rate": 24000,
+    "noise_reduction": "azure_deep_noise_suppression",
+    "echo_cancellation": "server_echo_cancellation",
+    "vad_type": "azure_semantic_vad_multilingual",
+    "use_eou_detection": true,
+    "eou_model": "semantic_detection_v1_multilingual",
+    "push_to_talk": false,
+    "enable_barge_in": true
+}

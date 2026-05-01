@@ -1,0 +1,22 @@
+{
+    "_description": "Sample: Push-to-talk (PTT) mode with cascaded (non-realtime) model. EXPERIMENTAL — PTT is not fully supported by the Voice Live platform. See _known_limitations.",
+    "_rationale": "Cascaded PTT mode for scenarios where the client controls speech boundaries with a non-realtime model (GPT-5, GPT-4.1). EOU is disabled. Server VAD is used with extended silence timeout as workaround for the lack of turn_detection=None support.",
+    "_status": "Experimental — not validated for production use",
+    "_known_limitations": [
+        "turn_detection=None is not supported by VoiceLive; a VAD config is always required",
+        "VAD and PTT can interfere, resulting in reduced audio response rate compared to pure VAD mode",
+        "These settings have not been validated by Voice Live engineering — treat as best-effort",
+        "PTT with cascaded models may have higher latency due to STT+LLM+TTS pipeline"
+    ],
+    "model": "gpt-5",
+    "voice": "en-US-Ava:DragonHDLatestNeural",
+    "voice_type": "azure-standard",
+    "sample_rate": 24000,
+    "noise_reduction": "azure_deep_noise_suppression",
+    "echo_cancellation": "server_echo_cancellation",
+    "vad_type": "server_vad",
+    "silence_duration_ms": 2000,
+    "use_eou_detection": false,
+    "push_to_talk": true,
+    "enable_barge_in": false
+}

@@ -1,0 +1,16 @@
+{
+    "_description": "Sample: VAD mode with real-time model. Recommended for most evaluation scenarios. Uses semantic VAD with EOU detection for accurate turn boundaries.",
+    "_rationale": "VAD mode achieves 100% audio response rate and is the recommended configuration. Real-time model provides native audio processing with lowest latency.",
+    "_status": "Production-ready",
+    "model": "gpt-realtime",
+    "voice": "en-US-Ava:DragonHDLatestNeural",
+    "voice_type": "azure-standard",
+    "sample_rate": 24000,
+    "noise_reduction": "azure_deep_noise_suppression",
+    "echo_cancellation": "server_echo_cancellation",
+    "vad_type": "azure_semantic_vad_multilingual",
+    "use_eou_detection": true,
+    "eou_model": "semantic_detection_v1_multilingual",
+    "push_to_talk": false,
+    "enable_barge_in": true
+}
