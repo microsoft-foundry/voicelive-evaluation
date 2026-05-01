@@ -2046,8 +2046,11 @@ def main() -> None:
     )
     # Authentication
     parser.add_argument(
-        '--api-key', dest='api_key', default=None,
-        help='Azure VoiceLive API key (overrides DefaultAzureCredential; fallback: AZURE_VOICELIVE_API_KEY env var)',
+        "--api-key",
+        dest="api_key",
+        type=str,
+        default=os.environ.get("AZURE_VOICELIVE_API_KEY"),
+        help="Azure VoiceLive API key. If not provided, will use AZURE_VOICELIVE_API_KEY environment variable.",
     )
     # Evaluators
     parser.add_argument(
