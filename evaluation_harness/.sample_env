@@ -2,8 +2,7 @@
 AZURE_VOICE_LIVE_API_VERSION=2025-10-01
 AZURE_VOICE_LIVE_MODEL=gpt-4.1  # Options: "phi4-mini", "phi4-mm-realtime", "gpt-4o-realtime-preview", "gpt-4.1"
 AZURE_VOICE_LIVE_ENDPOINT=https://your-resource.services.ai.azure.com/
-AZURE_VOICE_LIVE_API_KEY=  # Legacy name; only required if not using DefaultAzureCredential
-AZURE_VOICELIVE_API_KEY=   # Canonical name (matches voicelive-samples); used by --api-key default
+AZURE_VOICELIVE_API_KEY=   # Only required if not using DefaultAzureCredential
 
 # Azure AI Foundry Configuration (used by voice_agent_evaluation.py)
 PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project

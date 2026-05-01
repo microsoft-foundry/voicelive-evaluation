@@ -1715,11 +1715,7 @@ async def main_async(args: argparse.Namespace) -> None:
     all_results: List[Dict[str, Any]] = []
     # Auth priority: bearer token (for agent cross-resource) > CLI --api-key > env API key > DefaultAzureCredential
     bearer_token = os.environ.get("AZURE_VOICELIVE_BEARER_TOKEN")
-    api_key = (
-        getattr(args, 'api_key', None)
-        or os.environ.get("AZURE_VOICELIVE_API_KEY")
-        or os.environ.get("AZURE_VOICE_LIVE_API_KEY")
-    )
+    api_key = getattr(args, 'api_key', None) or os.environ.get("AZURE_VOICELIVE_API_KEY")
     if bearer_token:
         credential = StaticTokenCredential(bearer_token)
         logger.info("Using pre-fetched bearer token authentication")
