@@ -519,8 +519,10 @@ Evaluation scores range from **1-5** (GPT-judge evaluators) or **0/1** (binary e
 | **task_adherence** | Re-introduction bug — forces model to re-introduce itself every turn in multi-turn conversations | Inflates scores for responses that include greetings; penalizes natural follow-up responses | Being fixed by eval team |
 | **task_completion** | High variance across identical runs (e.g., 0.67 vs 0.33 on same input) | Makes run-to-run comparison unreliable for this metric | Under investigation |
 | **fluency** / **coherence** | Consistently score 5.0 regardless of actual response quality | Provide no discriminative signal; effectively useless | Consider removing from default set |
+| **response_completeness** | Known bug caused misleading completeness scores — VoiceLive.Realtime and GPT-realtime showed unexpected differences despite using the same underlying model | Led to introduction of **Containment Accuracy** as a non-AI validation metric to cross-check results; early Round 1 completeness scores should be treated with caution | Mitigated — use Containment Accuracy alongside response_completeness |
+| **All GPT-judge evaluators** | Scores vary across environments (local vs CI vs platform) and drift 1–2% over time due to evaluator LLM non-determinism, graph optimization differences, and upstream Foundry evaluator updates | Run-to-run and environment-to-environment comparisons are unreliable without multiple runs averaged; longitudinal trends may reflect evaluator changes rather than model changes | Known — always average multiple runs and pin evaluator model versions when possible |
 
-**Recommendation:** Focus on **response_quality**, **groundedness**, and **relevance** as primary evaluation metrics. Treat task_adherence and task_completion results with caution until the above issues are resolved. Fluency and coherence can be safely excluded from analysis.
+**Recommendation:** Focus on **response_quality**, **groundedness**, and **relevance** as primary evaluation metrics. Use **Containment Accuracy** to cross-validate response_completeness results. Treat task_adherence and task_completion results with caution until the above issues are resolved. Fluency and coherence can be safely excluded from analysis. For reliable comparisons, **average at least 3 runs** and note the evaluator model version used.
 
 ## Known Limitations
 
