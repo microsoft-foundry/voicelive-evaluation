@@ -5,7 +5,12 @@
 
 End-to-end quality evaluation for voice agents built on **Azure AI Voice Live**. Deploy evaluation infrastructure to Azure with one command, then run pre-recorded audio through your voice agent and get scored results in Azure AI Foundry.
 
+> [!NOTE]
+> This is a **solution accelerator** — not a production-ready application. AI-generated evaluation scores require human review before making deployment decisions. For details, see [TRANSPARENCY_FAQ.md](docs/TRANSPARENCY_FAQ.md) and [Microsoft Responsible AI principles](https://www.microsoft.com/en-us/ai/responsible-ai).
+
 > **Use case**: You've built a customer-service voice agent with Voice Live — an appointment scheduler, a tech-support bot, a healthcare intake agent. Now you need to know: *Is the agent staying on task? Does it resolve customer intents? Are conversations completing successfully?* This solution template gives you a fully automated evaluation pipeline to answer those questions.
+
+[FEATURES](#features) | [ARCHITECTURE](#architecture) | [QUICK DEPLOY](#quick-deploy) | [RUN AN EVALUATION](#run-an-evaluation) | [COST AND CLEANUP](#cost-and-cleanup)
 
 > [!IMPORTANT]
 > This template uses Azure AI services that may incur costs. Review the [Cost and cleanup](#cost-and-cleanup) section before deploying.
@@ -47,7 +52,7 @@ The solution deploys:
 - **Azure Functions** app with 23 evaluation tool endpoints
 - **Container App** for long-running VoiceLive audio processing
 - **Azure Blob Storage** for datasets and results
-- **RBAC** assignments for secure, keyless access
+- **RBAC** assignments for secure access via managed identities
 
 ---
 
@@ -144,6 +149,7 @@ After an evaluation run:
 voicelive-evaluation/
 ├── azure.yaml                    # Azure Developer CLI config (solution template entry point)
 ├── .devcontainer/                # Codespaces / Dev Container configuration
+├── scripts/                      # Cross-platform deployment hooks (preprovision, postprovision)
 ├── evaluation_harness/           # Local CLI — run evaluations locally
 │   ├── configs/                  # Sample evaluation configurations
 │   ├── sample_evaluation_input/  # Sample audio datasets

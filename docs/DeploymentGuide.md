@@ -132,4 +132,4 @@ The Bicep templates provision:
 | Container App + ACR | `modules/container-app.bicep` | Long-running VoiceLive audio processing |
 | RBAC Assignments | `modules/foundry-rbac.bicep`, `modules/service-rbac.bicep` | Keyless access between services |
 
-All resources use **managed identities** and **RBAC** — no shared keys or connection strings.
+All resources use **managed identities** and **RBAC** for service-to-service authentication where supported. Some platform-required connections (e.g., Functions storage, ACR pull) may use keys.
