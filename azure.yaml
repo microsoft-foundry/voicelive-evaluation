@@ -1,0 +1,54 @@
+# VoiceLive Evaluation - Azure Developer CLI Configuration
+# Solution Template for Azure AI Foundry Gallery
+name: voicelive-evaluation
+
+metadata:
+  template: voicelive-evaluation@1.0
+
+# Infrastructure provisioning (references existing evaluation_agent infra)
+infra:
+  provider: bicep
+  path: ./evaluation_agent/infra
+
+# Services to deploy
+services:
+  # Azure Functions - evaluation tools API (23 endpoints)
+  tools-api:
+    project: ./evaluation_agent/deploy/azure-functions
+    language: python
+    host: function
+
+  # VoiceLive Container App - audio processing
+  voicelive-processor:
+    project: ./evaluation_agent/deploy/container-app
+    language: python
+    host: containerapp
+
+# Hooks for deployment lifecycle
+hooks:
+  postprovision:
+    windows:
+      shell: pwsh
+      run: .\evaluation_agent\scripts\azd\postprovision.ps1
+    posix:
+      shell: bash
+      run: |
+        echo "Post-provision requires PowerShell. Install with: sudo apt-get install -y powershell"
+        echo "Then run: pwsh evaluation_agent/scripts/azd/postprovision.ps1"
+
+  postdeploy:
+    windows:
+      shell: pwsh
+      run: .\evaluation_agent\scripts\azd\postdeploy.ps1
+    posix:
+      shell: bash
+      run: |
+        echo "===== Deployment Complete ====="
+        echo ""
+        echo "  Function App URL: $AZURE_FUNCTION_APP_URL"
+        echo "  Container App:    $AZURE_CONTAINER_APP_URL"
+        echo ""
+        echo "Next steps:"
+        echo "  1. cd evaluation_harness"
+        echo "  2. Copy .sample_env to .env and fill in your Voice Live endpoint"
+        echo "  3. python voice_agent_evaluation.py --config configs/sample_vad_realtime.json"

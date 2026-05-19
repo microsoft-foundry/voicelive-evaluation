@@ -372,6 +372,9 @@ MSBuild_Logs/
 # AWS SAM Build and Temporary Artifacts folder
 .aws-sam
 
+# Azure Developer CLI
+.azure/
+
 # NVidia Nsight GPU debugger configuration file
 *.nvuser
 
