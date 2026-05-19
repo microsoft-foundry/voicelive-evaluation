@@ -21,11 +21,13 @@ services:
     language: python
     host: function
 
-  # VoiceLive Container App - audio processing
+  # VoiceLive Container App - audio processing (requires Docker Desktop)
   voicelive-processor:
     project: ./evaluation_agent/deploy/container-app
     language: python
     host: containerapp
+    docker:
+      remoteBuild: true
 
 # Hooks for deployment lifecycle
 hooks:

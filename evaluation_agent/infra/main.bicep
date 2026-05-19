@@ -9,6 +9,9 @@ param environmentName string
 @description('Primary location for all resources')
 param location string
 
+@description('Owner alias tag (required by some subscription policies)')
+param ownerAlias string = 'solarrezaei'
+
 @description('Deploy the VoiceLive Container App processor')
 param deployContainerApp bool = true
 
@@ -71,7 +74,7 @@ param foundryResourceOverride string = ''
 
 // Generate unique suffix for resources
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
-var tags = { 'azd-env-name': environmentName }
+var tags = { 'azd-env-name': environmentName, OwnerAlias: ownerAlias }
 
 // Resource group
 resource rg 'Microsoft.Resources/resourceGroups@2022-09-01' = {

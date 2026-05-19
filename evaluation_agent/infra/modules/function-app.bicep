@@ -179,38 +179,10 @@ resource functionAppAuth 'Microsoft.Web/sites/config@2023-01-01' = if (enableEnt
   }
 }
 
-// Storage Blob Data Contributor role for Function App
-resource storageBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, functionApp.id, 'Storage Blob Data Contributor')
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
-    principalId: functionApp.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-// Storage Table Data Contributor role for Function App (for session configs)
-resource storageTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, functionApp.id, 'Storage Table Data Contributor')
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')
-    principalId: functionApp.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-// RBAC: Website Contributor role for allowed callers (allows invoking the function)
-resource websiteContributorRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for principalId in allowedCallerPrincipalIds: {
-  name: guid(functionApp.id, principalId, 'Website Contributor')
-  scope: functionApp
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'de139f84-1756-47ae-9be6-808fbbe84772')
-    principalId: principalId
-    principalType: 'ServicePrincipal'
-  }
-}]
+// RBAC role assignments are handled by postprovision.ps1 for idempotency
+// and broader subscription compatibility. See scripts/azd/postprovision.ps1.
+// Inline Bicep role assignments require User Access Administrator permission
+// which is not available on many team subscriptions.
 
 // Outputs
 output name string = functionApp.name
