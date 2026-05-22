@@ -6,5 +6,5 @@ azure-storage-blob
 azure-data-tables
 azure-ai-projects>=2.0.0b4
 azure-ai-agents>=1.2.0b6
-openai>=2.8.1
+openai>=2.38.0
 httpx
