@@ -8,7 +8,7 @@ azure-identity>=1.15.0
 azure-core>=1.30.0
 
 # Audio processing
-numpy>=1.24.0
+numpy>=2.4.6
 
 # Environment and utilities
 python-dotenv>=1.0.0
