@@ -518,11 +518,9 @@ Evaluation scores range from **1-5** (GPT-judge evaluators) or **0/1** (binary e
 
 | Evaluator | Issue | Impact | Status |
 |---|---|---|---|
-| **task_adherence** | Re-introduction bug — forces model to re-introduce itself every turn in multi-turn conversations | Inflates scores for responses that include greetings; penalizes natural follow-up responses | Being fixed by eval team |
-| **task_completion** | High variance across identical runs (e.g., 0.67 vs 0.33 on same input) | Makes run-to-run comparison unreliable for this metric | Under investigation |
 | **fluency** / **coherence** | Consistently score 5.0 regardless of actual response quality | Provide no discriminative signal; effectively useless | Consider removing from default set |
 
-**Recommendation:** Focus on **response_quality**, **groundedness**, and **relevance** as primary evaluation metrics. Treat task_adherence and task_completion results with caution until the above issues are resolved. Fluency and coherence can be safely excluded from analysis.
+**Recommendation:** Focus on **response_quality**, **groundedness**, and **relevance** as primary evaluation metrics. Fluency and coherence can be safely excluded from analysis.
 
 ## Known Limitations
 
