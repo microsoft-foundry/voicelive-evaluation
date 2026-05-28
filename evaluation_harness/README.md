@@ -519,6 +519,8 @@ Evaluation scores range from **1-5** (GPT-judge evaluators) or **0/1** (binary e
 | Evaluator | Issue | Impact | Status |
 |---|---|---|---|
 | **fluency** / **coherence** | Consistently score 5.0 regardless of actual response quality | Provide no discriminative signal; effectively useless | Consider removing from default set |
+| **response_completeness** | Known bug caused misleading completeness scores — VoiceLive.Realtime and GPT-realtime showed unexpected differences despite using the same underlying model | Led to introduction of **Containment Accuracy** as a non-AI validation metric to cross-check results; early Round 1 completeness scores should be treated with caution | Mitigated — use Containment Accuracy alongside response_completeness |
+| **All GPT-judge evaluators** | Scores vary across environments (local vs CI vs platform) and drift 1–2% over time due to evaluator LLM non-determinism, graph optimization differences, and upstream Foundry evaluator updates | Run-to-run and environment-to-environment comparisons are unreliable without multiple runs averaged; longitudinal trends may reflect evaluator changes rather than model changes | Known — always average multiple runs and pin evaluator model versions when possible |
 
 **Recommendation:** Focus on **response_quality**, **groundedness**, and **relevance** as primary evaluation metrics. Fluency and coherence can be safely excluded from analysis.
 
