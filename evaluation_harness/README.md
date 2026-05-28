@@ -185,6 +185,8 @@ Voice Live transcription handles punctuation automatically:
 
 ### Default Evaluators
 
+> **Note:** Some of the metrics listed below are in **preview** or **experimental**. Score ranges, thresholds, and evaluator behavior may change before general availability.
+
 When `--evaluators default` or unspecified, these 8 evaluators run (aligned with the Container App):
 
 | Evaluator | Category |
