@@ -29,6 +29,7 @@ from voice_agent_audio_input_evaluation import (
     _extract_text_from_messages,
     _extract_system_prompt_from_messages,
     generate_harness_eval_group_name,
+    generate_harness_run_name,
     journal_harness_eval_group,
 )
 
@@ -382,6 +383,8 @@ def test_generate_eval_group_name_defaults():
     config = SessionConfig()  # All defaults
     name = generate_harness_eval_group_name(config, group_by="settings")
     assert "gptrealtime" in name, f"Default model should be gpt-realtime: {name}"
+    assert "default" in name, f"None VAD/silence should show as 'default': {name}"
+    assert "None" not in name, f"Should not contain literal 'None': {name}"
     assert name  # Should not crash
 
 
@@ -400,6 +403,34 @@ def test_generate_eval_group_name_dataset_fallback():
     config = SessionConfig(model="gpt-4.1", voice="alloy")
     name = generate_harness_eval_group_name(config, dataset_name="")
     assert "gpt41" in name, f"Should fall back to settings: {name}"
+
+
+def test_settings_mode_shortens_azure_voice():
+    """Settings mode uses short voice name (Ava, not full Azure voice identifier)."""
+    config = SessionConfig(model="gpt-realtime", voice="en-US-Ava:DragonHDLatestNeural")
+    name = generate_harness_eval_group_name(config, group_by="settings")
+    assert "Ava" in name, f"Should shorten Azure voice: {name}"
+    assert "DragonHD" not in name, f"Should not include full voice suffix: {name}"
+
+
+def test_run_name_complements_group():
+    """Run name highlights settings when group is dataset, and vice versa."""
+    config = SessionConfig(model="gpt-realtime", voice="en-US-Ava:DragonHDLatestNeural")
+    dataset = "Eiffel_Tower_Visit_1.jsonl"
+    evals = ["intent_resolution", "task_adherence", "task_completion",
+             "response_completeness", "tool_call_accuracy", "tool_selection",
+             "tool_input_accuracy", "tool_output_utilization"]
+
+    # Dataset mode: run name should have settings, NOT dataset name
+    run_ds = generate_harness_run_name(dataset, "1", evals, config=config, group_by="dataset")
+    assert "gptrealtime" in run_ds, f"Should include model in dataset mode: {run_ds}"
+    assert "Ava" in run_ds, f"Should include voice in dataset mode: {run_ds}"
+    assert "Eiffel_Tower" not in run_ds, f"Should NOT include dataset in dataset mode: {run_ds}"
+
+    # Settings mode: run name should have dataset name, NOT settings
+    run_st = generate_harness_run_name(dataset, "1", evals, config=config, group_by="settings")
+    assert "Eiffel_Tower_Visit_1" in run_st, f"Should include dataset in settings mode: {run_st}"
+    assert "gptrealtime" not in run_st, f"Should NOT include model in settings mode: {run_st}"
 
 
 def test_journal_eval_group_with_dataclass():
@@ -504,6 +535,8 @@ def main():
     _run("eval_name_defaults", test_generate_eval_group_name_defaults)
     _run("eval_name_dataset_mode", test_generate_eval_group_name_dataset_mode)
     _run("eval_name_dataset_fallback", test_generate_eval_group_name_dataset_fallback)
+    _run("settings_azure_voice", test_settings_mode_shortens_azure_voice)
+    _run("run_name_complementarity", test_run_name_complements_group)
     _run("journal_dataclass", test_journal_eval_group_with_dataclass)
     _run("journal_none_config", test_journal_eval_group_none_config)
 

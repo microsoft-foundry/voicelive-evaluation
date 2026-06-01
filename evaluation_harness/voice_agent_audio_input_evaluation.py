@@ -110,10 +110,26 @@ def _generate_harness_eval_group_name_by_settings(config) -> str:
     """
     model = getattr(config, 'model', 'gpt-realtime')
     voice = getattr(config, 'voice', 'alloy')
-    vad = getattr(config, 'vad_threshold', '0.5')
-    eod = getattr(config, 'silence_duration_ms', '500')
+    vad = getattr(config, 'vad_threshold', None)
+    eod = getattr(config, 'silence_duration_ms', None)
     model_clean = str(model).replace("-", "").replace(".", "")
-    return f"harness_{model_clean}_{voice}_{vad}_{eod}"
+    voice_short = _short_voice_name(str(voice))
+    vad_str = str(vad) if vad is not None else "default"
+    eod_str = str(eod) if eod is not None else "default"
+    return f"harness_{model_clean}_{voice_short}_{vad_str}_{eod_str}"
+
+
+def _short_voice_name(voice: str) -> str:
+    """Extract a short, readable voice identifier.
+    e.g. 'en-US-Ava:DragonHDLatestNeural' -> 'Ava'
+         'alloy' -> 'alloy'
+    """
+    if ':' in voice:
+        # Azure voice format: "en-US-Ava:DragonHDLatestNeural" -> "Ava"
+        prefix = voice.split(':')[0]  # "en-US-Ava"
+        parts = prefix.split('-')
+        return parts[-1] if len(parts) >= 3 else prefix
+    return voice
 
 
 def _settings_summary(config) -> str:
@@ -121,8 +137,15 @@ def _settings_summary(config) -> str:
     if not config:
         return ""
     model = str(getattr(config, 'model', '')).replace("-", "").replace(".", "")
-    voice = str(getattr(config, 'voice', ''))
-    return f"{model}_{voice}" if model else ""
+    voice = _short_voice_name(str(getattr(config, 'voice', '')))
+    vad = getattr(config, 'vad_threshold', None)
+    eod = getattr(config, 'silence_duration_ms', None)
+    parts = [model, voice]
+    if vad is not None:
+        parts.append(f"vad{vad}")
+    if eod is not None:
+        parts.append(f"eod{eod}")
+    return "_".join(p for p in parts if p)
 
 
 def generate_harness_run_name(
@@ -134,9 +157,10 @@ def generate_harness_run_name(
 ) -> str:
     """Generate run name with metadata, matching agent naming pattern.
 
-    When group_by="dataset", appends a short settings summary so different
-    configs are distinguishable within the same eval group.
-    Format: YYYYMMDD-HHMMSS-xxx | {dataset}_v{version} | {evaluator_summary} [| {settings}]
+    Content complements the eval group:
+    - group_by="dataset": run highlights settings (config already identifies dataset)
+    - group_by="settings": run highlights dataset (config already identifies settings)
+    Format: YYYYMMDD-HHMMSS-xxx | {complement_info} | {evaluator_summary}
     """
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     random_suffix = secrets.token_hex(2)[:3]
@@ -147,12 +171,15 @@ def generate_harness_run_name(
     else:
         eval_summary = "subset"
     dataset_base = os.path.splitext(os.path.basename(dataset_name))[0] if dataset_name else "dataset"
-    name = f"{timestamp}-{random_suffix} | {dataset_base}_v{dataset_version} | {eval_summary}"
+
     if group_by == "dataset" and config:
+        # Group is the dataset — run name highlights settings
         hint = _settings_summary(config)
-        if hint:
-            name += f" | {hint}"
-    return name
+        return f"{timestamp}-{random_suffix} | {hint} | {eval_summary}" if hint else \
+               f"{timestamp}-{random_suffix} | {dataset_base}_v{dataset_version} | {eval_summary}"
+    else:
+        # Group is the settings (or no config) — run name highlights dataset
+        return f"{timestamp}-{random_suffix} | {dataset_base}_v{dataset_version} | {eval_summary}"
 
 
 def journal_harness_eval_group(
@@ -1931,7 +1958,8 @@ def _run_evaluation(
             eval_list = DEFAULT_EVALUATORS  # "default" → 8 defaults
 
         eval_run_name = generate_harness_run_name(
-            eval_name, "1", eval_list, config=session_config, group_by=group_by,
+            dataset_name or eval_name, "1", eval_list,
+            config=session_config, group_by=group_by,
         )
 
         logger.info(f"Starting evaluation: {eval_name} (evaluators: {eval_list or 'default'})")

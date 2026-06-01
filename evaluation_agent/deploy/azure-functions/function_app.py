@@ -443,10 +443,25 @@ def _generate_eval_group_name_by_settings(session_config: dict = None) -> str:
     
     model = session_config.get("model", "gpt-realtime")
     voice = session_config.get("voice", "alloy")
-    vad = session_config.get("vad_threshold", "0.5")
-    eod = session_config.get("silence_duration_ms", "500")
+    vad = session_config.get("vad_threshold")
+    eod = session_config.get("silence_duration_ms")
     model_clean = model.replace("-", "").replace(".", "")
-    return f"{model_clean}_{voice}_{vad}_{eod}"
+    voice_short = _short_voice_name(voice)
+    vad_str = str(vad) if vad is not None else "default"
+    eod_str = str(eod) if eod is not None else "default"
+    return f"{model_clean}_{voice_short}_{vad_str}_{eod_str}"
+
+
+def _short_voice_name(voice: str) -> str:
+    """Extract a short, readable voice identifier.
+    e.g. 'en-US-Ava:DragonHDLatestNeural' -> 'Ava'
+         'alloy' -> 'alloy'
+    """
+    if ':' in voice:
+        prefix = voice.split(':')[0]
+        parts = prefix.split('-')
+        return parts[-1] if len(parts) >= 3 else prefix
+    return voice
 
 
 def generate_eval_group_name(
@@ -478,8 +493,15 @@ def _settings_summary(session_config: dict) -> str:
     if not session_config:
         return ""
     model = session_config.get("model", "").replace("-", "").replace(".", "")
-    voice = session_config.get("voice", "")
-    return f"{model}_{voice}" if model else ""
+    voice = _short_voice_name(session_config.get("voice", ""))
+    vad = session_config.get("vad_threshold")
+    eod = session_config.get("silence_duration_ms")
+    parts = [model, voice]
+    if vad is not None:
+        parts.append(f"vad{vad}")
+    if eod is not None:
+        parts.append(f"eod{eod}")
+    return "_".join(p for p in parts if p)
 
 
 def generate_run_name(
@@ -489,11 +511,12 @@ def generate_run_name(
     session_config: dict = None,
     group_by: str = "dataset",
 ) -> str:
-    """Generate run name with timestamp and dataset reference.
+    """Generate run name with timestamp and complementary info.
 
-    When group_by="dataset", appends a short settings summary so different
-    configs are distinguishable within the same eval group.
-    Format: YYYYMMDD-HHMMSS-xxx │ {dataset}_v{version} │ {evaluator_summary} [│ {settings}]
+    Content complements the eval group:
+    - group_by="dataset": run highlights settings
+    - group_by="settings": run highlights dataset
+    Format: YYYYMMDD-HHMMSS-xxx │ {complement_info} │ {evaluator_summary}
     """
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     random_suffix = secrets.token_hex(2)[:3]
@@ -506,12 +529,13 @@ def generate_run_name(
         eval_summary = "subset"
     
     dataset_base = Path(dataset_name).stem if dataset_name else "dataset"
-    name = f"{timestamp}-{random_suffix} │ {dataset_base}_v{dataset_version} │ {eval_summary}"
+
     if group_by == "dataset" and session_config:
         hint = _settings_summary(session_config)
-        if hint:
-            name += f" │ {hint}"
-    return name
+        return f"{timestamp}-{random_suffix} │ {hint} │ {eval_summary}" if hint else \
+               f"{timestamp}-{random_suffix} │ {dataset_base}_v{dataset_version} │ {eval_summary}"
+    else:
+        return f"{timestamp}-{random_suffix} │ {dataset_base}_v{dataset_version} │ {eval_summary}"
 
 
 def journal_eval_group(
