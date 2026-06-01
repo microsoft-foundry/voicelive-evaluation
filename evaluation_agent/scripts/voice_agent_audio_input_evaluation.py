@@ -2439,7 +2439,15 @@ if __name__ == "__main__":
                 print(f"Starting {'AGGREGATE ' if aggregate else ''}evaluation for session {label}")
                 eval_input_path = eval_file_to_use
                 eval_name = os.path.basename(eval_file_to_use)
-                eval_description = f"Voice Live API: {datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+                # Dataset-based eval group naming (aligned with evaluation_harness)
+                _ds = os.path.splitext(os.path.basename(args.test_files_path))[0] if hasattr(args, 'test_files_path') and args.test_files_path else ""
+                if _ds:
+                    import re as _re
+                    _clean = _re.sub(r'[^A-Za-z0-9_-]', '_', _ds)
+                    _clean = _re.sub(r'_+', '_', _clean).strip('_')
+                    eval_description = _clean if _clean else f"Voice Live API: {datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+                else:
+                    eval_description = f"Voice Live API: {datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
                 timestamp_root = os.path.join(output_dir_root, session_id)
                 os.makedirs(timestamp_root, exist_ok=True)
                 voice_agent_evaluation.main(

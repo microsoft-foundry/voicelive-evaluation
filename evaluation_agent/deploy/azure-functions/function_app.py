@@ -21,6 +21,7 @@ Each function corresponds to one agent tool:
 """
 
 import os
+import re
 import json
 import logging
 import tempfile
@@ -421,15 +422,18 @@ def get_table_client(table_name: str) -> TableClient:
     )
 
 
-def generate_eval_group_name(session_config: dict = None) -> str:
-    """
-    Generate eval group name based on VoiceLive session config.
-    
+def _sanitize_eval_name(name: str, max_length: int = 80) -> str:
+    """Sanitize a name for use in eval group/run names (safe for Foundry and Table Storage)."""
+    clean = re.sub(r'[^A-Za-z0-9_-]', '_', name)
+    clean = re.sub(r'_+', '_', clean).strip('_')
+    return clean[:max_length] if clean else "unnamed"
+
+
+def _generate_eval_group_name_by_settings(session_config: dict = None) -> str:
+    """Generate eval group name based on VoiceLive session config (legacy behavior).
     Format: {model}_{voice}_{vad}_{eod}
-    Example: gpt-realtime_alloy_0.5_500
     """
     if not session_config:
-        # Use defaults
         session_config = {
             "model": "gpt-realtime",
             "voice": "alloy",
@@ -441,24 +445,59 @@ def generate_eval_group_name(session_config: dict = None) -> str:
     voice = session_config.get("voice", "alloy")
     vad = session_config.get("vad_threshold", "0.5")
     eod = session_config.get("silence_duration_ms", "500")
-    
-    # Clean up model name (remove version suffixes for grouping)
     model_clean = model.replace("-", "").replace(".", "")
-    
     return f"{model_clean}_{voice}_{vad}_{eod}"
 
 
-def generate_run_name(dataset_name: str, dataset_version: str, evaluators: list) -> str:
+def generate_eval_group_name(
+    session_config: dict = None,
+    dataset_name: str = "",
+    group_by: str = "dataset",
+) -> str:
+    """Generate eval group name, grouped by dataset (default) or settings.
+
+    Args:
+        session_config: VoiceLive session config dict (used when group_by="settings").
+        dataset_name: Dataset file path or name (used when group_by="dataset").
+        group_by: "dataset" (default) or "settings".
+
+    Returns:
+        Sanitized eval group name string.
     """
-    Generate run name with timestamp and dataset reference.
-    
-    Format: YYYYMMDD-HHMMSS-xxx │ {dataset}_v{version} │ {evaluator_summary}
-    Example: 20260206-122000-x7k │ Eiffel_Tower_Visit_1_v1 │ all
+    if group_by == "settings":
+        return _generate_eval_group_name_by_settings(session_config)
+    # Default: group by dataset
+    basename = Path(dataset_name).stem if dataset_name else ""
+    if not basename:
+        return _generate_eval_group_name_by_settings(session_config)
+    return _sanitize_eval_name(basename)
+
+
+def _settings_summary(session_config: dict) -> str:
+    """Short settings summary for run names (when grouping by dataset)."""
+    if not session_config:
+        return ""
+    model = session_config.get("model", "").replace("-", "").replace(".", "")
+    voice = session_config.get("voice", "")
+    return f"{model}_{voice}" if model else ""
+
+
+def generate_run_name(
+    dataset_name: str,
+    dataset_version: str,
+    evaluators: list,
+    session_config: dict = None,
+    group_by: str = "dataset",
+) -> str:
+    """Generate run name with timestamp and dataset reference.
+
+    When group_by="dataset", appends a short settings summary so different
+    configs are distinguishable within the same eval group.
+    Format: YYYYMMDD-HHMMSS-xxx │ {dataset}_v{version} │ {evaluator_summary} [│ {settings}]
     """
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    random_suffix = secrets.token_hex(2)[:3]  # 3 char hex
+    random_suffix = secrets.token_hex(2)[:3]
     
-    # Summarize evaluators
     if not evaluators or len(evaluators) >= 10:
         eval_summary = "all"
     elif len(evaluators) >= 5:
@@ -466,13 +505,21 @@ def generate_run_name(dataset_name: str, dataset_version: str, evaluators: list)
     else:
         eval_summary = "subset"
     
-    # Clean dataset name (extract base name)
     dataset_base = Path(dataset_name).stem if dataset_name else "dataset"
-    
-    return f"{timestamp}-{random_suffix} │ {dataset_base}_v{dataset_version} │ {eval_summary}"
+    name = f"{timestamp}-{random_suffix} │ {dataset_base}_v{dataset_version} │ {eval_summary}"
+    if group_by == "dataset" and session_config:
+        hint = _settings_summary(session_config)
+        if hint:
+            name += f" │ {hint}"
+    return name
 
 
-def journal_eval_group(eval_group_name: str, session_config: dict, eval_group_id: str = None) -> bool:
+def journal_eval_group(
+    eval_group_name: str,
+    session_config: dict,
+    eval_group_id: str = None,
+    group_by: str = "dataset",
+) -> bool:
     """
     Record eval group creation in config journal.
     
@@ -491,6 +538,7 @@ def journal_eval_group(eval_group_name: str, session_config: dict, eval_group_id
             "RowKey": f"{eval_group_name}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
             "EvalGroupName": eval_group_name,
             "EvalGroupId": eval_group_id or "",
+            "GroupBy": group_by,
             "Model": session_config.get("model", ""),
             "Voice": session_config.get("voice", ""),
             "VadThreshold": str(session_config.get("vad_threshold", "")),
@@ -2297,8 +2345,11 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
             logging.info(f"Reusing existing eval group by ID: {eval_id}")
             eval_group_name = None
         else:
-            # Generate config-based name and check for existing group with same name
-            eval_group_name = generate_eval_group_name(session_config)
+            # Generate name (dataset-based by default) and check for existing group
+            eval_group_name = generate_eval_group_name(
+                session_config=session_config,
+                dataset_name=dataset_name or "",
+            )
             existing_id = None
             try:
                 for group in openai_client.evals.list():
@@ -2385,7 +2436,8 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
         run_name = generate_run_name(
             dataset_name=dataset_name or ds_name,
             dataset_version=new_version,
-            evaluators=eval_list
+            evaluators=eval_list,
+            session_config=session_config,
         )
         
         eval_run = openai_client.evals.runs.create(

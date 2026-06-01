@@ -329,6 +329,12 @@ This ensures evaluators like `intent_resolution` and `task_adherence` have full 
 
 After each turn, the assistant's response (including tool call announcements) and tool results are stored in `conversation_history`. This list is prepended to subsequent turns' `query` messages so the evaluator sees the full multi-turn context.
 
+### Eval Group Naming
+
+Eval groups are named by **dataset** by default (e.g., `harness_Eiffel_Tower_Visit_1`), making it easy to compare different VoiceLive settings on the same dataset. Use `--eval-group-by settings` to revert to the legacy settings-based naming (`harness_{model}_{voice}_{vad}_{eod}`).
+
+When grouping by dataset, a short settings summary (model + voice) is appended to the **run name** so different configs remain distinguishable within the same eval group.
+
 ### Batch Processor Architecture
 
 ```mermaid

@@ -368,9 +368,9 @@ def test_read_dataset_actual_legacy_file():
 # ---------------------------------------------------------------------------
 
 def test_generate_eval_group_name_with_dataclass():
-    """generate_harness_eval_group_name works with SessionConfig dataclass."""
+    """generate_harness_eval_group_name works with SessionConfig dataclass in settings mode."""
     config = SessionConfig(model="gpt-4.1", voice="alloy", vad_threshold=0.6, silence_duration_ms=800)
-    name = generate_harness_eval_group_name(config)
+    name = generate_harness_eval_group_name(config, group_by="settings")
     assert "gpt41" in name, f"Model should be cleaned: {name}"
     assert "alloy" in name
     assert "0.6" in name
@@ -378,11 +378,28 @@ def test_generate_eval_group_name_with_dataclass():
 
 
 def test_generate_eval_group_name_defaults():
-    """generate_harness_eval_group_name uses defaults for missing fields."""
+    """generate_harness_eval_group_name uses defaults for missing fields in settings mode."""
     config = SessionConfig()  # All defaults
-    name = generate_harness_eval_group_name(config)
+    name = generate_harness_eval_group_name(config, group_by="settings")
     assert "gptrealtime" in name, f"Default model should be gpt-realtime: {name}"
     assert name  # Should not crash
+
+
+def test_generate_eval_group_name_dataset_mode():
+    """generate_harness_eval_group_name groups by dataset name by default."""
+    config = SessionConfig(model="gpt-4.1", voice="alloy")
+    name = generate_harness_eval_group_name(config, dataset_name="Eiffel_Tower_Visit.jsonl")
+    assert "Eiffel_Tower_Visit" in name, f"Dataset name should appear: {name}"
+    assert name.startswith("harness_"), f"Should have harness_ prefix: {name}"
+    # Settings should NOT appear in the group name when grouping by dataset
+    assert "gpt41" not in name
+
+
+def test_generate_eval_group_name_dataset_fallback():
+    """generate_harness_eval_group_name falls back to settings when dataset_name is empty."""
+    config = SessionConfig(model="gpt-4.1", voice="alloy")
+    name = generate_harness_eval_group_name(config, dataset_name="")
+    assert "gpt41" in name, f"Should fall back to settings: {name}"
 
 
 def test_journal_eval_group_with_dataclass():
@@ -485,6 +502,8 @@ def main():
     print("\n  eval group naming / journal (SessionConfig):")
     _run("eval_name_dataclass", test_generate_eval_group_name_with_dataclass)
     _run("eval_name_defaults", test_generate_eval_group_name_defaults)
+    _run("eval_name_dataset_mode", test_generate_eval_group_name_dataset_mode)
+    _run("eval_name_dataset_fallback", test_generate_eval_group_name_dataset_fallback)
     _run("journal_dataclass", test_journal_eval_group_with_dataclass)
     _run("journal_none_config", test_journal_eval_group_none_config)
 
