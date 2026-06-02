@@ -2,7 +2,7 @@
 # Python 3.11+ required (numpy>=2.4.6 requires Python >=3.11)
 
 # Azure SDKs
-azure-ai-voicelive==1.2.0b4  # Pinned to last working beta: 1.2.0+ removes AgentSessionConfig (needs AgentConfig migration before unpinning)
+azure-ai-voicelive==1.2.0  # Pinned to last working beta: 1.2.0+ removes AgentSessionConfig (needs AgentConfig migration before unpinning)
 azure-ai-evaluation>=1.16.9
 azure-identity>=1.25.3
 azure-core>=1.41.0
