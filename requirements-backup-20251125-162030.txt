@@ -34,7 +34,7 @@ editdistance==0.8.1
 einops==0.8.1
 et_xmlfile==2.0.0
 filelock==3.25.2
-fonttools==4.60.1
+fonttools==4.60.2
 frozenlist==1.8.0
 fsspec==2025.3.0
 gdown==5.2.0
