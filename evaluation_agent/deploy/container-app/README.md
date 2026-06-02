@@ -24,7 +24,7 @@ This Container App runs VoiceLive audio tests on datasets and generates evaluati
 - **Foundry Dataset Integration**: Downloads datasets directly from Foundry Data Store via `foundry_dataset` parameter (independent of Function App — no blob staging required)
 - **Media Dataset Support**: Accepts Foundry media format (`input_audio` via base64 data-URI or blob URL) alongside legacy `WavPath`
 - **Dynamic Session Config**: Configurable via API or environment
-- **Extensible Design**: Prepared for future Voice Live Agent mode
+- **Voice Live Agent Mode**: Connects to a Foundry Agent (`agent` section in `session_config` / `AGENT_NAME`+`PROJECT_NAME`) instead of a bare model deployment; the agent owns its instructions and tools, while voice and turn detection are agent-owned by default but can be overridden via `session_config` (Entra ID auth required)
 
 ## API Endpoints
 
