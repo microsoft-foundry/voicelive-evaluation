@@ -2,7 +2,7 @@
 # Python 3.10+ recommended
 
 # Azure SDKs
-azure-ai-voicelive>=1.2.0b4
+azure-ai-voicelive==1.2.0b4  # Pinned: 1.2.0 GA removes AgentSessionConfig (migration needed)
 azure-ai-evaluation>=1.16.9
 azure-identity>=1.25.3
 azure-core>=1.41.0
