@@ -26,7 +26,7 @@ Processes pre-recorded audio files through the Azure VoiceLive SDK for evaluatio
 
 | Requirement | Notes |
 |---|---|
-| Python 3.10+ | `async`/`await` and `asyncio.TaskGroup` |
+| Python 3.11+ | `async`/`await`, `asyncio.TaskGroup`, and `numpy>=2.4.6` |
 | Azure VoiceLive endpoint | Set via `AZURE_VOICELIVE_ENDPOINT` |
 | Azure credentials | `DefaultAzureCredential` — Azure CLI login or managed identity |
 | Audio files | 16-bit PCM WAV (any sample rate; resampled automatically) |
