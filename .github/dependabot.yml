@@ -94,3 +94,4 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
       - dependency-name: "azure-ai-voicelive"  # Pinned until migration
+      - dependency-name: "azure-ai-projects"  # Container App on 1.x; bump to 2.x tracked separately

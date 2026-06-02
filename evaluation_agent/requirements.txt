@@ -15,6 +15,6 @@ azure-storage-blob>=12.29.0
 python-dotenv>=1.2.2
 
 # Tracing and Monitoring
-opentelemetry-sdk>=1.40.0
+opentelemetry-sdk==1.40.0
 azure-core-tracing-opentelemetry>=1.0.0b13
 azure-monitor-opentelemetry>=1.8.8  # App Insights integration (pins otel-sdk==1.40)
