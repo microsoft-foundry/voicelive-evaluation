@@ -261,6 +261,25 @@ def test_settings_summary_none_config():
     assert _settings_summary(None) == ""
 
 
+def test_none_model_voice_safety():
+    """None model/voice values don't crash — produce safe defaults."""
+    config = {"model": None, "voice": None}
+    name = generate_eval_group_name(config, group_by="settings")
+    assert "None" not in name, f"Should not contain literal 'None': {name}"
+    assert name, "Should produce a non-empty name"
+    summary = _settings_summary(config)
+    # Should not crash, may be empty
+    assert isinstance(summary, str)
+
+
+def test_missing_keys_safety():
+    """Empty config dict doesn't crash."""
+    name = generate_eval_group_name({}, group_by="settings")
+    assert name, "Should produce a non-empty name"
+    summary = _settings_summary({})
+    assert isinstance(summary, str)
+
+
 # ── Cross-solution consistency tests ─────────────────────────────────
 
 def test_consistency_with_harness():
@@ -331,6 +350,8 @@ def main():
     _run("summary_full", test_settings_summary_full)
     _run("summary_minimal", test_settings_summary_minimal)
     _run("summary_none", test_settings_summary_none_config)
+    _run("none_model_voice", test_none_model_voice_safety)
+    _run("missing_keys", test_missing_keys_safety)
 
     print("\n  cross-solution consistency:")
     _run("consistency_with_harness", test_consistency_with_harness)

@@ -434,15 +434,10 @@ def _generate_eval_group_name_by_settings(session_config: dict = None) -> str:
     Format: {model}_{voice}_{vad}_{eod}
     """
     if not session_config:
-        session_config = {
-            "model": "gpt-realtime",
-            "voice": "alloy",
-            "vad_threshold": "0.5",
-            "silence_duration_ms": "500"
-        }
+        session_config = {}
     
-    model = session_config.get("model", "gpt-realtime")
-    voice = session_config.get("voice", "alloy")
+    model = str(session_config.get("model") or "gpt-realtime")
+    voice = str(session_config.get("voice") or "alloy")
     vad = session_config.get("vad_threshold")
     eod = session_config.get("silence_duration_ms")
     model_clean = model.replace("-", "").replace(".", "")
@@ -457,6 +452,9 @@ def _short_voice_name(voice: str) -> str:
     e.g. 'en-US-Ava:DragonHDLatestNeural' -> 'Ava'
          'alloy' -> 'alloy'
     """
+    if not voice:
+        return ""
+    voice = str(voice)
     if ':' in voice:
         prefix = voice.split(':')[0]
         parts = prefix.split('-')
@@ -492,8 +490,8 @@ def _settings_summary(session_config: dict) -> str:
     """Short settings summary for run names (when grouping by dataset)."""
     if not session_config:
         return ""
-    model = session_config.get("model", "").replace("-", "").replace(".", "")
-    voice = _short_voice_name(session_config.get("voice", ""))
+    model = str(session_config.get("model") or "").replace("-", "").replace(".", "")
+    voice = _short_voice_name(session_config.get("voice") or "")
     vad = session_config.get("vad_threshold")
     eod = session_config.get("silence_duration_ms")
     parts = [model, voice]
@@ -2291,7 +2289,8 @@ def get_testing_criteria(evaluators: list, model_deployment: str, reasoning_depl
 def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str, 
                            evaluators: list = None, eval_group_id: str = None,
                            foundry_dataset_id: str = None, session_config: dict = None,
-                           dataset_name: str = None, dataset_version: str = "1") -> dict:
+                           dataset_name: str = None, dataset_version: str = "1",
+                           group_by: str = "dataset") -> dict:
     """
     Run Azure AI Foundry evaluation on a dataset.
     
@@ -2305,6 +2304,7 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
         session_config: VoiceLive session config for eval group naming
         dataset_name: Dataset name for run naming
         dataset_version: Dataset version for run naming
+        group_by: Eval group naming strategy: "dataset" (default) or "settings"
     
     Returns:
         dict with eval_id, eval_run_id, portal_url, and metrics summary
@@ -2373,6 +2373,7 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
             eval_group_name = generate_eval_group_name(
                 session_config=session_config,
                 dataset_name=dataset_name or "",
+                group_by=group_by,
             )
             existing_id = None
             try:
@@ -2398,7 +2399,7 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
                 logging.info(f"Created eval group: {eval_group_name} ({eval_id})")
             
             # Journal the config -> eval group mapping
-            journal_eval_group(eval_group_name, session_config or {}, eval_id)
+            journal_eval_group(eval_group_name, session_config or {}, eval_id, group_by=group_by)
         
         # Upload or reuse dataset
         if foundry_dataset_id:
@@ -2462,6 +2463,7 @@ def run_foundry_evaluation(dataset_path: str, output_path: str, instance_id: str
             dataset_version=new_version,
             evaluators=eval_list,
             session_config=session_config,
+            group_by=group_by,
         )
         
         eval_run = openai_client.evals.runs.create(
