@@ -101,7 +101,7 @@ def generate_harness_eval_group_name(
     basename = os.path.splitext(os.path.basename(dataset_name))[0] if dataset_name else ""
     if not basename:
         return _generate_harness_eval_group_name_by_settings(config)
-    return f"harness_{_sanitize_eval_name(basename)}"
+    return f"harness_{_sanitize_eval_name(basename, max_length=72)}"
 
 
 def _generate_harness_eval_group_name_by_settings(config) -> str:
