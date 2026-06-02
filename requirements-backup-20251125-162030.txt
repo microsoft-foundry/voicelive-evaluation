@@ -72,7 +72,7 @@ msrest==0.7.1
 multidict==6.7.0
 multiprocess==0.70.19
 networkx==3.6.1
-nltk==3.9.3
+nltk==3.9.4
 nodeenv==1.9.1
 numba==0.62.1
 numpy==2.4.3
