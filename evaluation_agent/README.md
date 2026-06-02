@@ -324,8 +324,10 @@ sequenceDiagram
 To compare push-to-talk vs VAD on the same dataset:
 
 1. Run Phase 1 twice with different session configs (`push-to-talk` and `default`)
-2. Run Phase 2 on each result, passing the same `eval_group_id` to group runs together
+2. Run Phase 2 on each result — both runs will automatically land in the same eval group (named by dataset)
 3. Compare metrics side-by-side in the Foundry portal
+
+> **Eval group naming:** By default, evaluation runs are grouped by **dataset name** (e.g., `Eiffel_Tower_Visit_1`). This makes cross-config comparison easy — different VoiceLive settings on the same dataset share an eval group. Run names show settings (model/voice) so individual runs remain distinguishable. To group by settings instead (legacy behavior), pass `group_by="settings"` to `generate_eval_group_name()` or `run_foundry_evaluation()`.
 
 ### Agent Mode Support
 
@@ -402,7 +404,7 @@ In agent mode:
 |------|-------------|
 | `run_voicelive_evaluation` | Full pipeline: download blob results → upload Foundry dataset → create eval group → start evaluators → return `eval_id`, `eval_run_id`, portal URL **immediately** (non-blocking) |
 
-> **Dataset naming:** Foundry datasets are named `agent_{source_dataset_name}` with auto-versioning. Re-running evaluation on the same dataset creates a new version (v1, v2, v3...) enabling comparison across runs. The harness uses `harness_{dataset_name}` prefix to distinguish local vs cloud pipeline results.
+> **Dataset naming:** Foundry datasets are named `agent_{source_dataset_name}` with auto-versioning. Re-running evaluation on the same dataset creates a new version (v1, v2, v3...) enabling comparison across runs. The harness uses `harness_{dataset_name}` prefix to distinguish local vs cloud pipeline results. **Eval group naming:** By default, eval groups are named by dataset (not by settings), so different configs on the same dataset share a group for easy comparison.
 | `check_evaluation_status` | Query eval run status + metrics. Accepts `eval_id` + `eval_run_id` (queries Foundry directly) or `instance_id` (legacy durable check) |
 | `get_evaluation_recommendations` | Get settings for large datasets |
 | `analyze_evaluation_results` | Analyze completed evaluation |
@@ -653,7 +655,7 @@ After `azd up`, the following resources are created:
 | Container Registry | `acr<token>` - Docker images |
 | App Insights | `func-<token>-insights` - Telemetry |
 | Table: sessionconfigs | VoiceLive session configurations |
-| Table: configjournal | Evaluation group → config mapping |
+| Table: configjournal | Evaluation group → config mapping (includes `GroupBy` strategy: dataset or settings) |
 
 ## Troubleshooting
 

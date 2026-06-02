@@ -167,7 +167,10 @@ Voice Live transcription handles punctuation automatically:
 | Argument | Default | Description |
 |---|---|---|
 | `--evaluators` | `default` | Evaluator selection: `default` (8 evaluators), `all` (13), or comma-separated list |
+| `--eval-group-by` | `dataset` | Eval group naming strategy: `dataset` (group by dataset name) or `settings` (group by model/voice/VAD config) |
 | `--eval-object-id` | `None` | Existing Foundry eval group ID to reuse |
+
+> **Eval group naming:** By default, evaluation runs are grouped by dataset name (e.g., `harness_Eiffel_Tower_Visit_1`), making it easy to compare different VoiceLive configurations on the same dataset within a single Foundry eval group. Use `--eval-group-by settings` for the legacy behavior that groups by model/voice/VAD settings instead.
 
 ### Config File
 
@@ -471,12 +474,20 @@ Azure credentials are resolved via `DefaultAzureCredential` — ensure you are l
 When `--skip-evaluation` is **not** set, the script automatically runs Azure AI Foundry evaluation after processing:
 
 1. Writes evaluation-ready JSONL with conversation history context
-2. Calls `voice_agent_evaluation.main()` which creates an eval group, uploads dataset, and runs 11 built-in evaluators
+2. Calls `voice_agent_evaluation.main()` which creates an eval group, uploads dataset, and runs evaluators
 3. Polls for completion and outputs per-item scores + aggregate summary
 
+Eval groups are named by **dataset** by default (e.g., `harness_Eiffel_Tower_Visit_1`). Run names complement the group — in dataset mode, runs show settings (e.g., `gptrealtime_Ava`); in settings mode, runs show dataset name.
+
 ```bash
-# Full pipeline: VoiceLive processing + Foundry evaluation
+# Full pipeline: VoiceLive processing + Foundry evaluation (grouped by dataset)
 python voice_agent_audio_input_evaluation.py -f dataset.jsonl -o output -e output
+
+# Same dataset, different config — runs land in the same eval group for comparison
+python voice_agent_audio_input_evaluation.py -f dataset.jsonl -o output --config configs/sample_ptt_cascaded.json
+
+# Group by settings instead (legacy behavior)
+python voice_agent_audio_input_evaluation.py -f dataset.jsonl -o output --eval-group-by settings
 
 # Processing only (skip evaluation)
 python voice_agent_audio_input_evaluation.py -f dataset.jsonl --skip-evaluation
@@ -694,7 +705,8 @@ See `sample_agent_cross_resource_config.json` for a complete example.
 
 | Version | Description |
 |---|---|
-| **v3.5** (Current) | Sample configs + documentation — PTT/VAD sample configs (4 configs: VAD realtime, VAD cascaded, PTT realtime, PTT cascaded), config parameter reference table, PTT vs VAD guidance section, credential setup guide, punctuation handling notes |
+| **v3.6** (Current) | Dataset-based eval grouping — `--eval-group-by {dataset,settings}` flag (default: `dataset`), complementary run names (settings when grouped by dataset, dataset when grouped by settings), `_short_voice_name()` for readable Azure voice identifiers, agent naming unit tests |
+| **v3.5** | Sample configs + documentation — PTT/VAD sample configs (4 configs: VAD realtime, VAD cascaded, PTT realtime, PTT cascaded), config parameter reference table, PTT vs VAD guidance section, credential setup guide, punctuation handling notes |
 | **v3.4** | Feature parity with Container App — 12 new CLI args for session config (noise reduction, echo cancellation, VAD, EOU, transcription model, voice type), `--evaluators` arg (default/all/custom), `--config` JSON file support, 8 default evaluators aligned with Container App, sample_config.json |
 | **v3.3** | Code quality fixes — content_index barge-in fix, empty response placeholder, batch race condition fix (per-process files), path traversal validation, async lock safety, SAS token redaction, float32 WAV support, list-type Answer OR-join |
 | **v3.2** | SDK format alignment — tool message flat format (`name`/`tool_call_id`/`arguments` at top level), azure-ai-evaluation 1.15.3, azure-ai-voicelive 1.2.0b4, Foundry UX content validation fixes |
