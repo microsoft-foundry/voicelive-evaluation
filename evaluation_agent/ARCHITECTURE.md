@@ -1491,9 +1491,9 @@ The harness supports `--config session_config.json` to load session parameters f
 | Package | Min Version | Notes |
 |---------|-------------|-------|
 | `azure-ai-evaluation` | 1.15.3 | Stable release — Foundry evaluators, tool message validation |
-| `azure-ai-projects` | 2.0.0b4 | Foundry project client, dataset management |
+| `azure-ai-projects` | 2.2.0 | Foundry project client, dataset management |
 | `azure-ai-agents` | 1.2.0b6 | Agent models (`FunctionTool`, `OpenApiTool`, etc.) |
-| `azure-ai-voicelive` | 1.2.0b4 | VoiceLive S2ST SDK (pre-release) |
+| `azure-ai-voicelive` | 1.2.0 | VoiceLive S2ST SDK |
 
 ### Tool Message Format (SDK Canonical)
 
