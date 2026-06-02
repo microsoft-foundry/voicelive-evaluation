@@ -7,13 +7,13 @@ from datetime import datetime
 import logging
 import queue
 import signal
-from typing import Any, Union, Optional, TYPE_CHECKING, cast
+from typing import Any, Dict, Union, Optional, TYPE_CHECKING, cast
 
 from azure.core.credentials import AzureKeyCredential
 from azure.core.credentials_async import AsyncTokenCredential
 from azure.identity.aio import AzureCliCredential
 
-from azure.ai.voicelive.aio import connect, AgentSessionConfig
+from azure.ai.voicelive.aio import connect
 from azure.ai.voicelive.models import (
     InputAudioFormat,
     Modality,
@@ -240,7 +240,8 @@ class BasicVoiceAssistant:
     """
     Basic voice assistant implementing the VoiceLive SDK patterns with Foundry Agent.
     
-    Uses the new AgentSessionConfig for strongly-typed agent configuration at connection time.
+    Passes agent settings as individual connect() keyword arguments at connection time
+    (azure-ai-voicelive 1.2.0 removed the AgentSessionConfig dict parameter).
     This sample also demonstrates how to collect a conversation log of user and agent interactions.
     """
 
@@ -259,8 +260,8 @@ class BasicVoiceAssistant:
         self.endpoint = endpoint
         self.credential = credential
         self.voice = voice
-        # Build AgentSessionConfig internally
-        self.agent_config: AgentSessionConfig = {
+        # Build agent connection kwargs (passed individually to connect())
+        self.agent_config: Dict[str, Any] = {
             "agent_name": agent_name,
             "agent_version": agent_version if agent_version else None,
             "project_name": project_name,
@@ -286,14 +287,15 @@ class BasicVoiceAssistant:
                 self.agent_config.get("agent_version"),
                 self.agent_config.get("conversation_id"),
                 self.agent_config.get("foundry_resource_override"),
-                self.agent_config.get("agent-authentication-identity-client-id")
+                self.agent_config.get("authentication_identity_client_id")
             )
 
-            # Connect using AgentSessionConfig (new SDK pattern)
+            # Connect with agent settings as individual kwargs (1.2.0 SDK pattern).
+            # Drop unset (None) values so connect() applies its own defaults.
             async with connect(
                 endpoint=self.endpoint,
                 credential=self.credential,
-                agent_config=self.agent_config,
+                **{k: v for k, v in self.agent_config.items() if v is not None},
             ) as connection:
                 conn = connection
                 self.connection = conn

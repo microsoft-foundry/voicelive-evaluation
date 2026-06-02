@@ -460,7 +460,7 @@ az login
 cat > .env << 'EOF'
 AZURE_VOICELIVE_ENDPOINT=wss://<your-resource-name>.services.ai.azure.com
 AZURE_VOICELIVE_MODEL=gpt-realtime
-AZURE_VOICELIVE_API_VERSION=2025-10-01
+AZURE_VOICELIVE_API_VERSION=2026-04-10
 PROJECT_ENDPOINT=https://<your-resource-name>.services.ai.azure.com/api/projects/<your-project-name>
 EOF
 ```

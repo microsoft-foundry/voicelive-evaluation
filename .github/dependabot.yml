@@ -4,8 +4,6 @@ version: 2
 # - Ignore ALL major version bumps (handled as coordinated manual upgrades)
 # - Group minor/patch updates per directory into a single PR
 # - Limit open PRs to 5 per directory to reduce noise
-# - azure-ai-voicelive pinned to 1.2.0b4 until AgentSessionConfig migration
-#   (ignore all updates until pin is lifted)
 
 updates:
   # Python - root
@@ -41,7 +39,6 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-      - dependency-name: "azure-ai-voicelive"  # Pinned until migration
 
   # Python - evaluation_agent
   - package-ecosystem: "pip"
@@ -93,5 +90,3 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-      - dependency-name: "azure-ai-voicelive"  # Pinned until migration
-      - dependency-name: "azure-ai-projects"  # Container App on 1.x; bump to 2.x tracked separately

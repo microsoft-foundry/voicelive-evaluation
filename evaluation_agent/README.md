@@ -462,7 +462,7 @@ AOAI_REASONING_DEPLOYMENT_NAME=o4-mini
 # VoiceLive API
 AZURE_VOICELIVE_ENDPOINT=https://<resource>.services.ai.azure.com/
 AZURE_VOICELIVE_MODEL=gpt-realtime
-AZURE_VOICELIVE_API_VERSION=2025-10-01
+AZURE_VOICELIVE_API_VERSION=2026-04-10
 
 # Blob Storage
 AZURE_STORAGE_ACCOUNT_URL=https://<account>.blob.core.windows.net
@@ -714,7 +714,7 @@ az containerapp update --name <ca-name> --resource-group <rg> --image <acr>.azur
 | `azure-ai-evaluation` | 1.15.3 | Foundry evaluators (stable) |
 | `azure-ai-projects` | 2.0.0b4 | Foundry project & dataset management |
 | `azure-ai-agents` | 1.2.0b6 | Agent models (`FunctionTool`, `OpenApiTool`) |
-| `azure-ai-voicelive` | 1.2.0b4 | VoiceLive S2ST SDK (Container App) |
+| `azure-ai-voicelive` | 1.2.0 | VoiceLive S2ST SDK (Container App) |
 
 ### Manual-Only Operations
 

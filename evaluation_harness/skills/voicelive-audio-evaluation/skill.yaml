@@ -135,7 +135,7 @@ environment_variables:
   - name: AZURE_VOICE_LIVE_API_VERSION
     required: false
     description: "API version for VoiceLive service"
-    default: "2025-10-01"
+    default: "2026-04-10"
 
 authentication:
   method: azure_identity

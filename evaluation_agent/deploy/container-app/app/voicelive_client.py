@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from azure.identity import DefaultAzureCredential
 from azure.core.credentials import TokenCredential
-from azure.ai.voicelive.aio import connect as voicelive_connect, AgentSessionConfig
+from azure.ai.voicelive.aio import connect as voicelive_connect
 from azure.ai.voicelive.models import (
     ServerEventType,
     RequestSession,
@@ -205,7 +205,7 @@ class VoiceLiveClient:
             "credential": self.credential,
         }
         if self._agent_config:
-            connect_kwargs["agent_config"] = self._agent_config
+            connect_kwargs.update(self._agent_config)
             logger.info(f"Connecting to VoiceLive in agent mode: agent={self._agent_config.get('agent_name')}, project={self._agent_config.get('project_name')}")
         else:
             connect_kwargs["model"] = self.model

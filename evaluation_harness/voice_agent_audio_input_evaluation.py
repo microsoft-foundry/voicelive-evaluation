@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Any
 from dotenv import load_dotenv
 from azure.identity import DefaultAzureCredential
 from azure.core.credentials import AzureKeyCredential, AccessToken
-from azure.ai.voicelive.aio import connect as voicelive_connect, AgentSessionConfig
+from azure.ai.voicelive.aio import connect as voicelive_connect
 from azure.ai.voicelive.models import (
     ServerEventType,
     RequestSession,
@@ -314,7 +314,12 @@ class SessionConfig:
         return bool(self.agent_name and self.project_name)
 
     def build_agent_config(self) -> Optional[Dict[str, Any]]:
-        """Build AgentSessionConfig dict for VoiceLive connect() in agent mode."""
+        """Build agent connection kwargs for VoiceLive connect() in agent mode.
+
+        As of azure-ai-voicelive 1.2.0, agent settings are passed as individual
+        keyword arguments to connect() (the old AgentSessionConfig dict param was
+        removed). The keys returned here match connect()'s kwarg names exactly.
+        """
         if not self.is_agent_mode:
             return None
         config: Dict[str, Any] = {
@@ -1823,7 +1828,7 @@ async def main_async(args: argparse.Namespace) -> None:
         }
         if config.is_agent_mode:
             agent_cfg = config.build_agent_config()
-            connect_kwargs["agent_config"] = agent_cfg
+            connect_kwargs.update(agent_cfg)
             logger.info(f"Connecting in agent mode: agent={config.agent_name}, project={config.project_name}, version={config.agent_version}")
         else:
             connect_kwargs["model"] = model

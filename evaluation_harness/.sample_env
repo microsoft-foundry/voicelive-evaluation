@@ -1,5 +1,5 @@
 # Voice Live API Configuration (used by voice_agent_audio_input_evaluation.py)
-AZURE_VOICE_LIVE_API_VERSION=2025-10-01
+AZURE_VOICE_LIVE_API_VERSION=2026-04-10
 AZURE_VOICE_LIVE_MODEL=gpt-4.1  # Options: "phi4-mini", "phi4-mm-realtime", "gpt-4o-realtime-preview", "gpt-4.1"
 AZURE_VOICE_LIVE_ENDPOINT=https://your-resource.services.ai.azure.com/
 AZURE_VOICELIVE_API_KEY=   # Only required if not using DefaultAzureCredential

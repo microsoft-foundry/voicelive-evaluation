@@ -146,7 +146,11 @@ class SessionConfig:
         return self.agent is not None and bool(self.agent.agent_name and self.agent.project_name)
 
     def build_agent_config(self) -> Optional[Dict[str, Any]]:
-        """Build AgentSessionConfig dict for VoiceLive connect()."""
+        """Build agent connection kwargs for VoiceLive connect().
+
+        azure-ai-voicelive 1.2.0 passes agent settings as individual connect()
+        keyword arguments; the keys here match those kwarg names.
+        """
         if not self.is_agent_mode or self.agent is None:
             return None
         config: Dict[str, Any] = {

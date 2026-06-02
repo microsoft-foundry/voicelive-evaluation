@@ -14,11 +14,11 @@ sounddevice==0.5.1
 typing_extensions==4.15.0
 urllib3==2.4.0
 websocket-client==1.8.0
-azure-ai-voicelive==1.2.0b4
+azure-ai-voicelive>=1.2.0
 filelock>=3.0.0  # For cross-process file locking in batch mode
 
 # Addition packages for evaluation
-azure-ai-projects==2.0.0b4
+azure-ai-projects>=2.2.0
 azure-ai-evaluation==1.15.3
 azure-ai-agents==1.2.0b6
 
