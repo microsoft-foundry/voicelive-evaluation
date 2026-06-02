@@ -27,7 +27,7 @@ graph LR
 
 ### Prerequisites
 
-- Azure subscription with Cognitive Services access
+- Azure subscription with Foundry access
 - Azure CLI + azd CLI installed
 - Python 3.11+
 - Docker Desktop (for Container App deployment)
@@ -159,7 +159,7 @@ az role assignment create `
 
 **Required roles for full functionality**:
 - **Azure AI Developer** - For evaluations read/write (data plane actions)
-- **Cognitive Services User** - For general Cognitive Services access
+- **Foundry User** - For VoiceLive API access and general Cognitive Services access
 
 ### Post-Provision Automation
 
@@ -167,8 +167,8 @@ The `scripts/azd/postprovision.ps1` hook runs after `azd provision` and handles:
 
 1. **Seed session configs** - Populates Azure Table Storage with 7 default VoiceLive configurations
 2. **Set Container App URL** - Configures the Function App with the Container App endpoint
-3. **Assign Function App RBAC** - Grants Azure AI Developer + Cognitive Services User to Function App MI
-4. **Assign Container App RBAC** - Grants Cognitive Services User + Storage Blob/Table Contributor to Container App MI
+3. **Assign Function App RBAC** - Grants Azure AI Developer + Foundry User to Function App MI
+4. **Assign Container App RBAC** - Grants Foundry User + Storage Blob/Table Contributor to Container App MI
 5. **Create Foundry connection** - Creates CustomKeys connection with Function App key (requires `PROJECT_ENDPOINT` + `FOUNDRY_ACCOUNT_RESOURCE_ID`)
 
 ## Usage

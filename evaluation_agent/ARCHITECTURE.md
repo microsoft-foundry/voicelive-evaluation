@@ -1077,13 +1077,13 @@ sequenceDiagram
 | Principal | Role | Scope | Purpose |
 |-----------|------|-------|---------|
 | Function App MI | Azure AI Developer | Cognitive Services account | Evaluations data plane access |
-| Function App MI | Cognitive Services User | Cognitive Services account | General API access |
+| Function App MI | Foundry User | Cognitive Services account | General API + VoiceLive access |
 | Function App MI | Storage Blob Data Contributor | Storage account | Dataset/output read/write |
 | Function App MI | ContainerApp.Access (App Role) | App Registration SP | Entra ID auth to Container App |
-| Container App MI | Cognitive Services User | Cognitive Services account | VoiceLive SDK access |
+| Container App MI | Foundry User | Cognitive Services account | VoiceLive SDK access |
 | Container App MI | Storage Blob Data Contributor | Storage account | Dataset/output read/write |
 | Container App MI | Storage Table Data Contributor | Storage account | Config journal writes |
-| Foundry Project MI | Azure AI User | Cognitive Services account | Agent tracing (optional) |
+| Foundry Project MI | Foundry User | Cognitive Services account | Agent tracing (optional) |
 
 All service RBAC is assigned automatically by `postprovision.ps1` using idempotent check-then-create logic.
 
@@ -1336,7 +1336,7 @@ sequenceDiagram
 Auto-registration in `check_voicelive_job_status` attempts Foundry dataset upload on job completion via `_register_voicelive_output_as_foundry_dataset()`. However, this is **best-effort** — it silently fails if the Container App has scaled to zero before status is checked. The `run_voicelive_evaluation` pipeline handles its own Foundry dataset upload as the reliable path.
 
 ### Other High Priority
-- [x] **Add RBAC assignments to azd automation** - Post-provision hook assigns Azure AI Developer + Cognitive Services User roles
+- [x] **Add RBAC assignments to azd automation** - Post-provision hook assigns Azure AI Developer + Foundry User roles
 - [x] **Fix VoiceLive Container App progress tracking** - Per-file progress updates via callback in process_conversation
 - [x] **Add Foundry connection creation to azd** - Post-provision hook creates CustomKeys connection via ARM
 - [ ] **Add webhook notifications** - Notify when long evaluations complete
