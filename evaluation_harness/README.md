@@ -546,7 +546,7 @@ Evaluation scores range from **1-5** (GPT-judge evaluators) or **0/1** (binary e
 7. ~~**No barge-in / interruption handling**~~ — **Implemented** (v1.2.0b4+): auto-truncation enabled by default (`--enable-barge-in`). Tracks `was_truncated`, `response_full`, and `barge_in` in evaluation output.
 8. **Evaluation polling has no timeout** — `voice_agent_evaluation.py` polls indefinitely for eval run completion with no maximum attempt cap; a stuck run will block the process.
 9. **Evaluation output is pretty-printed JSON** — the `*_eval_output.jsonl` files use `indent=4` formatting, so each record spans multiple lines (not strict one-record-per-line JSONL).
-10. **Batch processor shared file writes** — parallel subprocess workers append to a shared aggregate JSONL file without inter-process locking; unlikely but possible write contention under high parallelism.
+10. ~~**Batch processor shared file writes**~~ — **Fixed**: each subprocess worker writes its own per-process eval JSONL file (no shared file); results are concatenated post-completion via `aggregate_evaluation_files()` in `batch_processor.py`. No inter-process write contention.
 
 ## Preparing Test Datasets
 
