@@ -23,4 +23,4 @@ AOAI_REASONING_DEPLOYMENT_NAME=o4-mini
 # AGENT_AUTHENTICATION_IDENTITY_CLIENT_ID=
 
 # --- Integration Testing ---
-# AZURE_FUNCTION_KEY=  # Function App key for test_media_integration.py
+# AZURE_FUNCTION_KEY=<function-key>  # Function App key for test_media_integration.py
