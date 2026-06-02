@@ -10,7 +10,7 @@ azure-identity>=1.25.3
 azure-ai-voicelive==1.2.0b4  # Pinned to last working beta: 1.2.0+ removes AgentSessionConfig (needs AgentConfig migration before unpinning)
 azure-ai-projects>=1.0.0b7   # Container App uses 1.x API surface; bump to 2.x tracked separately
 azure-storage-blob>=12.29.0
-azure-data-tables>=12.5.0
+azure-data-tables>=12.7.0
 azure-core>=1.41.0
 
 # Monitoring and Telemetry
