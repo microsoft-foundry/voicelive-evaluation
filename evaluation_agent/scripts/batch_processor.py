@@ -374,7 +374,8 @@ def run_final_evaluation(
     aggregated_eval_file: str,
     output_dir: str,
     timestamp: str,
-    eval_object_id: Optional[str] = None
+    eval_object_id: Optional[str] = None,
+    dataset_name: str = "",
 ):
     """
     Run the final evaluation on the aggregated JSONL file.
@@ -390,7 +391,17 @@ def run_final_evaluation(
         import voice_agent_evaluation
         
         eval_name = os.path.basename(aggregated_eval_file)
-        eval_description = f"Voice Live API Batch: {datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Use dataset name for eval group (aligned with group-by-dataset default)
+        if dataset_name:
+            import re
+            clean = re.sub(r'[^A-Za-z0-9_-]', '_', os.path.splitext(os.path.basename(dataset_name))[0])
+            clean = re.sub(r'_+', '_', clean).strip('_')
+            clean = clean[:74]  # keep total ≤80 chars with "batch_" prefix
+            eval_description = f"batch_{clean}" if clean else f"Voice Live API Batch: {datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            # Note: batch_ prefix is intentional — batch runs are isolated from
+            # harness/agent eval groups so parallel subprocess results don't collide.
+        else:
+            eval_description = f"Voice Live API Batch: {datetime.now().strftime('%Y%m%d_%H%M%S')}"
         timestamp_root = os.path.join(output_dir, timestamp)
         
         log_message(f"Running final evaluation on: {aggregated_eval_file}")
@@ -715,7 +726,8 @@ Examples:
                 )
                 if verified_eval_file:
                     run_final_evaluation(
-                        verified_eval_file, args.output_dir, timestamp, args.eval_object_id
+                        verified_eval_file, args.output_dir, timestamp,
+                        args.eval_object_id, dataset_name=dataset_name,
                     )
             
             log_message(f"Output saved to: {batch_output_dir}")

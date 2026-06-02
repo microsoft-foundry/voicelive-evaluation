@@ -868,30 +868,35 @@ def download_blob_flexible(container_name, blob_path, extensions, prefer_pattern
 
 ---
 
-### 7. Why Config-Based Eval Group Naming?
+### 7. Why Dataset-Based Eval Group Naming?
 
-**Decision**: Name eval groups based on VoiceLive session configuration, not dataset name.
+**Decision**: Name eval groups based on dataset name by default. Settings-based naming available via `--eval-group-by settings`.
 
-**Format**: `{model}_{voice}_{vad}_{eod}`
-- Example: `gptrealtime_alloy_0.5_500`
+**Default format**: `{dataset_basename}` (e.g., `Eiffel_Tower_Visit_1`)
+**Settings format**: `{model}_{voice}_{vad}_{eod}` (e.g., `gptrealtime_alloy_0.5_500`)
 
-**Problem**: With the old naming (`voicelive-eval-{instance_id}`):
-- No way to compare runs across same config
-- No grouping by agent behavior settings
-- No cross-dataset comparison for same agent
+**Problem**: With settings-based naming:
+- Hard to compare results for the same dataset across different settings
+- Multiple configs produce different eval groups even when testing the same content
+- Dataset-centric comparisons require manual cross-referencing
 
-**Solution**: Group by config, enabling:
+**Solution**: Group by dataset (default), enabling:
+- Easy comparison of different settings on the same dataset
+- Natural organization around evaluation content
+- Settings info included in **run name** for within-group differentiation
+
+**Settings mode** (`--eval-group-by settings`):
 - Cross-dataset comparison within same agent config
-- Easy identification of config → eval group mapping
-- Config journal in Azure Table Storage for tracking
+- Config journal tracks mapping for both modes
 
-**Run Naming**: `YYYYMMDD-HHMMSS-xxx │ {dataset}_v{version} │ {evaluator_summary}`
+**Run Naming** (complementary to eval group):
+- **Dataset mode** (default): `YYYYMMDD-HHMMSS-xxx │ {settings_hint} │ {evaluator_summary}` — run name highlights settings since the eval group already identifies the dataset
+- **Settings mode**: `YYYYMMDD-HHMMSS-xxx │ {dataset}_v{version} │ {evaluator_summary}` — run name highlights dataset since the eval group already identifies the settings
 - Timestamp-first for chronological sorting
 - 3-char random suffix for parallel jobs
-- Dataset version reference for traceability
-- Evaluator summary: `all`, `default`, or `subset`
 
-**Example**: `20260206-122000-x7k │ Eiffel_Tower_Visit_1_v1 │ all`
+**Example (dataset mode)**: `20260206-122000-x7k │ gptrealtime_Ava │ all`
+**Example (settings mode)**: `20260206-122000-x7k │ Eiffel_Tower_Visit_1_v1 │ all`
 
 ---
 

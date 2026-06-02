@@ -73,21 +73,96 @@ SYSTEM_INSTRUCTION = "You are a helpful agent assisting users with their questio
 # Eval naming helpers (aligned with evaluation agent naming)
 # ---------------------------------------------------------------------------
 
-def generate_harness_eval_group_name(config) -> str:
-    """Generate eval group name from session config, matching agent naming pattern.
+def _sanitize_eval_name(name: str, max_length: int = 80) -> str:
+    """Sanitize a name for use in eval group/run names (safe for Foundry and Table Storage)."""
+    clean = re.sub(r'[^A-Za-z0-9_-]', '_', name)
+    clean = re.sub(r'_+', '_', clean).strip('_')
+    return clean[:max_length] if clean else "unnamed"
+
+
+def generate_harness_eval_group_name(
+    config=None,
+    dataset_name: str = "",
+    group_by: str = "dataset",
+) -> str:
+    """Generate eval group name, grouped by dataset (default) or settings.
+
+    Args:
+        config: SessionConfig object (used when group_by="settings").
+        dataset_name: Dataset file path or name (used when group_by="dataset").
+        group_by: "dataset" (default) or "settings".
+
+    Returns:
+        Sanitized eval group name string.
+    """
+    if group_by == "settings":
+        return _generate_harness_eval_group_name_by_settings(config)
+    # Default: group by dataset
+    basename = os.path.splitext(os.path.basename(dataset_name))[0] if dataset_name else ""
+    if not basename:
+        return _generate_harness_eval_group_name_by_settings(config)
+    return f"harness_{_sanitize_eval_name(basename, max_length=72)}"
+
+
+def _generate_harness_eval_group_name_by_settings(config) -> str:
+    """Generate eval group name from session config (legacy behavior).
     Format: harness_{model}_{voice}_{vad}_{eod}
     """
-    model = getattr(config, 'model', 'gpt-realtime')
-    voice = getattr(config, 'voice', 'alloy')
-    vad = getattr(config, 'vad_threshold', '0.5')
-    eod = getattr(config, 'silence_duration_ms', '500')
+    model = getattr(config, 'model', None) or 'gpt-realtime'
+    voice = getattr(config, 'voice', None) or 'alloy'
+    vad = getattr(config, 'vad_threshold', None)
+    eod = getattr(config, 'silence_duration_ms', None)
     model_clean = str(model).replace("-", "").replace(".", "")
-    return f"harness_{model_clean}_{voice}_{vad}_{eod}"
+    voice_short = _short_voice_name(str(voice))
+    vad_str = str(vad) if vad is not None else "default"
+    eod_str = str(eod) if eod is not None else "default"
+    return f"harness_{model_clean}_{voice_short}_{vad_str}_{eod_str}"
 
 
-def generate_harness_run_name(dataset_name: str, dataset_version: str, evaluators: list) -> str:
+def _short_voice_name(voice: str) -> str:
+    """Extract a short, readable voice identifier.
+    e.g. 'en-US-Ava:DragonHDLatestNeural' -> 'Ava'
+         'alloy' -> 'alloy'
+    """
+    if not voice or voice == "None":
+        return ""
+    if ':' in voice:
+        # Azure voice format: "en-US-Ava:DragonHDLatestNeural" -> "Ava"
+        prefix = voice.split(':')[0]  # "en-US-Ava"
+        parts = prefix.split('-')
+        return parts[-1] if len(parts) >= 3 else prefix
+    return voice
+
+
+def _settings_summary(config) -> str:
+    """Short settings summary for run names (when grouping by dataset)."""
+    if not config:
+        return ""
+    model = str(getattr(config, 'model', '') or '').replace("-", "").replace(".", "")
+    voice = _short_voice_name(str(getattr(config, 'voice', '') or ''))
+    vad = getattr(config, 'vad_threshold', None)
+    eod = getattr(config, 'silence_duration_ms', None)
+    parts = [model, voice]
+    if vad is not None:
+        parts.append(f"vad{vad}")
+    if eod is not None:
+        parts.append(f"eod{eod}")
+    return "_".join(p for p in parts if p)
+
+
+def generate_harness_run_name(
+    dataset_name: str,
+    dataset_version: str,
+    evaluators: list,
+    config=None,
+    group_by: str = "dataset",
+) -> str:
     """Generate run name with metadata, matching agent naming pattern.
-    Format: YYYYMMDD-HHMMSS-xxx | {dataset}_v{version} | {evaluator_summary}
+
+    Content complements the eval group:
+    - group_by="dataset": run highlights settings (config already identifies dataset)
+    - group_by="settings": run highlights dataset (config already identifies settings)
+    Format: YYYYMMDD-HHMMSS-xxx | {complement_info} | {evaluator_summary}
     """
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     random_suffix = secrets.token_hex(2)[:3]
@@ -98,7 +173,15 @@ def generate_harness_run_name(dataset_name: str, dataset_version: str, evaluator
     else:
         eval_summary = "subset"
     dataset_base = os.path.splitext(os.path.basename(dataset_name))[0] if dataset_name else "dataset"
-    return f"{timestamp}-{random_suffix} | {dataset_base}_v{dataset_version} | {eval_summary}"
+
+    if group_by == "dataset" and config:
+        # Group is the dataset — run name highlights settings
+        hint = _settings_summary(config)
+        return f"{timestamp}-{random_suffix} | {hint} | {eval_summary}" if hint else \
+               f"{timestamp}-{random_suffix} | {dataset_base}_v{dataset_version} | {eval_summary}"
+    else:
+        # Group is the settings (or no config) — run name highlights dataset
+        return f"{timestamp}-{random_suffix} | {dataset_base}_v{dataset_version} | {eval_summary}"
 
 
 def journal_harness_eval_group(
@@ -106,6 +189,7 @@ def journal_harness_eval_group(
     config,
     eval_group_id: str = "",
     output_dir: str = ".",
+    group_by: str = "dataset",
 ) -> None:
     """Record eval group -> config mapping in a local journal file.
     Writes to {output_dir}/eval_journal.jsonl (append mode).
@@ -115,6 +199,7 @@ def journal_harness_eval_group(
         "timestamp": datetime.now().isoformat(),
         "eval_group_name": eval_group_name,
         "eval_group_id": eval_group_id,
+        "group_by": group_by,
         "model": getattr(config, 'model', '') if config else '',
         "voice": getattr(config, 'voice', '') if config else '',
         "vad_threshold": str(getattr(config, 'vad_threshold', '')) if config else '',
@@ -1794,11 +1879,14 @@ async def main_async(args: argparse.Namespace) -> None:
     # Run evaluation if enabled and not in batch aggregation mode
     skip_eval = getattr(args, "skip_evaluation", False)
     evaluators = getattr(args, "evaluators", None)
+    eval_group_by = getattr(args, "eval_group_by", "dataset")
     if not skip_eval and not aggregate_eval_file and eval_output_file:
         _run_evaluation(eval_output_file, args.output_dir,
                         eval_object_id=getattr(args, "eval_object_id", None),
                         evaluators=evaluators,
-                        session_config=config)
+                        session_config=config,
+                        dataset_name=args.test_files_path,
+                        group_by=eval_group_by)
 
     logger.info(f"Done — {len(all_results)} results written to {out_path}")
 
@@ -1840,6 +1928,8 @@ def _run_evaluation(
     eval_object_id: Optional[str] = None,
     evaluators: Optional[str] = None,
     session_config=None,
+    dataset_name: str = "",
+    group_by: str = "dataset",
 ) -> None:
     """Run voice_agent_evaluation.main() if the module is available."""
     try:
@@ -1850,7 +1940,11 @@ def _run_evaluation(
     try:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         eval_name = os.path.basename(eval_input_path)
-        eval_desc = generate_harness_eval_group_name(session_config) if session_config else f"harness_default_{ts}"
+        eval_desc = generate_harness_eval_group_name(
+            config=session_config,
+            dataset_name=dataset_name or eval_input_path,
+            group_by=group_by,
+        ) if session_config or dataset_name else f"harness_default_{ts}"
         eval_output = os.path.join(output_dir, ts)
         os.makedirs(eval_output, exist_ok=True)
 
@@ -1865,7 +1959,10 @@ def _run_evaluation(
         else:
             eval_list = DEFAULT_EVALUATORS  # "default" → 8 defaults
 
-        eval_run_name = generate_harness_run_name(eval_name, "1", eval_list)
+        eval_run_name = generate_harness_run_name(
+            dataset_name or eval_name, "1", eval_list,
+            config=session_config, group_by=group_by,
+        )
 
         logger.info(f"Starting evaluation: {eval_name} (evaluators: {eval_list or 'default'})")
         voice_agent_evaluation.main(
@@ -1888,6 +1985,7 @@ def _run_evaluation(
             eval_group_name=eval_desc,
             config=session_config,
             output_dir=output_dir,
+            group_by=group_by,
         )
     except Exception as e:
         logger.error(f"Evaluation failed: {e}")
@@ -1937,6 +2035,12 @@ def main() -> None:
     parser.add_argument(
         '--eval-object-id', dest='eval_object_id', default=None,
         help='Existing evaluation object ID to reuse',
+    )
+    parser.add_argument(
+        '--eval-group-by', dest='eval_group_by',
+        choices=['dataset', 'settings'], default='dataset',
+        help='Eval group naming strategy: "dataset" groups by dataset name (default), '
+             '"settings" groups by VoiceLive session config (model/voice/VAD)',
     )
     parser.add_argument(
         '--skip-evaluation', dest='skip_evaluation', action='store_true',

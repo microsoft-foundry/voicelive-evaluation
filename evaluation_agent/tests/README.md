@@ -13,6 +13,7 @@ Integration and E2E test suites for the VoiceLive Evaluation Agent. These are **
 
 | Script | Description | What it Tests |
 |--------|-------------|---------------|
+| `test_eval_naming.py` | Naming function unit tests | 26 tests — `generate_eval_group_name`, `generate_run_name`, `_short_voice_name`, `_sanitize_eval_name` (no deployment needed, mocks Azure SDK) |
 | `test_agent_cloud.py` | Cloud integration tests | 9 tests — Agent connectivity, tool invocation via Foundry Agent SDK, response format validation |
 | `test_agent_behavior.py` | Behavioral decision tests | 6 tests — Agent decision-making with different dataset types, error handling, multi-step workflows |
 | `test_agent_e2e.py` | End-to-end pipeline tests | 20 tests across 8 categories — Discovery, validation, upload, VoiceLive processing, evaluation, resource management, results, edge cases |
