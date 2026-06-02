@@ -2445,6 +2445,7 @@ if __name__ == "__main__":
                     import re as _re
                     _clean = _re.sub(r'[^A-Za-z0-9_-]', '_', _ds)
                     _clean = _re.sub(r'_+', '_', _clean).strip('_')
+                    _clean = _clean[:80]  # match _sanitize_eval_name max-length cap
                     eval_description = _clean if _clean else f"Voice Live API: {datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
                 else:
                     eval_description = f"Voice Live API: {datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"

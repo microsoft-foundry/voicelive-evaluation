@@ -889,12 +889,14 @@ def download_blob_flexible(container_name, blob_path, extensions, prefer_pattern
 - Cross-dataset comparison within same agent config
 - Config journal tracks mapping for both modes
 
-**Run Naming**: `YYYYMMDD-HHMMSS-xxx │ {dataset}_v{version} │ {evaluator_summary} [│ {settings_hint}]`
-- When grouping by dataset, a short settings hint (model_voice) is appended to the run name
+**Run Naming** (complementary to eval group):
+- **Dataset mode** (default): `YYYYMMDD-HHMMSS-xxx │ {settings_hint} │ {evaluator_summary}` — run name highlights settings since the eval group already identifies the dataset
+- **Settings mode**: `YYYYMMDD-HHMMSS-xxx │ {dataset}_v{version} │ {evaluator_summary}` — run name highlights dataset since the eval group already identifies the settings
 - Timestamp-first for chronological sorting
 - 3-char random suffix for parallel jobs
 
-**Example**: `20260206-122000-x7k │ Eiffel_Tower_Visit_1_v1 │ all │ gptrealtime_alloy`
+**Example (dataset mode)**: `20260206-122000-x7k │ gptrealtime_Ava │ all`
+**Example (settings mode)**: `20260206-122000-x7k │ Eiffel_Tower_Visit_1_v1 │ all`
 
 ---
 

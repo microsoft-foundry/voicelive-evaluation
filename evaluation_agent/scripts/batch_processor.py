@@ -396,6 +396,7 @@ def run_final_evaluation(
             import re
             clean = re.sub(r'[^A-Za-z0-9_-]', '_', os.path.splitext(os.path.basename(dataset_name))[0])
             clean = re.sub(r'_+', '_', clean).strip('_')
+            clean = clean[:74]  # keep total ≤80 chars with "batch_" prefix
             eval_description = f"batch_{clean}" if clean else f"Voice Live API Batch: {datetime.now().strftime('%Y%m%d_%H%M%S')}"
             # Note: batch_ prefix is intentional — batch runs are isolated from
             # harness/agent eval groups so parallel subprocess results don't collide.

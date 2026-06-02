@@ -108,8 +108,8 @@ def _generate_harness_eval_group_name_by_settings(config) -> str:
     """Generate eval group name from session config (legacy behavior).
     Format: harness_{model}_{voice}_{vad}_{eod}
     """
-    model = getattr(config, 'model', 'gpt-realtime')
-    voice = getattr(config, 'voice', 'alloy')
+    model = getattr(config, 'model', None) or 'gpt-realtime'
+    voice = getattr(config, 'voice', None) or 'alloy'
     vad = getattr(config, 'vad_threshold', None)
     eod = getattr(config, 'silence_duration_ms', None)
     model_clean = str(model).replace("-", "").replace(".", "")
@@ -124,6 +124,8 @@ def _short_voice_name(voice: str) -> str:
     e.g. 'en-US-Ava:DragonHDLatestNeural' -> 'Ava'
          'alloy' -> 'alloy'
     """
+    if not voice or voice == "None":
+        return ""
     if ':' in voice:
         # Azure voice format: "en-US-Ava:DragonHDLatestNeural" -> "Ava"
         prefix = voice.split(':')[0]  # "en-US-Ava"
@@ -136,8 +138,8 @@ def _settings_summary(config) -> str:
     """Short settings summary for run names (when grouping by dataset)."""
     if not config:
         return ""
-    model = str(getattr(config, 'model', '')).replace("-", "").replace(".", "")
-    voice = _short_voice_name(str(getattr(config, 'voice', '')))
+    model = str(getattr(config, 'model', '') or '').replace("-", "").replace(".", "")
+    voice = _short_voice_name(str(getattr(config, 'voice', '') or ''))
     vad = getattr(config, 'vad_threshold', None)
     eod = getattr(config, 'silence_duration_ms', None)
     parts = [model, voice]

@@ -333,7 +333,7 @@ After each turn, the assistant's response (including tool call announcements) an
 
 Eval groups are named by **dataset** by default (e.g., `harness_Eiffel_Tower_Visit_1`), making it easy to compare different VoiceLive settings on the same dataset. Use `--eval-group-by settings` to revert to the legacy settings-based naming (`harness_{model}_{voice}_{vad}_{eod}`).
 
-When grouping by dataset, a short settings summary (model + voice) is appended to the **run name** so different configs remain distinguishable within the same eval group.
+When grouping by dataset, the **run name** uses a short settings summary (model + voice) instead of the dataset name, so different configs remain distinguishable within the same eval group.
 
 ### Batch Processor Architecture
 
