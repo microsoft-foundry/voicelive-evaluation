@@ -1426,12 +1426,33 @@ def _finalize_eval_upload(tmp_path: str, dataset_name: str) -> dict:
         endpoint=project_endpoint
     )
     
-    # Foundry handles versioning natively — same name = new version
-    dataset = project_client.datasets.upload_file(
-        name=dataset_name,
-        file_path=tmp_path,
-        description=f"Evaluation dataset: {entry_count} entries",
-    )
+    # Foundry handles versioning natively, but the SDK now requires explicit version=
+    # Compute next available version (start at "1", bump on conflict)
+    try:
+        existing = list(project_client.datasets.list())
+        existing_versions = [d for d in existing if d.name == dataset_name]
+        if existing_versions:
+            new_version = str(max(int(d.version) for d in existing_versions) + 1)
+        else:
+            new_version = "1"
+    except Exception:
+        new_version = "1"
+
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            dataset = project_client.datasets.upload_file(
+                name=dataset_name,
+                version=new_version,
+                file_path=tmp_path,
+            )
+            break
+        except Exception as upload_err:
+            if "already exists" in str(upload_err).lower() and attempt < max_retries - 1:
+                new_version = str(int(new_version) + 1)
+                logging.warning(f"Version conflict, retrying with v{new_version}")
+            else:
+                raise
     
     return {
         "foundry_dataset_id": dataset.id,
@@ -3655,11 +3676,32 @@ def _register_voicelive_output_as_foundry_dataset(output_path: str, job_id: str,
             endpoint=project_endpoint
         )
         
-        dataset = project_client.datasets.upload_file(
-            name=dataset_name,
-            file_path=local_path,
-            description=f"VoiceLive processing output (job: {job_id})",
-        )
+        # SDK now requires explicit version= — compute next available
+        try:
+            existing = list(project_client.datasets.list())
+            existing_versions = [d for d in existing if d.name == dataset_name]
+            if existing_versions:
+                new_version = str(max(int(d.version) for d in existing_versions) + 1)
+            else:
+                new_version = "1"
+        except Exception:
+            new_version = "1"
+
+        dataset = None
+        for attempt in range(5):
+            try:
+                dataset = project_client.datasets.upload_file(
+                    name=dataset_name,
+                    version=new_version,
+                    file_path=local_path,
+                )
+                break
+            except Exception as upload_err:
+                if "already exists" in str(upload_err).lower() and attempt < 4:
+                    new_version = str(int(new_version) + 1)
+                    logging.warning(f"Version conflict, retrying with v{new_version}")
+                else:
+                    raise
         
         os.unlink(local_path)
         
