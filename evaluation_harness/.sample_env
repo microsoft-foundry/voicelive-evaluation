@@ -21,3 +21,6 @@ AOAI_REASONING_DEPLOYMENT_NAME=o4-mini
 # AGENT_VERSION=14
 # FOUNDRY_RESOURCE_OVERRIDE=jagoerge-voicelive-sec-resource
 # AGENT_AUTHENTICATION_IDENTITY_CLIENT_ID=
+
+# --- Integration Testing ---
+# AZURE_FUNCTION_KEY=  # Function App key for test_media_integration.py
