@@ -1,37 +1,64 @@
 version: 2
+
+# Config policy (aligned with voicelive-samples):
+# - Ignore ALL major version bumps (handled as coordinated manual upgrades)
+# - Group minor/patch updates per directory into a single PR
+# - Limit open PRs to 5 per directory to reduce noise
+# - azure-ai-voicelive pinned to 1.2.0b4 until AgentSessionConfig migration
+#   (ignore all updates until pin is lifted)
+
 updates:
   # Python - root
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     reviewers:
       - "microsoft-foundry/voicelive-repo-maintainers"
     labels:
       - "dependencies"
+    groups:
+      pip-minor-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # Python - evaluation_harness
   - package-ecosystem: "pip"
     directory: "/evaluation_harness"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     reviewers:
       - "microsoft-foundry/voicelive-repo-maintainers"
     labels:
       - "dependencies"
+    groups:
+      pip-minor-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "azure-ai-voicelive"  # Pinned until migration
 
   # Python - evaluation_agent
   - package-ecosystem: "pip"
     directory: "/evaluation_agent"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     reviewers:
       - "microsoft-foundry/voicelive-repo-maintainers"
     labels:
       - "dependencies"
+    groups:
+      pip-minor-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # Python - evaluation_agent Azure Functions
   - package-ecosystem: "pip"
@@ -43,6 +70,12 @@ updates:
       - "microsoft-foundry/voicelive-repo-maintainers"
     labels:
       - "dependencies"
+    groups:
+      pip-minor-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # Python - evaluation_agent Container App
   - package-ecosystem: "pip"
@@ -54,3 +87,11 @@ updates:
       - "microsoft-foundry/voicelive-repo-maintainers"
     labels:
       - "dependencies"
+    groups:
+      pip-minor-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "azure-ai-voicelive"  # Pinned until migration
+      - dependency-name: "azure-ai-projects"  # Container App on 1.x; bump to 2.x tracked separately

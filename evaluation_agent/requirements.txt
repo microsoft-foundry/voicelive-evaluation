@@ -2,19 +2,19 @@
 # Azure AI Projects SDK based implementation (new Foundry Portal)
 
 # Azure AI SDKs
-azure-ai-projects>=2.0.0b4      # Primary SDK for Foundry (new API)
-azure-ai-agents>=1.2.0b6        # Agent models (FunctionTool, etc.)
-azure-ai-evaluation>=1.15.3     # Foundry evaluators (stable release)
-azure-identity>=1.25.1
-azure-core>=1.36.0
+azure-ai-projects>=2.1.0          # Primary SDK for Foundry (stable release)
+azure-ai-agents>=1.2.0b6          # Agent models (FunctionTool, etc.)
+azure-ai-evaluation>=1.16.9       # Foundry evaluators (stable release)
+azure-identity>=1.25.3
+azure-core>=1.41.0
 
 # Azure Blob Storage (for cloud mode)
-azure-storage-blob>=12.19.0
+azure-storage-blob>=12.29.0
 
 # Environment configuration
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
 
 # Tracing and Monitoring
-opentelemetry-sdk>=1.20.0
-azure-core-tracing-opentelemetry>=1.0.0b11
-azure-monitor-opentelemetry>=1.6.0  # App Insights integration
+opentelemetry-sdk==1.40.0
+azure-core-tracing-opentelemetry>=1.0.0b13
+azure-monitor-opentelemetry>=1.8.8  # App Insights integration (pins otel-sdk==1.40)
