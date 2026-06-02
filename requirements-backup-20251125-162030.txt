@@ -102,7 +102,7 @@ Pygments==2.19.2
 PyJWT==2.10.1
 pyparsing==3.2.5
 PySocks==1.7.1
-pytest==8.4.2
+pytest==9.0.3
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
 pytz==2025.2
