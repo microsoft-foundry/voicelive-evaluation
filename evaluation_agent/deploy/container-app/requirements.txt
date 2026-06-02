@@ -15,7 +15,7 @@ azure-core>=1.41.0
 
 # Monitoring and Telemetry
 azure-monitor-opentelemetry>=1.8.8
-opentelemetry-instrumentation-fastapi>=0.49b0
+opentelemetry-instrumentation-fastapi>=0.63b1
 
 # Audio processing
 numpy>=2.4.6
