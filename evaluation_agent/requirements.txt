@@ -4,7 +4,7 @@
 # Azure AI SDKs
 azure-ai-projects>=2.2.0          # Primary SDK for Foundry (stable release)
 azure-ai-agents>=1.2.0b6          # Agent models (FunctionTool, etc.)
-azure-ai-evaluation>=1.16.9       # Foundry evaluators (stable release)
+azure-ai-evaluation>=1.17.0       # Foundry evaluators (stable release)
 azure-identity>=1.25.3
 azure-core>=1.41.0
 
@@ -15,6 +15,6 @@ azure-storage-blob>=12.29.0
 python-dotenv>=1.2.2
 
 # Tracing and Monitoring
-opentelemetry-sdk==1.40.0
+opentelemetry-sdk==1.42.1
 azure-core-tracing-opentelemetry>=1.0.0b13
 azure-monitor-opentelemetry>=1.8.8  # App Insights integration (pins otel-sdk==1.40)
