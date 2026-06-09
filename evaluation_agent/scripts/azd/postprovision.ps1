@@ -137,20 +137,20 @@ if ($foundryAccountResourceId -and $functionAppPrincipalId) {
         Write-Host "  Azure AI Developer role already assigned" -ForegroundColor DarkGray
     }
 
-    # Cognitive Services User role (for general API access)
-    $csUserRole = "a97b65f3-24c7-4388-baec-2e87135dc908"
-    $existing = az role assignment list --scope $foundryAccountResourceId --assignee $functionAppPrincipalId --role $csUserRole --output json 2>$null | ConvertFrom-Json
+    # Foundry User role (for general API + VoiceLive access)
+    $foundryUserRole = "53ca6127-db72-4b80-b1b0-d745d6d5456d"
+    $existing = az role assignment list --scope $foundryAccountResourceId --assignee $functionAppPrincipalId --role $foundryUserRole --output json 2>$null | ConvertFrom-Json
     if (-not $existing -or $existing.Count -eq 0) {
-        Write-Host "  Assigning Cognitive Services User role..."
+        Write-Host "  Assigning Foundry User role..."
         az role assignment create `
             --scope $foundryAccountResourceId `
             --assignee-object-id $functionAppPrincipalId `
             --assignee-principal-type ServicePrincipal `
-            --role $csUserRole `
+            --role $foundryUserRole `
             --output none 2>$null
-        Write-Host "  Cognitive Services User role assigned" -ForegroundColor Green
+        Write-Host "  Foundry User role assigned" -ForegroundColor Green
     } else {
-        Write-Host "  Cognitive Services User role already assigned" -ForegroundColor DarkGray
+        Write-Host "  Foundry User role already assigned" -ForegroundColor DarkGray
     }
 
     Write-Host "  NOTE: Role propagation may take several minutes" -ForegroundColor Yellow
@@ -161,14 +161,14 @@ if ($foundryAccountResourceId -and $functionAppPrincipalId) {
         if ($caPrincipalId) {
             Write-Host "`n  Container App Principal: $caPrincipalId"
 
-            # Container App → Foundry: Cognitive Services User (VoiceLive access)
-            $existing = az role assignment list --scope $foundryAccountResourceId --assignee $caPrincipalId --role $csUserRole --output json 2>$null | ConvertFrom-Json
+            # Container App → Foundry: Foundry User (VoiceLive access)
+            $existing = az role assignment list --scope $foundryAccountResourceId --assignee $caPrincipalId --role $foundryUserRole --output json 2>$null | ConvertFrom-Json
             if (-not $existing -or $existing.Count -eq 0) {
-                Write-Host "  Assigning Cognitive Services User to Container App..."
-                az role assignment create --scope $foundryAccountResourceId --assignee-object-id $caPrincipalId --assignee-principal-type ServicePrincipal --role $csUserRole --output none 2>$null
-                Write-Host "  Cognitive Services User assigned to Container App" -ForegroundColor Green
+                Write-Host "  Assigning Foundry User to Container App..."
+                az role assignment create --scope $foundryAccountResourceId --assignee-object-id $caPrincipalId --assignee-principal-type ServicePrincipal --role $foundryUserRole --output none 2>$null
+                Write-Host "  Foundry User assigned to Container App" -ForegroundColor Green
             } else {
-                Write-Host "  Cognitive Services User already assigned to Container App" -ForegroundColor DarkGray
+                Write-Host "  Foundry User already assigned to Container App" -ForegroundColor DarkGray
             }
 
             # Container App → Storage: Blob Data Contributor + Table Data Contributor

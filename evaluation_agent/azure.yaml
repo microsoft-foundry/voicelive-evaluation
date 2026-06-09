@@ -22,6 +22,8 @@ services:
     project: ./deploy/container-app
     language: python
     host: containerapp
+    docker:
+      remoteBuild: true
 
 # Hooks for deployment lifecycle
 hooks:
