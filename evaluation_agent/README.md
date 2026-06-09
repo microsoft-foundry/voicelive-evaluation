@@ -155,11 +155,18 @@ az role assignment create `
   --assignee-principal-type ServicePrincipal `
   --role "Azure AI Developer" `
   --scope "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>"
+
+# Assign Foundry User role (required for VoiceLive API access)
+az role assignment create `
+  --assignee-object-id $principalId `
+  --assignee-principal-type ServicePrincipal `
+  --role "53ca6127-db72-4b80-b1b0-d745d6d5456d" `
+  --scope "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>"
 ```
 
 **Required roles for full functionality**:
 - **Azure AI Developer** - For evaluations read/write (data plane actions)
-- **Foundry User** - For VoiceLive API access and general Cognitive Services access
+- **Foundry User** (`53ca6127`) - For VoiceLive API access and general Cognitive Services access
 
 ### Post-Provision Automation
 

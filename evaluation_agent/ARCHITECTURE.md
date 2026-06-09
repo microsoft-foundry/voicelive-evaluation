@@ -1083,7 +1083,7 @@ sequenceDiagram
 | Container App MI | Foundry User | Cognitive Services account | VoiceLive SDK access |
 | Container App MI | Storage Blob Data Contributor | Storage account | Dataset/output read/write |
 | Container App MI | Storage Table Data Contributor | Storage account | Config journal writes |
-| Foundry Project MI | Foundry User | Cognitive Services account | Agent tracing (optional) |
+| Foundry Project MI | Azure AI User | Cognitive Services account | Agent tracing (optional) |
 
 All service RBAC is assigned automatically by `postprovision.ps1` using idempotent check-then-create logic.
 
