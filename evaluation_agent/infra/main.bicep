@@ -102,7 +102,7 @@ module foundry 'modules/foundry.bicep' = if (createFoundry) {
     location: location
     tags: tags
     modelDeployments: [
-      { name: modelDeploymentName, model: 'gpt-4.1-mini', sku: 'Standard', capacity: 200 }
+      { name: modelDeploymentName, model: 'gpt-4.1-mini', sku: 'GlobalStandard', capacity: 200 }
       { name: aoaiReasoningDeploymentName, model: 'o4-mini', sku: 'GlobalStandard' }
     ]
   }

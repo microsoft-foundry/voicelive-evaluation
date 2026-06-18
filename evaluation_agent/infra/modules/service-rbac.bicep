@@ -15,7 +15,7 @@ param storageAccountName string = ''
 
 // Role definition IDs
 var azureAiDeveloperRoleId = '64702f94-c441-49e6-a78b-ef80e0188fee'
-var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
+var foundryUserRoleId = '53ca6127-db72-4b80-b1b0-d745d6d5456d'
 var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
 var storageTableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
 
@@ -39,23 +39,23 @@ resource funcAiDeveloper 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
-// Function App → Foundry: Cognitive Services User (general API access)
-resource funcCsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(foundryAccount.id, functionAppPrincipalId, cognitiveServicesUserRoleId)
+// Function App → Foundry: Foundry User (general API + VoiceLive access)
+resource funcFoundryUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(foundryAccount.id, functionAppPrincipalId, foundryUserRoleId)
   scope: foundryAccount
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesUserRoleId)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', foundryUserRoleId)
     principalId: functionAppPrincipalId
     principalType: 'ServicePrincipal'
   }
 }
 
-// Container App → Foundry: Cognitive Services User (VoiceLive access)
-resource caCSUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(containerAppPrincipalId)) {
-  name: guid(foundryAccount.id, containerAppPrincipalId, cognitiveServicesUserRoleId)
+// Container App → Foundry: Foundry User (VoiceLive access)
+resource caFoundryUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(containerAppPrincipalId)) {
+  name: guid(foundryAccount.id, containerAppPrincipalId, foundryUserRoleId)
   scope: foundryAccount
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesUserRoleId)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', foundryUserRoleId)
     principalId: containerAppPrincipalId
     principalType: 'ServicePrincipal'
   }

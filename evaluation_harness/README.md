@@ -32,7 +32,7 @@ Processes pre-recorded audio files through the Azure VoiceLive SDK for evaluatio
 | Audio files | 16-bit PCM WAV (any sample rate; resampled automatically) |
 
 > ⚠️ **Before you start — common blockers:**
-> - **RBAC roles required:** Your identity needs **Cognitive Services User** on the VoiceLive resource (for API access) AND **Azure AI User** on the Foundry project (for evaluation + agent mode). Missing roles cause silent `403` errors that aren't always obvious.
+> - **RBAC roles required:** Your identity needs the **Foundry User** role on the Cognitive Services account (for VoiceLive API access and evaluation). Missing roles cause silent `403` errors that aren't always obvious.
 > - **Region availability:** VoiceLive and the Foundry Evaluations API are only available in select regions. Confirmed working: **Sweden Central**, **East US 2**. Other regions (e.g., `southcentralus`) may fail with no clear error message.
 > - **`.env` file location:** The `.env` file must be in the `evaluation_harness/` directory (next to the script), NOT the repo root.
 
@@ -452,9 +452,8 @@ Authentication uses `DefaultAzureCredential`, which tries credentials in this or
 # 2. Sign in
 az login
 
-# 3. Ensure your account has the required roles on the Foundry resource:
-#    - "Cognitive Services User" (for VoiceLive API access)
-#    - "Azure AI User" (for agent mode and Foundry features)
+# 3. Ensure your account has the required role on the Foundry project:
+#    - "Foundry User" (for VoiceLive API access and evaluation)
 
 # 4. Create .env file in the evaluation_harness directory
 cat > .env << 'EOF'
