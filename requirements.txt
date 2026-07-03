@@ -1,25 +1,25 @@
 # Voice live model quickstart requirements
-aiohttp==3.13.4
-azure-core==1.39.0
+aiohttp==3.14.1
+azure-core==1.41.0
 azure-identity==1.25.3
-certifi==2025.4.26
+certifi==2025.11.12
 cffi==2.0.0
 cryptography==46.0.7
-numpy==2.4.3
+numpy==2.5.0
 pycparser==3.0
 python-dotenv==1.2.2
 pyaudio
-requests==2.33.0
-sounddevice==0.5.1
-typing_extensions==4.15.0
+requests==2.34.2
+sounddevice==0.5.5
+typing_extensions==4.16.0
 urllib3==2.7.0
-websocket-client==1.8.0
+websocket-client==1.9.0
 azure-ai-voicelive>=1.2.0
 filelock>=3.0.0  # For cross-process file locking in batch mode
 
 # Addition packages for evaluation
 azure-ai-projects>=2.2.0
-azure-ai-evaluation==1.15.3
+azure-ai-evaluation==1.17.0
 azure-ai-agents==1.2.0b6
 
 # Huggingface dataset requirements
