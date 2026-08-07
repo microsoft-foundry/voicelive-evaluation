@@ -7,5 +7,5 @@ azure-data-tables>=12.7.0
 azure-core>=1.41.0
 azure-ai-projects>=2.2.0
 azure-ai-agents>=1.2.0b6
-openai>=2.40.0
+openai>=2.53.0
 httpx
