@@ -3,7 +3,7 @@
 
 # Azure SDKs
 azure-ai-voicelive>=1.2.0
-azure-ai-evaluation>=1.16.9
+azure-ai-evaluation>=1.18.3
 azure-identity>=1.25.3
 azure-core>=1.41.0
 
