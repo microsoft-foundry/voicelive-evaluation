@@ -1,14 +1,14 @@
 # Voice Agent Audio Input Evaluation - Requirements
-# Python 3.11+ required (numpy>=2.4.6 requires Python >=3.11)
+# Python 3.11+ required (numpy>=2.5.2 requires Python >=3.11)
 
 # Azure SDKs
 azure-ai-voicelive>=1.2.0
-azure-ai-evaluation>=1.16.9
+azure-ai-evaluation>=1.18.3
 azure-identity>=1.25.3
 azure-core>=1.41.0
 
 # Audio processing
-numpy>=2.4.6
+numpy>=2.5.2
 
 # Environment and utilities
-python-dotenv>=1.2.2
+python-dotenv>=1.2.3
