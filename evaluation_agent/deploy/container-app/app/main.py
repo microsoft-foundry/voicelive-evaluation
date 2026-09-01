@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .jobs import job_manager, JobStatus
 from .processor import start_processing_job
@@ -45,6 +45,29 @@ app = FastAPI(
 
 # Request/Response Models
 
+class SimulationConfigRequest(BaseModel):
+    """Inline simulated-user configuration."""
+
+    persona: Dict[str, Any]
+    scenario: Dict[str, Any]
+    data: Dict[str, Any]
+    max_turns: int = Field(default=8, ge=1, le=100, strict=True)
+    model: str = Field(default="gpt-realtime", min_length=1)
+    voice: str = Field(
+        default="en-US-Andrew:DragonHDLatestNeural",
+        min_length=1,
+    )
+    voice_type: str = Field(default="azure-standard", min_length=1)
+
+    @field_validator("model", "voice", "voice_type")
+    @classmethod
+    def validate_nonempty_string(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must be a non-empty string")
+        return value
+
+
 class RunAudioTestsRequest(BaseModel):
     """Request to start audio processing job."""
     dataset_path: Optional[str] = Field(
@@ -66,6 +89,10 @@ class RunAudioTestsRequest(BaseModel):
     session_config: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Optional session configuration override"
+    )
+    simulation_config: Optional[SimulationConfigRequest] = Field(
+        default=None,
+        description="Inline persona, scenario, and data assets for simulated-user turns"
     )
 
 
@@ -174,7 +201,12 @@ async def run_voicelive_audio_tests(
             foundry_dataset=request.foundry_dataset,
             session_mode=request.session_mode,
             max_workers=request.max_workers,
-            session_config=request.session_config
+            session_config=request.session_config,
+            simulation_config=(
+                request.simulation_config.model_dump()
+                if request.simulation_config
+                else None
+            ),
         )
         
         return RunAudioTestsResponse(

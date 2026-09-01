@@ -1,4 +1,7 @@
-# Voice Agent Audio Input Evaluation
+---
+title: Voice Agent Audio Input Evaluation
+description: Run local Azure VoiceLive audio and simulated-user evaluations
+---
 
 Processes pre-recorded audio files through the Azure VoiceLive SDK for evaluation. This is a modern async Python CLI tool that sends WAV audio to an Azure VoiceLive endpoint, collects transcriptions, assistant responses, and tool-call results, and writes structured JSONL output compatible with the Azure AI Evaluation SDK.
 
@@ -11,6 +14,7 @@ Processes pre-recorded audio files through the Azure VoiceLive SDK for evaluatio
 - **Config file support** — load session config from JSON with `--config`, CLI args override file values
 - **SDK-pattern tool call handling** — uses `FunctionCallOutputItem` with `previous_item_id` to return results, matching the container-app pattern
 - **Multi-turn conversations** — groups audio files by `conversationID` and processes them sequentially within a persistent session
+- **Persona simulation** - generates user turns from separate persona, scenario, and opaque data assets through a second VoiceLive session
 - **Batch processor integration** — compatible with `batch_processor.py` for parallel multi-dataset processing with aggregated evaluation
 - **Response audio saving** — saves assistant response audio as WAV files per turn for audio quality review
 - **Operational summaries** — generates JSON metrics per run: turns processed, VAD splitting detection, audio response rate
@@ -56,6 +60,46 @@ export AZURE_VOICELIVE_API_VERSION="2025-05-15-preview"
 ```bash
 python voice_agent_audio_input_evaluation.py -f dataset.jsonl
 ```
+
+### Simulated-user run
+
+Simulation mode replaces fixed follow-up audio with dynamic user turns. Each
+conversation in the input dataset must contain exactly one seed audio entry. The
+harness sends that seed to the tested assistant, sends the assistant's response
+audio to a separate VoiceLive persona session, and continues alternating until
+it completes `max_turns`. If either side cannot produce the audio required for
+the next turn, the harness reports the simulation as incomplete. Persona audio
+generation is retried once before the run fails.
+
+The simulation manifest references separate JSON assets relative to its own
+location. The Eiffel Tower profile works with an existing checked-in sample:
+
+```json
+{
+  "persona_path": "persona.json",
+  "scenario_path": "scenario.json",
+  "data_path": "data.json",
+  "max_turns": 6,
+  "model": "gpt-realtime",
+  "voice": "en-US-Andrew:DragonHDLatestNeural",
+  "voice_type": "azure-standard"
+}
+```
+
+Run the seed dataset with the manifest:
+
+```bash
+python voice_agent_audio_input_evaluation.py \
+  --test-files sample_evaluation_input/Eiffel_Tower_Visit_1/simulation-seed.jsonl \
+  --simulation-config sample_simulation/eiffel_comparison/simulation.json \
+  --use-default-credential
+```
+
+Persona, scenario, and data objects are passed to the simulator without
+product-specific defaults. Generated turns retain their transcribed user text in
+the normal evaluation query and use `(simulated)` as the source file. They do not
+have scripted per-turn ground truth, so use semantic, task, or scenario outcome
+evaluators for those turns.
 
 ## Audio Processing Modes
 
@@ -131,6 +175,7 @@ Voice Live transcription handles punctuation automatically:
 | `--output-dir`, `-o` | `output/` | Output directory for results and response audio |
 | `--evaluation-dir`, `-e` | `None` | Evaluation data directory (defaults to output-dir) |
 | `--session-mode` | `per-conversation` | Session handling: `single`, `per-file`, `per-conversation` |
+| `--simulation-config` | `None` | JSON manifest referencing persona, scenario, and data assets |
 | `--skip-evaluation` | `False` | Skip running Foundry evaluation after processing |
 | `--verbose`, `-v` | `False` | Enable DEBUG logging |
 

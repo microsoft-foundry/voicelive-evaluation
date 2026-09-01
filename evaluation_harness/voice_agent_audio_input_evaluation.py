@@ -46,6 +46,13 @@ from azure.ai.voicelive.models import (
     ItemType,
 )
 
+from persona_simulation import (
+    SimulationAssets,
+    SimulationIncompleteError,
+    build_simulator_instructions,
+    load_simulation_assets,
+)
+
 # Force UTF-8 encoding for stdout/stderr to handle international characters
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -61,6 +68,25 @@ class StaticTokenCredential:
         self._token = token
     def get_token(self, *scopes, **kwargs):
         return AccessToken(self._token, 0)
+
+
+def create_voicelive_credential(args: argparse.Namespace):
+    """Select the Voice Live credential using explicit CLI precedence."""
+    if getattr(args, "use_default_credential", False):
+        logger.info("Using DefaultAzureCredential (--use-default-credential)")
+        return DefaultAzureCredential()
+
+    bearer_token = os.environ.get("AZURE_VOICELIVE_BEARER_TOKEN")
+    api_key = getattr(args, "api_key", None) or os.environ.get("AZURE_VOICELIVE_API_KEY")
+    if bearer_token:
+        logger.info("Using pre-fetched bearer token authentication")
+        return StaticTokenCredential(bearer_token)
+    if api_key:
+        logger.info("Using API key authentication")
+        return AzureKeyCredential(api_key)
+
+    logger.info("Using DefaultAzureCredential (no API key found)")
+    return DefaultAzureCredential()
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +415,7 @@ class DatasetEntry:
     """
     audio_path: Optional[str] = None
     audio_media_ref: Optional[Dict[str, str]] = None
+    audio_bytes: Optional[bytes] = None
     ground_truth: Optional[str] = None
     question: Optional[str] = None
     tool_definitions: Optional[List[Dict[str, Any]]] = None
@@ -1319,7 +1346,7 @@ def build_evaluation_data(
         "tool_definitions": tool_definitions or [],
         "ground_truth": entry.ground_truth or "",
         "conversation_id": entry.conversation_id,
-        "source_file": entry.audio_path or "(media)",
+        "source_file": entry.audio_path or ("(simulated)" if entry.audio_bytes else "(media)"),
         "turn_number": turn.turn_number,
     }
 
@@ -1330,6 +1357,9 @@ async def process_conversation(
     config: SessionConfig,
     output_dir: str,
     eval_output_file: Optional[str] = None,
+    simulation_assets: Optional[SimulationAssets] = None,
+    simulator_connection: Any = None,
+    simulator_config: Optional[SessionConfig] = None,
 ) -> List[Dict[str, Any]]:
     """
     Process a multi-turn conversation through VoiceLive.
@@ -1340,6 +1370,14 @@ async def process_conversation(
     """
     results: List[Dict[str, Any]] = []
     conversation_history: List[Dict[str, Any]] = []
+    work_entries = list(entries)
+
+    if simulation_assets and len(work_entries) != 1:
+        raise ValueError(
+            "Simulation mode requires exactly one seed audio entry per conversation"
+        )
+    if simulation_assets and (simulator_connection is None or simulator_config is None):
+        raise ValueError("Simulation mode requires a configured simulator connection")
 
     # Override config from dataset if needed
     conv_config = config
@@ -1357,11 +1395,18 @@ async def process_conversation(
 
     effective_tool_defs = conv_config.tool_definitions or []
 
-    for i, entry in enumerate(entries):
+    turn_limit = simulation_assets.max_turns if simulation_assets else len(work_entries)
+    for i in range(turn_limit):
+        if i >= len(work_entries):
+            break
+        entry = work_entries[i]
         turn_number = i + 1
         try:
             # Resolve audio: media reference (URL/base64) or legacy file path
-            if entry.audio_media_ref:
+            if entry.audio_bytes is not None:
+                audio_data = entry.audio_bytes
+                audio_source_label = "simulated-persona"
+            elif entry.audio_media_ref:
                 local_path = _resolve_audio_from_media(
                     entry.audio_media_ref, cache_dir=output_dir,
                 )
@@ -1374,7 +1419,8 @@ async def process_conversation(
                 local_path = entry.audio_path
                 audio_source_label = entry.audio_path
 
-            audio_data = load_audio_file(local_path, conv_config.sample_rate)
+            if entry.audio_bytes is None:
+                audio_data = load_audio_file(local_path, conv_config.sample_rate)
             logger.info(f"Loaded {audio_source_label} ({len(audio_data)} bytes)")
 
             turn = await process_audio(
@@ -1385,10 +1431,6 @@ async def process_conversation(
                 sample_rate=conv_config.sample_rate,
             )
             turn.turn_number = turn_number
-
-            # Inter-turn pause
-            if i < len(entries) - 1:
-                await asyncio.sleep(0.5)
 
             result = build_evaluation_data(
                 turn, entry, conversation_history,
@@ -1434,9 +1476,61 @@ async def process_conversation(
                 turn_messages.append({"role": "assistant", "content": resp_text})
             conversation_history.append({"turn": turn_number, "messages": turn_messages})
 
+            if simulation_assets and turn_number < turn_limit:
+                assistant_audio = b"".join(turn.response_audio_chunks)
+                if not assistant_audio:
+                    raise SimulationIncompleteError(
+                        f"Simulation incomplete after turn {turn_number}: "
+                        "tested assistant returned no audio for the persona",
+                        results.copy(),
+                    )
+                simulated_audio = b""
+                simulated_text = ""
+                for generation_attempt in range(1, 3):
+                    simulated_turn = await process_audio(
+                        simulator_connection,
+                        assistant_audio,
+                        simulator_config,
+                        push_to_talk=simulator_config.push_to_talk,
+                        sample_rate=simulator_config.sample_rate,
+                    )
+                    simulated_audio = b"".join(simulated_turn.response_audio_chunks)
+                    simulated_text = simulated_turn.assistant_response
+                    if simulated_audio:
+                        break
+                    logger.warning(
+                        f"Turn {turn_number}: persona returned no audio "
+                        f"(attempt {generation_attempt}/2)"
+                    )
+                    if generation_attempt < 2:
+                        await asyncio.sleep(0.5)
+                if not simulated_audio:
+                    raise SimulationIncompleteError(
+                        f"Simulation incomplete after turn {turn_number}: "
+                        "persona returned no audio after 2 attempts",
+                        results.copy(),
+                    )
+                work_entries.append(
+                    DatasetEntry(
+                        audio_bytes=simulated_audio,
+                        question=simulated_text or None,
+                        conversation_id=entry.conversation_id,
+                    )
+                )
+
+            if turn_number < turn_limit and i + 1 < len(work_entries):
+                await asyncio.sleep(0.5)
+
             logger.info(f"Turn {turn_number} done: {os.path.basename(audio_source_label)}")
 
         except Exception as e:
+            if isinstance(e, SimulationIncompleteError):
+                raise
+            if simulation_assets:
+                raise SimulationIncompleteError(
+                    f"Simulation incomplete while processing turn {turn_number}: {e}",
+                    results.copy(),
+                ) from e
             source_label = entry.audio_path or "(media)"
             logger.error(f"Error processing {source_label}: {e}")
             results.append({
@@ -1733,6 +1827,12 @@ async def main_async(args: argparse.Namespace) -> None:
         logger.error("No entries found in dataset — exiting")
         return
 
+    simulation_assets = (
+        load_simulation_assets(args.simulation_config)
+        if getattr(args, "simulation_config", None)
+        else None
+    )
+
     # Agent mode (CLI args > env vars)
     agent_name = getattr(args, 'agent_name', None) or os.environ.get("AGENT_NAME")
     project_name_val = getattr(args, 'project_name', None) or os.environ.get("PROJECT_NAME")
@@ -1803,18 +1903,8 @@ async def main_async(args: argparse.Namespace) -> None:
     logger.info(f"Processing {len(all_entries)} files in {len(conversation_groups)} conversation(s)")
 
     all_results: List[Dict[str, Any]] = []
-    # Auth priority: bearer token (for agent cross-resource) > CLI --api-key > env API key > DefaultAzureCredential
-    bearer_token = os.environ.get("AZURE_VOICELIVE_BEARER_TOKEN")
-    api_key = getattr(args, 'api_key', None) or os.environ.get("AZURE_VOICELIVE_API_KEY")
-    if bearer_token:
-        credential = StaticTokenCredential(bearer_token)
-        logger.info("Using pre-fetched bearer token authentication")
-    elif api_key:
-        credential = AzureKeyCredential(api_key)
-        logger.info("Using API key authentication")
-    else:
-        credential = DefaultAzureCredential()
-        logger.info("Using DefaultAzureCredential (no API key found)")
+    conversation_failures: List[str] = []
+    credential = create_voicelive_credential(args)
     api_version = (
         os.environ.get("AZURE_VOICELIVE_API_VERSION")
         or os.environ.get("AZURE_VOICE_LIVE_API_VERSION")
@@ -1837,20 +1927,63 @@ async def main_async(args: argparse.Namespace) -> None:
 
         try:
             async with voicelive_connect(**connect_kwargs) as connection:
-                results = await process_conversation(
-                    entries, connection, config, args.output_dir,
-                    eval_output_file=eval_output_file,
-                )
+                if simulation_assets:
+                    from dataclasses import replace
+                    simulator_config = replace(
+                        config,
+                        instructions=build_simulator_instructions(simulation_assets),
+                        model=simulation_assets.model,
+                        voice=simulation_assets.voice,
+                        voice_type=simulation_assets.voice_type,
+                        enable_barge_in=False,
+                        tools=None,
+                        tool_definitions=None,
+                        agent_name=None,
+                        project_name=None,
+                        agent_version=None,
+                        conversation_id=None,
+                        foundry_resource_override=None,
+                        authentication_identity_client_id=None,
+                    )
+                    simulator_kwargs: Dict[str, Any] = {
+                        "endpoint": endpoint,
+                        "credential": credential,
+                        "model": simulation_assets.model,
+                    }
+                    if api_version:
+                        simulator_kwargs["api_version"] = api_version
+                    async with voicelive_connect(**simulator_kwargs) as simulator_connection:
+                        await configure_session(simulator_connection, simulator_config)
+                        results = await process_conversation(
+                            entries, connection, config, args.output_dir,
+                            eval_output_file=eval_output_file,
+                            simulation_assets=simulation_assets,
+                            simulator_connection=simulator_connection,
+                            simulator_config=simulator_config,
+                        )
+                else:
+                    results = await process_conversation(
+                        entries, connection, config, args.output_dir,
+                        eval_output_file=eval_output_file,
+                    )
                 all_results.extend(results)
-        except Exception as e:
+        except SimulationIncompleteError as e:
+            all_results.extend(e.partial_results)
+            conversation_failures.append(f"{conv_id}: {e}")
             logger.error(f"Error processing conversation '{conv_id}': {e}")
-            print(f"⚠️  Conversation '{conv_id}' failed: {e}")
-            continue
+            print(f"Conversation '{conv_id}' failed: {e}")
+        except Exception as e:
+            if simulation_assets:
+                conversation_failures.append(f"{conv_id}: {e}")
+            logger.error(f"Error processing conversation '{conv_id}': {e}")
+            print(f"Conversation '{conv_id}' failed: {e}")
 
     # Fail fast if no results were produced
     if not all_results and conversation_groups:
         logger.error("All conversations failed — no results produced")
-        print("❌ All conversations failed. Check logs for details.")
+        if simulation_assets:
+            raise RuntimeError("All conversations failed; check logs for details")
+        print("All conversations failed. Check logs for details.")
         return
 
     # Session naming
@@ -1875,7 +2008,11 @@ async def main_async(args: argparse.Namespace) -> None:
     write_operational_summary(
         all_results,
         output_dir=eval_dir,
-        expected_turns=len(all_entries),
+        expected_turns=(
+            len(conversation_groups) * simulation_assets.max_turns
+            if simulation_assets
+            else len(all_entries)
+        ),
         session_timestamp=session_timestamp,
         session_suffix=session_suffix,
         evaluation_enabled=evaluation_enabled,
@@ -1885,7 +2022,12 @@ async def main_async(args: argparse.Namespace) -> None:
     skip_eval = getattr(args, "skip_evaluation", False)
     evaluators = getattr(args, "evaluators", None)
     eval_group_by = getattr(args, "eval_group_by", "dataset")
-    if not skip_eval and not aggregate_eval_file and eval_output_file:
+    if (
+        not conversation_failures
+        and not skip_eval
+        and not aggregate_eval_file
+        and eval_output_file
+    ):
         _run_evaluation(eval_output_file, args.output_dir,
                         eval_object_id=getattr(args, "eval_object_id", None),
                         evaluators=evaluators,
@@ -1901,6 +2043,11 @@ async def main_async(args: argparse.Namespace) -> None:
             upload_dataset_to_foundry(eval_output_file, name_prefix="harness")
         except Exception as exc:
             logger.error(f"Foundry upload failed: {exc}")
+
+    if conversation_failures:
+        raise RuntimeError(
+            "One or more conversations failed: " + "; ".join(conversation_failures)
+        )
 
 
 # Default evaluators — aligned with Container App's DEFAULT_EVALUATORS
@@ -2149,6 +2296,10 @@ def main() -> None:
         '--config', dest='config_file', default=None,
         help='Load session config from a JSON file (CLI args override file values)',
     )
+    parser.add_argument(
+        '--simulation-config', dest='simulation_config', default=None,
+        help='JSON manifest referencing persona, scenario, and data assets',
+    )
     # Authentication
     parser.add_argument(
         "--api-key",
@@ -2156,6 +2307,12 @@ def main() -> None:
         type=str,
         default=os.environ.get("AZURE_VOICELIVE_API_KEY"),
         help="Azure VoiceLive API key. If not provided, will use AZURE_VOICELIVE_API_KEY environment variable.",
+    )
+    parser.add_argument(
+        "--use-default-credential",
+        dest="use_default_credential",
+        action="store_true",
+        help="Force DefaultAzureCredential even when an API key or bearer token is configured.",
     )
     # Evaluators
     parser.add_argument(
@@ -2227,6 +2384,10 @@ def main() -> None:
         args.test_files_path = os.path.normpath(os.path.join(original_cwd, args.test_files_path))
     if not os.path.isabs(args.output_dir):
         args.output_dir = os.path.normpath(os.path.join(original_cwd, args.output_dir))
+    if args.simulation_config and not os.path.isabs(args.simulation_config):
+        args.simulation_config = os.path.normpath(
+            os.path.join(original_cwd, args.simulation_config)
+        )
     if args.evaluation_dir and not os.path.isabs(args.evaluation_dir):
         args.evaluation_dir = os.path.normpath(os.path.join(original_cwd, args.evaluation_dir))
     if args.aggregate_eval_file and not os.path.isabs(args.aggregate_eval_file):

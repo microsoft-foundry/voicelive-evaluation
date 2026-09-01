@@ -3617,7 +3617,13 @@ def _load_job_from_table(job_id: str) -> Optional[dict]:
                 "files_failed": int(entity.get("files_failed", 0)),
                 "total_files": int(entity.get("total_files", 0)),
                 "percent_complete": round(
-                    int(entity.get("files_processed", 0)) / max(int(entity.get("total_files", 1)), 1) * 100, 1
+                    (
+                        int(entity.get("files_processed", 0))
+                        + int(entity.get("files_failed", 0))
+                    )
+                    / max(int(entity.get("total_files", 1)), 1)
+                    * 100,
+                    1,
                 ),
             },
             "source": "table_storage_fallback",

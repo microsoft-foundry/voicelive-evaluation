@@ -30,6 +30,7 @@ class DatasetEntry:
     """
     wav_path: Optional[str] = None
     audio_media_ref: Optional[Dict[str, str]] = None
+    audio_bytes: Optional[bytes] = None
     question: Optional[str] = None
     answer: Optional[str] = None  # Ground truth
     conversation_id: Optional[str] = None
@@ -84,7 +85,7 @@ class DatasetEntry:
         )
     
     def has_audio(self) -> bool:
-        return bool(self.wav_path) or bool(self.audio_media_ref)
+        return bool(self.wav_path) or bool(self.audio_media_ref) or self.audio_bytes is not None
     
     def has_eval_data(self) -> bool:
         return bool(self.query and self.response)
