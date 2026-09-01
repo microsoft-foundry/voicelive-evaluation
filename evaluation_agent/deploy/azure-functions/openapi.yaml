@@ -804,6 +804,39 @@ paths:
                     Session configuration: either a name (string) referencing a stored config,
                     or an inline config object. Use list_session_configs to see available named configs.
                     For agent mode, use a config with an "agent" section containing agent_name and project_name.
+                simulation_config:
+                  type: object
+                  required: [persona, scenario, data]
+                  description: |
+                    Enables dynamic simulated-user turns after one seed audio entry per conversation.
+                    The simulator uses a separate VoiceLive session and stops at max_turns.
+                  properties:
+                    persona:
+                      type: object
+                      additionalProperties: true
+                    scenario:
+                      type: object
+                      additionalProperties: true
+                    data:
+                      type: object
+                      additionalProperties: true
+                    max_turns:
+                      type: integer
+                      minimum: 1
+                      maximum: 100
+                      default: 8
+                    model:
+                      type: string
+                      minLength: 1
+                      default: gpt-realtime
+                    voice:
+                      type: string
+                      minLength: 1
+                      default: en-US-Andrew:DragonHDLatestNeural
+                    voice_type:
+                      type: string
+                      minLength: 1
+                      default: azure-standard
       responses:
         '200':
           description: Job started

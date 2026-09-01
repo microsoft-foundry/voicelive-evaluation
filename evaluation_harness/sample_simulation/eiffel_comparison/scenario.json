@@ -1,0 +1,17 @@
+{
+  "id": "eiffel-horoscope-comparison",
+  "description": "Follow the same objectives as the scripted Eiffel Tower sample.",
+  "goal": "Obtain an Aquarius horoscope and plan a Sunday Eiffel Tower visit.",
+  "interaction_rules": [
+    "Follow ordered_user_objectives in order.",
+    "Express only one objective per turn.",
+    "Wait for the assistant response before advancing.",
+    "Paraphrasing is allowed, but preserve names and factual constraints.",
+    "After the final objective is answered, thank the assistant and end naturally."
+  ],
+  "success_criteria": [
+    "The Aquarius horoscope is requested.",
+    "Sunday Eiffel Tower hours and special programs are requested.",
+    "Sunday restaurant availability is requested."
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "persona_path": "persona.json",
+  "scenario_path": "scenario.json",
+  "data_path": "data.json",
+  "max_turns": 6,
+  "model": "gpt-realtime",
+  "voice": "en-US-Andrew:DragonHDLatestNeural",
+  "voice_type": "azure-standard"
+}

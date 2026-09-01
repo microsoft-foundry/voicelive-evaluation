@@ -1,0 +1,13 @@
+{
+  "ordered_user_objectives": [
+    "Ask for a horoscope.",
+    "State that the astrological sign is Aquarius.",
+    "Ask for the Eiffel Tower opening hours.",
+    "Say the visit is next Sunday and ask about Sunday hours and special programs.",
+    "Ask whether there is a restaurant and whether it will be open on Sunday."
+  ],
+  "visit": {
+    "destination": "Eiffel Tower",
+    "day": "Sunday"
+  }
+}

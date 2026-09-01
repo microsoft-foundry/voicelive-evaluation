@@ -96,7 +96,13 @@ def load_job_from_table(job_id: str) -> Optional[Dict[str, Any]]:
                 "files_failed": int(entity.get("files_failed", 0)),
                 "total_files": int(entity.get("total_files", 0)),
                 "percent_complete": round(
-                    int(entity.get("files_processed", 0)) / max(int(entity.get("total_files", 1)), 1) * 100, 1
+                    (
+                        int(entity.get("files_processed", 0))
+                        + int(entity.get("files_failed", 0))
+                    )
+                    / max(int(entity.get("total_files", 1)), 1)
+                    * 100,
+                    1,
                 ),
             },
         }
@@ -123,11 +129,12 @@ class JobProgress:
     current_conversation: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
+        accounted_files = self.files_processed + self.files_failed
         return {
             "total_files": self.total_files,
             "files_processed": self.files_processed,
             "files_failed": self.files_failed,
-            "percent_complete": round(self.files_processed / self.total_files * 100, 1) if self.total_files > 0 else 0,
+            "percent_complete": round(accounted_files / self.total_files * 100, 1) if self.total_files > 0 else 0,
             "current_file": self.current_file,
             "current_conversation": self.current_conversation
         }

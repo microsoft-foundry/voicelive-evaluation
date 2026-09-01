@@ -14,6 +14,7 @@ import tempfile
 import wave
 import numpy as np
 import requests
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
@@ -22,10 +23,16 @@ from operator import attrgetter
 
 from azure.identity import DefaultAzureCredential
 
-from .config import SessionConfig, DEFAULT_SESSION_CONFIG, ProcessorMode
+from .config import SessionConfig, DEFAULT_SESSION_CONFIG, ProcessorMode, VoiceConfig
 from .voicelive_client import VoiceLiveClient, ConversationTurn, sanitize_text_for_utf8
 from .storage import BlobStorageClient, DatasetEntry
 from .jobs import job_manager, JobStatus
+from .persona_simulation import (
+    SimulationAssets,
+    SimulationIncompleteError,
+    build_simulator_instructions,
+    simulation_assets_from_dict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +272,10 @@ async def process_conversation(
     job_id: str,
     conversation_id: str,
     dataset_base_path: str = "",
-    on_file_complete: Optional[Callable] = None
+    on_file_complete: Optional[Callable] = None,
+    simulation_assets: Optional[SimulationAssets] = None,
+    simulator_client: Optional[VoiceLiveClient] = None,
+    simulator_config: Optional[SessionConfig] = None,
 ) -> List[Dict[str, Any]]:
     """
     Process a single conversation (multiple audio turns).
@@ -286,6 +296,14 @@ async def process_conversation(
     """
     results = []
     conversation_history: List[Dict[str, Any]] = []
+    work_entries = list(entries)
+
+    if simulation_assets and len(work_entries) != 1:
+        raise ValueError(
+            "Simulation mode requires exactly one seed audio entry per conversation"
+        )
+    if simulation_assets and (simulator_client is None or simulator_config is None):
+        raise ValueError("Simulation mode requires a configured simulator client")
     
     # Configure session (may include conversation-specific settings)
     conversation_config = config
@@ -308,19 +326,26 @@ async def process_conversation(
     
     await client.configure_session(conversation_config)
     
-    for i, entry in enumerate(entries):
+    turn_limit = simulation_assets.max_turns if simulation_assets else len(work_entries)
+    for i in range(turn_limit):
+        if i >= len(work_entries):
+            break
+        entry = work_entries[i]
         turn_number = i + 1
         
         # Update progress
         await job_manager.update_job_progress(
             job_id,
-            current_file=entry.wav_path or "(media)",
+            current_file=entry.wav_path or ("(simulated)" if entry.audio_bytes else "(media)"),
             current_conversation=conversation_id
         )
         
         try:
             # Resolve audio: media reference (URL/base64) or legacy blob path
-            if entry.audio_media_ref:
+            if entry.audio_bytes is not None:
+                audio_data = entry.audio_bytes
+                audio_source_label = "simulated-persona"
+            elif entry.audio_media_ref:
                 local_path = _resolve_audio_from_media(
                     entry.audio_media_ref, cache_dir=temp_dir,
                 )
@@ -338,7 +363,8 @@ async def process_conversation(
                 audio_source_label = entry.wav_path
             
             # Load audio
-            audio_data = load_audio_file(local_path, config.audio.sample_rate)
+            if entry.audio_bytes is None:
+                audio_data = load_audio_file(local_path, config.audio.sample_rate)
             logger.debug(f"Loaded audio: {audio_source_label} ({len(audio_data)} bytes)")
             
             # Process through VoiceLive
@@ -350,11 +376,6 @@ async def process_conversation(
                 sample_rate=config.audio.sample_rate
             )
             turn.turn_number = turn_number
-            
-            # Fix #4: Inter-turn synchronization — brief pause between turns
-            # to let late events settle before starting next audio file
-            if i < len(entries) - 1:
-                await asyncio.sleep(0.5)
             
             # Convert to evaluation format (conversation-history)
             result = turn.to_eval_format(
@@ -368,7 +389,7 @@ async def process_conversation(
             
             # Add metadata
             result["conversation_id"] = conversation_id
-            result["source_file"] = entry.wav_path or "(media)"
+            result["source_file"] = entry.wav_path or ("(simulated)" if entry.audio_bytes else "(media)")
             
             # Build history entry for subsequent turns (use transcription, not question)
             turn_messages = []
@@ -391,24 +412,71 @@ async def process_conversation(
             if turn.assistant_response:
                 turn_messages.append({"role": "assistant", "content": turn.assistant_response})
             conversation_history.append({"turn": turn_number, "messages": turn_messages})
-            
-            # Fix #8: Only emit results that have meaningful content
-            # (don't inflate failure counts with empty turns)
+
             if turn.user_transcription or turn.assistant_response or turn.tool_calls:
                 results.append(result)
                 logger.info(f"Processed turn {turn_number}: {audio_source_label}")
             else:
                 logger.warning(
                     f"Turn {turn_number} ({audio_source_label}) produced no content "
-                    f"(empty query, response, and no tool calls) — skipped"
+                    f"(empty query, response, and no tool calls) - skipped"
                 )
-                # Still append with error marker for traceability
                 result["error"] = "Empty turn: no transcription, response, or tool calls captured"
                 results.append(result)
             if on_file_complete:
                 await on_file_complete(success=True)
+
+            if simulation_assets and turn_number < turn_limit:
+                assistant_audio = b"".join(turn.response_audio_chunks)
+                if not assistant_audio:
+                    raise SimulationIncompleteError(
+                        f"Simulation incomplete after turn {turn_number}: "
+                        "tested assistant returned no audio for the persona",
+                        results.copy(),
+                    )
+                simulated_audio = b""
+                simulated_text = ""
+                for generation_attempt in range(1, 3):
+                    simulated_turn = await simulator_client.process_audio(
+                        assistant_audio,
+                        push_to_talk=simulator_config.push_to_talk,
+                        sample_rate=simulator_config.audio.sample_rate,
+                    )
+                    simulated_audio = b"".join(simulated_turn.response_audio_chunks)
+                    simulated_text = simulated_turn.assistant_response
+                    if simulated_audio:
+                        break
+                    logger.warning(
+                        f"Turn {turn_number}: persona returned no audio "
+                        f"(attempt {generation_attempt}/2)"
+                    )
+                    if generation_attempt < 2:
+                        await asyncio.sleep(0.5)
+                if not simulated_audio:
+                    raise SimulationIncompleteError(
+                        f"Simulation incomplete after turn {turn_number}: "
+                        "persona returned no audio after 2 attempts",
+                        results.copy(),
+                    )
+                work_entries.append(
+                    DatasetEntry(
+                        audio_bytes=simulated_audio,
+                        question=simulated_text or None,
+                        conversation_id=conversation_id,
+                    )
+                )
+
+            if turn_number < turn_limit and i + 1 < len(work_entries):
+                await asyncio.sleep(0.5)
             
         except Exception as e:
+            if isinstance(e, SimulationIncompleteError):
+                raise
+            if simulation_assets:
+                raise SimulationIncompleteError(
+                    f"Simulation incomplete while processing turn {turn_number}: {e}",
+                    results.copy(),
+                ) from e
             source_label = audio_source_label if 'audio_source_label' in dir() else (entry.wav_path or "(media)")
             logger.error(f"Error processing {source_label}: {e}")
             results.append({
@@ -429,7 +497,8 @@ async def process_dataset(
     foundry_dataset: Optional[str] = None,
     session_mode: str = "per-conversation",
     max_workers: int = 4,
-    session_config: Optional[Dict[str, Any]] = None
+    session_config: Optional[Dict[str, Any]] = None,
+    simulation_config: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Process a complete dataset through VoiceLive.
@@ -462,6 +531,11 @@ async def process_dataset(
         else:
             config = DEFAULT_SESSION_CONFIG
         config.model = voicelive_model
+        simulation_assets = (
+            simulation_assets_from_dict(simulation_config)
+            if simulation_config is not None
+            else None
+        )
         
         # Env var fallback for agent mode
         if not config.is_agent_mode:
@@ -502,8 +576,6 @@ async def process_dataset(
             raise ValueError("Dataset contains no audio entries (WavPath or input_audio required)")
         
         # Update progress with total
-        await job_manager.update_job_progress(job_id, total_files=len(audio_entries))
-        
         # Group entries based on session mode
         if session_mode == "per-conversation":
             # Group by conversation ID
@@ -518,6 +590,18 @@ async def process_dataset(
         else:  # single
             # All files in one conversation
             groups = [("single", audio_entries)]
+
+        if simulation_assets and any(len(group) != 1 for _, group in groups):
+            raise ValueError(
+                "Simulation mode requires exactly one seed audio entry per conversation"
+            )
+
+        expected_files = (
+            len(groups) * simulation_assets.max_turns
+            if simulation_assets
+            else len(audio_entries)
+        )
+        await job_manager.update_job_progress(job_id, total_files=expected_files)
         
         logger.info(f"Processing {len(audio_entries)} files in {len(groups)} conversation(s)")
         
@@ -527,6 +611,7 @@ async def process_dataset(
         all_results = []
         files_processed = 0
         files_failed = 0
+        conversation_failures = []
         
         async def on_file_complete(success: bool):
             """Update progress after each file is processed."""
@@ -547,33 +632,91 @@ async def process_dataset(
         # Process conversations (with concurrency limit for future parallel support)
         # Currently processing sequentially to maintain conversation context
         for conversation_id, conversation_entries in groups:
+            processed_before_conversation = files_processed
             try:
                 async with VoiceLiveClient.from_session_config(
                     endpoint=voicelive_endpoint,
                     config=config,
                     credential=credential
                 ) as client:
-                    results = await process_conversation(
-                        entries=conversation_entries,
-                        client=client,
-                        config=config,
-                        storage=storage,
-                        temp_dir=temp_dir,
-                        job_id=job_id,
-                        conversation_id=conversation_id,
-                        dataset_base_path=dataset_base_path,
-                        on_file_complete=on_file_complete
-                    )
+                    if simulation_assets:
+                        simulator_config = replace(
+                            config,
+                            instructions=build_simulator_instructions(simulation_assets),
+                            model=simulation_assets.model,
+                            voice=VoiceConfig(
+                                name=simulation_assets.voice,
+                                type=simulation_assets.voice_type,
+                            ),
+                            turn_detection=replace(
+                                config.turn_detection,
+                                enable_barge_in=False,
+                            ),
+                            tools=None,
+                            tool_definitions=None,
+                            mode=ProcessorMode.AUDIO_EVALUATION,
+                            agent=None,
+                        )
+                        async with VoiceLiveClient(
+                            endpoint=voicelive_endpoint,
+                            model=simulation_assets.model,
+                            credential=credential,
+                        ) as simulator_client:
+                            await simulator_client.configure_session(simulator_config)
+                            results = await process_conversation(
+                                entries=conversation_entries,
+                                client=client,
+                                config=config,
+                                storage=storage,
+                                temp_dir=temp_dir,
+                                job_id=job_id,
+                                conversation_id=conversation_id,
+                                dataset_base_path=dataset_base_path,
+                                on_file_complete=on_file_complete,
+                                simulation_assets=simulation_assets,
+                                simulator_client=simulator_client,
+                                simulator_config=simulator_config,
+                            )
+                    else:
+                        results = await process_conversation(
+                            entries=conversation_entries,
+                            client=client,
+                            config=config,
+                            storage=storage,
+                            temp_dir=temp_dir,
+                            job_id=job_id,
+                            conversation_id=conversation_id,
+                            dataset_base_path=dataset_base_path,
+                            on_file_complete=on_file_complete,
+                        )
                     
                     all_results.extend(results)
                     
-            except Exception as e:
+            except SimulationIncompleteError as e:
+                all_results.extend(e.partial_results)
+                completed_turns = files_processed - processed_before_conversation
+                files_failed += max(0, simulation_assets.max_turns - completed_turns)
+                if simulation_assets:
+                    conversation_failures.append(f"{conversation_id}: {e}")
                 logger.error(f"Error processing conversation {conversation_id}: {e}")
-                files_failed += len(conversation_entries)
                 await job_manager.update_job_progress(
                     job_id,
                     files_processed=files_processed,
-                    files_failed=files_failed
+                    files_failed=files_failed,
+                )
+            except Exception as e:
+                logger.error(f"Error processing conversation {conversation_id}: {e}")
+                completed_turns = files_processed - processed_before_conversation
+                target_turns = (
+                    simulation_assets.max_turns if simulation_assets else len(conversation_entries)
+                )
+                files_failed += max(0, target_turns - completed_turns)
+                if simulation_assets:
+                    conversation_failures.append(f"{conversation_id}: {e}")
+                await job_manager.update_job_progress(
+                    job_id,
+                    files_processed=files_processed,
+                    files_failed=files_failed,
                 )
         
         # Upload results
@@ -594,15 +737,19 @@ async def process_dataset(
         import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
         
-        # Update job as completed
+        final_status = JobStatus.FAILED if conversation_failures else JobStatus.COMPLETED
         await job_manager.update_job_status(
             job_id,
-            JobStatus.COMPLETED,
+            final_status,
+            error="; ".join(conversation_failures) or None,
             output_path=output_path,
-            results_count=len(all_results)
+            results_count=len(all_results),
         )
         
-        logger.info(f"Job {job_id} completed: {files_processed} files, {len(all_results)} results")
+        logger.info(
+            f"Job {job_id} {final_status.value}: "
+            f"{files_processed} files, {len(all_results)} results"
+        )
         
     except Exception as e:
         logger.exception(f"Job {job_id} failed: {e}")
@@ -618,7 +765,8 @@ async def start_processing_job(
     foundry_dataset: Optional[str] = None,
     session_mode: str = "per-conversation",
     max_workers: int = 4,
-    session_config: Optional[Dict[str, Any]] = None
+    session_config: Optional[Dict[str, Any]] = None,
+    simulation_config: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     Start a new processing job.
@@ -655,7 +803,8 @@ async def start_processing_job(
             foundry_dataset=foundry_dataset,
             session_mode=session_mode,
             max_workers=max_workers,
-            session_config=session_config
+            session_config=session_config,
+            simulation_config=simulation_config,
         )
     )
     

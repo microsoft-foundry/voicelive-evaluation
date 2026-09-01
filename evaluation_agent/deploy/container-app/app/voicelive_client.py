@@ -68,6 +68,7 @@ class ConversationTurn:
     user_transcription: str = ""
     assistant_response: str = ""
     assistant_audio_received: bool = False
+    response_audio_chunks: List[bytes] = field(default_factory=list)
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     tool_results: List[Dict[str, Any]] = field(default_factory=list)
     
@@ -531,6 +532,12 @@ class VoiceLiveClient:
                         if turn.first_audio_response_time is None:
                             turn.first_audio_response_time = datetime.now()
                             turn.assistant_audio_received = True
+                        if hasattr(event, 'delta') and event.delta:
+                            try:
+                                chunk = event.delta if isinstance(event.delta, bytes) else bytes(event.delta)
+                                turn.response_audio_chunks.append(chunk)
+                            except Exception as e:
+                                logger.debug(f"Skipped malformed audio chunk: {e}")
                     
                     # Auto-truncation: user interrupted during agent playback
                     elif event_type == ServerEventType.CONVERSATION_ITEM_TRUNCATED:
@@ -652,6 +659,14 @@ class VoiceLiveClient:
                         if hasattr(event, 'transcript') and event.transcript:
                             turn.user_transcription = event.transcript
                         logger.debug(f"Late transcription: {turn.user_transcription[:60]}")
+
+                    elif event_type == ServerEventType.RESPONSE_AUDIO_DELTA:
+                        if hasattr(event, 'delta') and event.delta:
+                            try:
+                                chunk = event.delta if isinstance(event.delta, bytes) else bytes(event.delta)
+                                turn.response_audio_chunks.append(chunk)
+                            except Exception as e:
+                                logger.debug(f"Skipped malformed late audio chunk: {e}")
                     
                     # CR-1: Also handle delta events during drain
                     elif event_type == ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA:
